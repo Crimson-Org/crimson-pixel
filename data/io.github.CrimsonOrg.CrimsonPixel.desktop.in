@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Crimson Pixel
+Comment=Edit images and layered documents
+Exec=@EXEC@ %U
+Icon=io.github.CrimsonOrg.CrimsonPixel
+Terminal=false
+StartupNotify=true
+Categories=Graphics;2DGraphics;RasterGraphics;
+MimeType=image/vnd.adobe.photoshop;image/png;image/jpeg;image/gif;image/bmp;image/tiff;image/x-tga;image/x-xpixmap;
+Actions=NewWindow;
+
+[Desktop Action NewWindow]
+Name=New Window
+Exec=@EXEC@ --new-window

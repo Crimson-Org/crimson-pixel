@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+	<defs>
+		<linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0" stop-color="#1f080c"/>
+			<stop offset="1" stop-color="#070203"/>
+		</linearGradient>
+		<radialGradient id="heart" cx="0.5" cy="0.42" r="0.5">
+			<stop offset="0" stop-color="#c8102e" stop-opacity="0.32"/>
+			<stop offset="1" stop-color="#c8102e" stop-opacity="0"/>
+		</radialGradient>
+		<linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0" stop-color="#ff4d5e" stop-opacity="0.16"/>
+			<stop offset="0.5" stop-color="#ff4d5e" stop-opacity="0"/>
+		</linearGradient>
+		<linearGradient id="blood" x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0" stop-color="#ff4057"/>
+			<stop offset="0.55" stop-color="#d4112b"/>
+			<stop offset="1" stop-color="#8e0a1d"/>
+		</linearGradient>
+		<filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+			<feGaussianBlur stdDeviation="2.5"/>
+		</filter>
+		<filter id="bloom" x="-80%" y="-80%" width="260%" height="260%">
+			<feGaussianBlur stdDeviation="7"/>
+		</filter>
+	</defs>
+	<rect x="14" y="10" width="100" height="108" rx="5" fill="url(#panel)"/>
+	<rect x="14" y="10" width="100" height="108" rx="5" fill="url(#heart)"/>
+	<rect x="14" y="10" width="100" height="108" rx="5" fill="url(#sheen)" stroke="#c8102e" stroke-opacity="0.75" stroke-width="2" stroke-linejoin="round"/>
+	<path d="M76 24h8v8h-8zM92 24h8v8h-8zM84 32h8v8h-8zM100 32h8v8h-8z" fill="#2a0d12"/>
+	<path d="M84 24h8v8h-8zM100 24h8v8h-8zM76 32h8v8h-8zM92 32h8v8h-8z" fill="#18070a"/>
+	<path d="M34 24h8v8h-8zM42 24h8v8h-8zM50 24h8v8h-8zM58 24h8v8h-8zM26 32h8v8h-8zM26 40h8v8h-8zM26 48h8v8h-8zM26 56h8v8h-8zM26 64h8v8h-8zM34 72h8v8h-8zM42 72h8v8h-8zM50 72h8v8h-8zM58 72h8v8h-8z" fill="#c8102e" fill-opacity="0.8" filter="url(#bloom)"/>
+	<path d="M34 24h8v8h-8zM42 24h8v8h-8zM50 24h8v8h-8zM58 24h8v8h-8zM26 32h8v8h-8zM26 40h8v8h-8zM26 48h8v8h-8zM26 56h8v8h-8zM26 64h8v8h-8zM34 72h8v8h-8zM42 72h8v8h-8zM50 72h8v8h-8zM58 72h8v8h-8z" fill="#e3132f" fill-opacity="0.8" filter="url(#glow)"/>
+	<path d="M34 24h8v8h-8zM42 24h8v8h-8zM50 24h8v8h-8zM58 24h8v8h-8zM26 32h8v8h-8zM26 40h8v8h-8zM26 48h8v8h-8zM26 56h8v8h-8zM26 64h8v8h-8zM34 72h8v8h-8zM42 72h8v8h-8zM50 72h8v8h-8zM58 72h8v8h-8z" fill="url(#blood)" stroke="#ff5a6c" stroke-opacity="0.35" stroke-width="0.6"/>
+	<rect x="26" y="86" width="76" height="22" rx="3" fill="#c8102e" fill-opacity="0.18" stroke="#c8102e" stroke-width="1.5"/>
+	<rect x="36" y="92" width="10" height="10" rx="1" fill="#ffd0d6" fill-opacity="1"/>
+	<rect x="52" y="92" width="10" height="10" rx="1" fill="#ffd0d6" fill-opacity="0.75"/>
+	<rect x="68" y="92" width="10" height="10" rx="1" fill="#ffd0d6" fill-opacity="0.5"/>
+	<rect x="84" y="92" width="10" height="10" rx="1" fill="#ffd0d6" fill-opacity="0.25"/>
+</svg>

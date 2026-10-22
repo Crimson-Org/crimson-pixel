@@ -1,0 +1,3 @@
+[submodule "subprojects/crimson-core"]
+	path = subprojects/crimson-core
+	url = ../crimson-core.git

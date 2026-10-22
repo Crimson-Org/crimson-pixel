@@ -1,0 +1,17 @@
+name: Nightly build
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  nightly:
+    uses: Crimson-Org/crimson-core/.github/workflows/nightly.yml@main
+    with:
+      title: Crimson Pixel
+      packages: gtk4-devel libadwaita-devel libpanel-devel zlib-devel
+      arch-packages: gtk4 libadwaita libpanel zlib

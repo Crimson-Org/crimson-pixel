@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/io/github/CrimsonOrg/CrimsonPixel">
+    <file alias="common.css">../subprojects/crimson-core/data/common.css</file>
+    <file>icons/scalable/apps/io.github.CrimsonOrg.CrimsonPixel.svg</file>
+    <file>icons/scalable/actions/crimson-tool-brush-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-eraser-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-eselect-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-eyedropper-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-gradient-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-hand-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-lasso-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-meraser-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-move-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-mwand-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-pbucket-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-pencil-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-plasso-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-rcrop-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-tool-rselect-symbolic.svg</file>
+  </gresource>
+</gresources>

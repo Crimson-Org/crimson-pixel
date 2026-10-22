@@ -1,0 +1,84 @@
+// Saving this file writes each task as a .sh script for Linux and macOS and a .cmd script for
+// Windows in this folder, and those scripts run anywhere without Crimson Build.
+{
+	"env": {
+		"PROGRAM": "crimson-pixel",
+		"APPLICATION_ID": "io.github.CrimsonOrg.CrimsonPixel",
+		"VERSION": "0.1.0",
+		"PREFIX": "${HOME}/.local",
+		"STD": "c11",
+		"WARN": "-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter",
+		"OPT": "-O2 -g",
+		"PKGS": "gtk4 libadwaita-1 libpanel-1 zlib",
+		"LIBS": "-lm",
+		"DEFINES": "-DAPPLICATION_VERSION=\"${VERSION}\"",
+		"INCLUDES": "-Isrc -Isubprojects/crimson-core/src"
+	},
+	"tasks": {
+		"build": {
+			"description": "Build Crimson Pixel into the project folder",
+			"steps": [
+				{"needs": ["cc", "make", "pkg-config", "glib-compile-resources"]},
+				{"pkg": ["gtk4 >= 4.14", "libadwaita-1 >= 1.6", "libpanel-1", "zlib"]},
+				{"mkdir": ["build/obj"]},
+				"glib-compile-resources --sourcedir data --target build/resources.c --generate-source data/crimson-pixel.gresource.xml",
+				{"each": {"from": "src/*.c", "to": "build/obj/{id}.o", "run": "cc -std=${STD} $WARN $OPT $DEFINES $INCLUDES $(pkg-config --cflags $PKGS | sed \"s/-I/-isystem /g\") -c {from} -o {to}", "also": ["src/*.h", "lang/*.h", "subprojects/crimson-core/src/common/*.h", "subprojects/crimson-build/src/build/*.h"]}},
+				{"each": {"from": "subprojects/crimson-core/src/common/*.c", "to": "build/obj/{id}.o", "run": "cc -std=${STD} $WARN $OPT $DEFINES $INCLUDES $(pkg-config --cflags $PKGS | sed \"s/-I/-isystem /g\") -c {from} -o {to}", "also": ["src/*.h", "lang/*.h", "subprojects/crimson-core/src/common/*.h", "subprojects/crimson-build/src/build/*.h"]}},
+				"cc -std=gnu11 -O2 -g $(pkg-config --cflags gio-2.0) -c build/resources.c -o build/obj/resources.o",
+				"cc -o build/${PROGRAM} build/obj/*.o $(pkg-config --libs $PKGS) $LIBS",
+				{"copy": {"from": "build/${PROGRAM}", "to": ".${PROGRAM}.new"}},
+				{"move": {"from": ".${PROGRAM}.new", "to": "${PROGRAM}"}},
+				{"mkdir": ["logs"]}
+			]
+		},
+		"run": {
+			"description": "Build and start Crimson Pixel",
+			"depends": "build",
+			"steps": [
+				"./${PROGRAM}"
+			]
+		},
+		"install": {
+			"description": "Install Crimson Pixel for the current user",
+			"depends": "build",
+			"steps": [
+				"install -Dm755 build/${PROGRAM} ${PREFIX}/bin/${PROGRAM}",
+				"mkdir -p ${PREFIX}/share/applications && for desktop in data/${APPLICATION_ID}*.desktop.in; do sed \"s|@EXEC@|${PREFIX}/bin/${PROGRAM}|\" \"$desktop\" > \"${PREFIX}/share/applications/$(basename \"$desktop\" .in)\"; done",
+				"install -Dm644 data/icons/scalable/apps/${APPLICATION_ID}.svg ${PREFIX}/share/icons/hicolor/scalable/apps/${APPLICATION_ID}.svg",
+				"install -Dm644 data/${APPLICATION_ID}.metainfo.xml ${PREFIX}/share/metainfo/${APPLICATION_ID}.metainfo.xml",
+				"update-desktop-database ${PREFIX}/share/applications >/dev/null 2>&1 || true",
+				"gtk-update-icon-cache --quiet --ignore-theme-index ${PREFIX}/share/icons/hicolor >/dev/null 2>&1 || true"
+			]
+		},
+		"uninstall": {
+			"description": "Remove Crimson Pixel from the current user",
+			"steps": [
+				{"remove": "${PREFIX}/bin/${PROGRAM}"},
+				{"remove": "${PREFIX}/share/applications/${APPLICATION_ID}.desktop"},
+				{"remove": "${PREFIX}/share/icons/hicolor/scalable/apps/${APPLICATION_ID}.svg"},
+				{"remove": "${PREFIX}/share/metainfo/${APPLICATION_ID}.metainfo.xml"}
+			]
+		},
+		"archive": {
+			"description": "Pack Crimson Pixel into a tar.gz archive in dist",
+			"depends": "build",
+			"steps": [
+				"sh subprojects/crimson-core/scripts/package.sh"
+			]
+		},
+		"appimage": {
+			"description": "Pack Crimson Pixel into an AppImage in dist",
+			"depends": "build",
+			"steps": [
+				{"needs": ["quick-sharun"]},
+				"sh subprojects/crimson-core/scripts/appimage.sh"
+			]
+		},
+		"clean": {
+			"description": "Remove the build folder",
+			"steps": [
+				{"remove": "build"}
+			]
+		}
+	}
+}
