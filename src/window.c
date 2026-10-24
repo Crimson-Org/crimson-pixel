@@ -27,6 +27,7 @@ static gboolean close_window(GtkWindow *window, Editor *editor) {
 	editor->closing = TRUE;
 	remember_window_geometry(window);
 	remember_workspace(editor);
+	hide_closing_window(window);
 	for (guint index = 0; index < editor->requests->len; index++)
 		g_cancellable_cancel(g_ptr_array_index(editor->requests, index));
 	return FALSE;
