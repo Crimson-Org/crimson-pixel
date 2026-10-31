@@ -6,7 +6,7 @@
 #include "layer-commands.h"
 #include "move-tool.h"
 #include "pixel-selection.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 static const char *MOVE_OPERATION = "0";
 

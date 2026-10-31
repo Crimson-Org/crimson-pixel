@@ -3,7 +3,7 @@
 
 #include "magic-wand.h"
 #include "pixel-selection.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 static const guint8 *read_area_pixel(const guint8 *pixels, RasterExtent extent, int x, int y) {
 	static const guint8 transparent[4] = {0};

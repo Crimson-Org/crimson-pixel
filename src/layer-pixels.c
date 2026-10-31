@@ -4,7 +4,7 @@
 #include "history.h"
 #include "layer-commands.h"
 #include "pixel-selection.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 static Record *extract_selected_pixels(const Record *layer, const Record *selection, RasterExtent *result,
 									   GError **error) {

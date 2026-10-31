@@ -2,7 +2,7 @@
 #include "history.h"
 #include "psd.h"
 #include "paint.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 /* One write holds its pixels or bytes and its target so the window may close meanwhile */
 typedef struct {

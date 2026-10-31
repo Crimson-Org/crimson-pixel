@@ -8,7 +8,7 @@
 #include "editor.h"
 #include "layer-commands.h"
 #include "snapshot-area.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 /* Input black, gamma, input white, output black and output white of the shown Levels channel */
 enum { LEVEL_INPUT_BLACK, LEVEL_GAMMA, LEVEL_INPUT_WHITE, LEVEL_OUTPUT_BLACK, LEVEL_OUTPUT_WHITE };

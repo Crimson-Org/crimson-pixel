@@ -3,7 +3,7 @@
 
 #include "common/key-store.h"
 #include "editor.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 /* A workspace records, for each visible panel, its dock edge, frame row, tab order, selected tab and frame
  * size, together with the edge sizes. libpanel builds each edge as one paned of frames, so that is the

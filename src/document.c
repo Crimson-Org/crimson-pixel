@@ -3,7 +3,7 @@
 
 #include "document.h"
 #include "history.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 static void initialize_fields(Record *record, const char *names, RecordType type) {
 	g_auto(GStrv) fields = g_strsplit(names, " ", -1);

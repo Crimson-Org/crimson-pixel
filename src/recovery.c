@@ -11,7 +11,7 @@
 #include "editor.h"
 #include "history.h"
 #include "psd.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 #define RECOVERY_INTERVAL_SECONDS (5 * 60)
 

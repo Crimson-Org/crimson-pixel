@@ -1,6 +1,6 @@
 #include "command-dialog.h"
 #include "crop.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 /* Image Size and Canvas Size inputs after the shared dialog */
 typedef struct {

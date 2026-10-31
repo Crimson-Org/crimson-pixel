@@ -1,6 +1,6 @@
 #include "editor.h"
 #include "value-field.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 typedef struct {
 	Editor *editor;

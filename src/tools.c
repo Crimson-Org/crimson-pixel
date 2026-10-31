@@ -3,7 +3,7 @@
 #include "editor.h"
 #include "snapshot-area.h"
 #include "value-field.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 #define TOOL_HAND "59"
 

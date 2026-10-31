@@ -3,7 +3,7 @@
 #include "blend.h"
 #include "history.h"
 #include "paint.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 enum { SECTION_OPEN = 1, SECTION_CLOSED = 2 };
 

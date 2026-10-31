@@ -42,8 +42,8 @@ if errorlevel 1 exit /b %errorlevel%
 echo(==^> mkdir build/obj
 call :crimson_mkdir "build\obj"
 if errorlevel 1 exit /b %errorlevel%
-echo(==^> glib-compile-resources --sourcedir data --target build/resources.c --generate-source data/crimson-pixel.gresource.xml
-glib-compile-resources --sourcedir data --target build/resources.c --generate-source data/crimson-pixel.gresource.xml
+echo(==^> glib-compile-resources --sourcedir assets --target build/resources.c --generate-source assets/crimson-pixel.gresource.xml
+glib-compile-resources --sourcedir assets --target build/resources.c --generate-source assets/crimson-pixel.gresource.xml
 if errorlevel 1 exit /b %errorlevel%
 echo(==^> each src/*.c
 call :crimson_each

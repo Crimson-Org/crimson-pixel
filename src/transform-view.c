@@ -7,7 +7,7 @@
 #include "pixel-selection.h"
 #include "transform.h"
 #include "crop.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 enum { HANDLE_REFERENCE = 9, HANDLE_MOVE = 10, HANDLE_ROTATE = 11 };
 

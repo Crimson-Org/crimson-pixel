@@ -1,5 +1,5 @@
 #include "editor.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 /* Creation inputs are an explicit source command request without profile or artboard fields */
 typedef struct {

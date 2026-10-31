@@ -1,6 +1,6 @@
 #include "adjustments.h"
 #include "editor.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 GMenu *create_modify_menu(void) {
 	GMenu *modify = g_menu_new();

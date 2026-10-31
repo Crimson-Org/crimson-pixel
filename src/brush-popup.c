@@ -1,7 +1,7 @@
 #include <math.h>
 
 #include "editor.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 
 enum { SIZE_STEPS = 1000, SIZE_LIMIT = 2500 };

@@ -6,7 +6,7 @@
 #include "move-tool.h"
 #include "pixel-selection.h"
 #include "transform.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 static const char *TRANSFORM_OPERATION = "100";
 

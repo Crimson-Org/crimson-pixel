@@ -8,7 +8,7 @@
 #include "history.h"
 #include "layer-commands.h"
 #include "pixel-selection.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 static const char *const ADJUSTMENT_KEYS[] = {"brit", "levl", "curv", "expA", "vibA", "hue2", "blnc", "blwh", "phfl",
 											  "mixr", "clrL", "nvrt", "post", "thrs", "grdm", "selc", "rplc"};

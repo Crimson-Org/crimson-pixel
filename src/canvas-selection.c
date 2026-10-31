@@ -5,7 +5,7 @@
 #include "layer-commands.h"
 #include "history.h"
 #include "transform.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 /* One horizontal or vertical run of boundary between selected and unselected pixels */
 typedef struct {

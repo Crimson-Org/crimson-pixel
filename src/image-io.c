@@ -5,7 +5,7 @@
 
 #include "document.h"
 #include "psd.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 /* Decoder headers are bounded before allocating full resolution pixels */
 static void check_dimensions(GdkPixbufLoader *loader, int width, int height, gpointer data) {

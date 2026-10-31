@@ -1,7 +1,7 @@
 #pragma once
 
 #include "document.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 #define PSD_MAX_DECODED_BYTES (1024ULL * 1024 * 1024)
 

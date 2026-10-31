@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gresources>
   <gresource prefix="/io/github/CrimsonOrg/CrimsonPixel">
-    <file alias="common.css">../subprojects/crimson-core/data/common.css</file>
+    <file alias="common.css">../subprojects/crimson-core/assets/common.css</file>
     <file>icons/scalable/apps/io.github.CrimsonOrg.CrimsonPixel.svg</file>
     <file>icons/scalable/actions/crimson-tool-brush-symbolic.svg</file>
     <file>icons/scalable/actions/crimson-tool-eraser-symbolic.svg</file>

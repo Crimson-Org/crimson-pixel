@@ -4,7 +4,7 @@
 
 #include "editor.h"
 #include "snapshot-area.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 static const int NAVIGATOR_HEIGHT = 120;
 

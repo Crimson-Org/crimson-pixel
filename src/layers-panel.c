@@ -8,7 +8,7 @@
 #include "layer-commands.h"
 #include "snapshot-area.h"
 #include "value-field.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 static void press_layer_list(GtkGestureClick *gesture, int presses, double x, double y, Editor *editor);
 static void press_eye(GtkGestureDrag *gesture, double x, double y, Editor *editor);

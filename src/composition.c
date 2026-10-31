@@ -6,7 +6,7 @@
 #include "blend.h"
 #include "kernels.h"
 #include "parallel.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 
 typedef struct {

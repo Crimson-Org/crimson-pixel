@@ -1,7 +1,7 @@
 #include <math.h>
 
 #include "document.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "kernels.h"
 #include "blend.h"
 #include "parallel.h"

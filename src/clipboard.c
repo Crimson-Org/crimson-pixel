@@ -1,7 +1,7 @@
 #include "editor.h"
 #include "layer-commands.h"
 #include "pixel-selection.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 /* Copies go to the desktop clipboard as an image so other applications can paste them, and Crimson Pixel keeps its
  * own copy with the original position for pasting back here */

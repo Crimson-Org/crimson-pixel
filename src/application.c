@@ -3,7 +3,7 @@
 #include "application.h"
 #include "common/log.h"
 #include "editor.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 static void free_editor(gpointer data) {
 	Editor *editor = data;

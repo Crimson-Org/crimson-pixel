@@ -6,7 +6,7 @@
 #include "magic-wand.h"
 #include "blend.h"
 #include "history.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 void reset_paint_tool(PaintTool *tool, const char *identifier) {
 	cancel_paint_tool(tool);

@@ -3,7 +3,7 @@
 #include "common/loading.h"
 #include "editor.h"
 #include "history.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 void free_presented_document(PresentedDocument *presented) {
 	if (!presented)

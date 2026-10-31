@@ -5,7 +5,7 @@
 #include "history.h"
 #include "layer-commands.h"
 #include "pixel-selection.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 void invalidate_document(Document *document) {
 	Record *record = document->record;

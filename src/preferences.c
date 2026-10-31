@@ -1,7 +1,7 @@
 #include <adwaita.h>
 
 #include "editor.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 /* Each Preferences page with its tab title and icon, in tab order */
 static const struct {

@@ -1,7 +1,7 @@
 #include "editor.h"
 #include "snapshot-area.h"
 #include "swatches.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 static const int SWATCH_SIZE = 22, SWATCH_GAP = 2;
 

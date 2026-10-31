@@ -5,7 +5,7 @@
 #include "color-spaces.h"
 #include "descriptor.h"
 #include "psd-output.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 /* ============================== Reading ========================================= */
 

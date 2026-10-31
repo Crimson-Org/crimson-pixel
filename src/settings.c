@@ -1,6 +1,6 @@
 #include "common/key-store.h"
 #include "settings.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 static const char *const CHECKER_SIZES[] = {TEXT_SETTING_SMALL, TEXT_SETTING_MEDIUM, TEXT_SETTING_LARGE, NULL};
 static const char *const CHECKER_COLORS[] = {TEXT_SETTING_LIGHT, TEXT_SETTING_MEDIUM, TEXT_SETTING_DARK, NULL};

@@ -21,9 +21,9 @@
 				{"needs": ["cc", "make", "pkg-config", "glib-compile-resources"]},
 				{"pkg": ["gtk4 >= 4.14", "libadwaita-1 >= 1.6", "libpanel-1", "zlib"]},
 				{"mkdir": ["build/obj"]},
-				"glib-compile-resources --sourcedir data --target build/resources.c --generate-source data/crimson-pixel.gresource.xml",
-				{"each": {"from": "src/*.c", "to": "build/obj/{id}.o", "run": "cc -std=${STD} $WARN $OPT $DEFINES $INCLUDES $(pkg-config --cflags $PKGS | sed \"s/-I/-isystem /g\") -c {from} -o {to}", "also": ["src/*.h", "lang/*.h", "subprojects/crimson-core/src/common/*.h", "subprojects/crimson-build/src/build/*.h"]}},
-				{"each": {"from": "subprojects/crimson-core/src/common/*.c", "to": "build/obj/{id}.o", "run": "cc -std=${STD} $WARN $OPT $DEFINES $INCLUDES $(pkg-config --cflags $PKGS | sed \"s/-I/-isystem /g\") -c {from} -o {to}", "also": ["src/*.h", "lang/*.h", "subprojects/crimson-core/src/common/*.h", "subprojects/crimson-build/src/build/*.h"]}},
+				"glib-compile-resources --sourcedir assets --target build/resources.c --generate-source assets/crimson-pixel.gresource.xml",
+				{"each": {"from": "src/*.c", "to": "build/obj/{id}.o", "run": "cc -std=${STD} $WARN $OPT $DEFINES $INCLUDES $(pkg-config --cflags $PKGS | sed \"s/-I/-isystem /g\") -c {from} -o {to}", "also": ["src/*.h", "src/lang/*.h", "subprojects/crimson-core/src/common/*.h", "subprojects/crimson-build/src/build/*.h"]}},
+				{"each": {"from": "subprojects/crimson-core/src/common/*.c", "to": "build/obj/{id}.o", "run": "cc -std=${STD} $WARN $OPT $DEFINES $INCLUDES $(pkg-config --cflags $PKGS | sed \"s/-I/-isystem /g\") -c {from} -o {to}", "also": ["src/*.h", "src/lang/*.h", "subprojects/crimson-core/src/common/*.h", "subprojects/crimson-build/src/build/*.h"]}},
 				"cc -std=gnu11 -O2 -g $(pkg-config --cflags gio-2.0) -c build/resources.c -o build/obj/resources.o",
 				"cc -o build/${PROGRAM} build/obj/*.o $(pkg-config --libs $PKGS) $LIBS",
 				{"copy": {"from": "build/${PROGRAM}", "to": ".${PROGRAM}.new"}},
@@ -43,9 +43,9 @@
 			"depends": "build",
 			"steps": [
 				"install -Dm755 build/${PROGRAM} ${PREFIX}/bin/${PROGRAM}",
-				"mkdir -p ${PREFIX}/share/applications && for desktop in data/${APPLICATION_ID}*.desktop.in; do sed \"s|@EXEC@|${PREFIX}/bin/${PROGRAM}|\" \"$desktop\" > \"${PREFIX}/share/applications/$(basename \"$desktop\" .in)\"; done",
-				"install -Dm644 data/icons/scalable/apps/${APPLICATION_ID}.svg ${PREFIX}/share/icons/hicolor/scalable/apps/${APPLICATION_ID}.svg",
-				"install -Dm644 data/${APPLICATION_ID}.metainfo.xml ${PREFIX}/share/metainfo/${APPLICATION_ID}.metainfo.xml",
+				"mkdir -p ${PREFIX}/share/applications && for desktop in assets/${APPLICATION_ID}*.desktop.in; do sed \"s|@EXEC@|${PREFIX}/bin/${PROGRAM}|\" \"$desktop\" > \"${PREFIX}/share/applications/$(basename \"$desktop\" .in)\"; done",
+				"install -Dm644 assets/icons/scalable/apps/${APPLICATION_ID}.svg ${PREFIX}/share/icons/hicolor/scalable/apps/${APPLICATION_ID}.svg",
+				"install -Dm644 assets/${APPLICATION_ID}.metainfo.xml ${PREFIX}/share/metainfo/${APPLICATION_ID}.metainfo.xml",
 				"update-desktop-database ${PREFIX}/share/applications >/dev/null 2>&1 || true",
 				"gtk-update-icon-cache --quiet --ignore-theme-index ${PREFIX}/share/icons/hicolor >/dev/null 2>&1 || true"
 			]

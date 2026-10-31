@@ -7,7 +7,7 @@
 #include "color-spaces.h"
 #include "swatches.h"
 #include "kernels.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 /* Big endian reads that fail instead of running past the end of a damaged file */
 typedef struct {

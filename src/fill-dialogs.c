@@ -3,7 +3,7 @@
 #include "history.h"
 #include "pixel-selection.h"
 #include "selection-modify.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 /* Modify, Fill and Stroke inputs after the shared dialog */
 typedef struct {

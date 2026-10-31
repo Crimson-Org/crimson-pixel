@@ -6,7 +6,7 @@
 #include "history.h"
 #include "transform.h"
 #include "snapshot-area.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 
 static void draw_snap_lines(GtkSnapshot *snapshot, DocumentView *view, double x, double y);
 static void draw_gradient_line(GtkSnapshot *snapshot, DocumentView *view, double x, double y);

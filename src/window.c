@@ -4,7 +4,7 @@
 #include "common/window-geometry.h"
 #include "editor.h"
 #include "window-size.h"
-#include "../lang/en.h"
+#include "lang/en.h"
 #include "adjustments.h"
 #include "layer-commands.h"
 #include "layer-structure.h"
