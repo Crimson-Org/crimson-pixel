@@ -22,6 +22,10 @@ Reads and writes layered <a href="https://www.adobe.com/devnet-apps/photoshop/fi
   <a href="https://github.com/Crimson-Org/crimson-pixel/releases/latest"><b>Download Here!</b></a>
 </p>
 
+<p align="center">
+  <img src="./demo1.png" alt="Crimson Pixel with pixel art open">
+</p>
+
 ## Why
 
 Pixel art, illustration and photo editing usually need separate programs.\
