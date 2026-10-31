@@ -27,6 +27,10 @@ enum { HUE_MAP_HUE, HUE_MAP_SATURATION, HUE_MAP_LIGHTNESS };
 #define SELECTIVE_ENTRY (2 * SELECTIVE_INKS_MIXED)
 /* Vibrance works in linear light, with this gamma */
 #define VIBRANCE_GAMMA 2.4
+/* Saturation changes are looked up in a table of this many steps over -1 to 1 */
+#define SATURATION_STRETCHES 1024
+/* Curve positions are pulled in a hair, so the last entry is never passed */
+#define CURVE_END_PULL .999999
 
 typedef struct {
 	AdjustmentKind kind;

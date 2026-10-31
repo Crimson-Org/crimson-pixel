@@ -212,7 +212,6 @@ static void build_color_balance(const Record *descriptor, Adjustment *adjustment
 
 /* Saturation above zero is stretched through a tangent, so the top of the range grows the most */
 #define SATURATION_POWER 1.3
-#define SATURATION_STRETCHES 1024
 static double saturation_stretches[SATURATION_STRETCHES];
 
 static double stretch_saturation(double value) {

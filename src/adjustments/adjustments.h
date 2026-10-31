@@ -29,6 +29,8 @@ enum { BALANCE_SHADOWS, BALANCE_MIDTONES, BALANCE_HIGHLIGHTS, BALANCE_TONES_COUN
 /* Selective color moves cyan, magenta, yellow and black inks in nine colour ranges */
 #define SELECTIVE_RANGES_COUNT 9
 #define SELECTIVE_INKS_COUNT 4
+/* The six hue ranges come first, then the whites, neutrals and blacks */
+enum { SELECTIVE_WHITES = 6, SELECTIVE_NEUTRALS, SELECTIVE_BLACKS };
 
 /* The channel mixer has a row per output with red, green and blue, an unused place, and a constant */
 #define MIXER_ROWS 4
