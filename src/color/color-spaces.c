@@ -253,8 +253,8 @@ gboolean read_descriptor_color(const Record *color, double rgb[3]) {
 	} else if (!g_strcmp0(kind, "Grsc"))
 		rgb[0] = rgb[1] = rgb[2] = 255 - read_color_number(color, "Gry");
 	else if (!g_strcmp0(kind, "LbCl"))
-		convert_lab_to_rgb(read_color_number(color, "Lmnc"), read_color_number(color, "A"),
-						   read_color_number(color, "B"), rgb);
+		convert_lab_to_rgb(read_color_number(color, LAB_KEYS[0]), read_color_number(color, LAB_KEYS[1]),
+						   read_color_number(color, LAB_KEYS[2]), rgb);
 	else if (!g_strcmp0(kind, "BkCl"))
 		rgb[0] = rgb[1] = rgb[2] = 0;
 	else
@@ -276,6 +276,8 @@ Record *create_rgb_descriptor(double red, double green, double blue) {
 	return create_color_object("RGBC", (const char *const[]){"Rd", "Grn", "Bl"}, (const double[]){red, green, blue});
 }
 
+const char *const LAB_KEYS[3] = {"Lmnc", "A", "B"};
+
 Record *create_lab_descriptor(double lightness, double a, double b) {
-	return create_color_object("LbCl", (const char *const[]){"Lmnc", "A", "B"}, (const double[]){lightness, a, b});
+	return create_color_object("LbCl", LAB_KEYS, (const double[]){lightness, a, b});
 }

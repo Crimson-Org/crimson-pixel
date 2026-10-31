@@ -51,12 +51,9 @@ static const char *const SELECTIVE_INKS[SELECTIVE_INKS_COUNT] = {"Cyn", "Mgnt", 
 /* The settings a new adjustment layer starts with */
 static const double DEFAULT_GRAY_WEIGHTS[GRAY_WEIGHTS_COUNT] = {40, 85, 204, 60, 20, 80};
 static const double DEFAULT_FILTER_LAB[] = {67.06, 32, 120};
-#define DEFAULT_REPLACE_FUZZINESS 55
 static const double DEFAULT_REPLACE_LOW_LAB[] = {73.1, 23.95, 8.03};
 static const double DEFAULT_REPLACE_HIGH_LAB[] = {73, 23, 8};
 #define DEFAULT_REPLACE_HUE (-22)
-#define DEFAULT_POSTERIZE_LEVELS 3
-#define DEFAULT_THRESHOLD 128
 #define FULL_PERCENT 100
 static const double DEFAULT_LEVELS[LEVELS_VALUES] = {0, G_MAXUINT8, 0, G_MAXUINT8, LEVELS_GAMMA_SCALE};
 /* The automatic curve lifts the middle a little */

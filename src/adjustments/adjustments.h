@@ -17,10 +17,14 @@ enum { LEVELS_INPUT_BLACK, LEVELS_INPUT_WHITE, LEVELS_OUTPUT_BLACK, LEVELS_OUTPU
 enum { HUE_LIMITS = 4, HUE_SHIFT = HUE_LIMITS, HUE_SATURATION, HUE_LIGHTNESS, HUE_RANGE_VALUES };
 
 /* Color balance shifts red, green and blue in the shadows, midtones and highlights */
-#define BALANCE_TONES_COUNT 3
+enum { BALANCE_SHADOWS, BALANCE_MIDTONES, BALANCE_HIGHLIGHTS, BALANCE_TONES_COUNT };
 
-/* Photo filter strength in percent */
+/* Settings that a file may leave out, as the adjustment starts with them */
 #define DEFAULT_FILTER_DENSITY 80
+#define DEFAULT_GRAY_WEIGHT 50
+#define DEFAULT_REPLACE_FUZZINESS 55
+#define DEFAULT_POSTERIZE_LEVELS 3
+#define DEFAULT_THRESHOLD 128
 
 /* Selective color moves cyan, magenta, yellow and black inks in nine colour ranges */
 #define SELECTIVE_RANGES_COUNT 9
@@ -29,6 +33,7 @@ enum { HUE_LIMITS = 4, HUE_SHIFT = HUE_LIMITS, HUE_SATURATION, HUE_LIGHTNESS, HU
 /* The channel mixer has a row per output with red, green and blue, an unused place, and a constant */
 #define MIXER_ROWS 4
 #define MIXER_INPUTS_COUNT 5
+enum { MIXER_RED, MIXER_GREEN, MIXER_BLUE, MIXER_UNUSED, MIXER_CONSTANT };
 #define MIXER_VALUES (MIXER_ROWS * MIXER_INPUTS_COUNT)
 
 /* Black and white weighs reds, yellows, greens, cyans, blues and magentas */

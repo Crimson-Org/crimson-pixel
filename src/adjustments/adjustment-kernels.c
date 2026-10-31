@@ -21,7 +21,7 @@ static double sample_curve(const float *curve, int length, double position) {
 static void fill_curve_lookups(Adjustment *adjustment) {
 	const float *curves[] = {adjustment->red, adjustment->green, adjustment->blue};
 	double last = (adjustment->curve_length - 1) * .999999, unit = 1 / 255.0;
-	const double weights[] = {.3, .59, .11};
+	const double weights[RGB_CHANNELS] = {LUMA_RED, LUMA_GREEN, LUMA_BLUE};
 	for (int channel = 0; channel < 3; channel++)
 		for (int index = 0; index < 256; index++) {
 			adjustment->luminance_terms[channel * 256 + index] = index * unit * weights[channel];
@@ -118,8 +118,8 @@ static void transform_preserving_curves(const Adjustment *adjustment, guint8 *pi
 	const double unit = 1 / 255.0, *sampled = adjustment->sampled_curves;
 	double red = pixel[0] * unit, green = pixel[1] * unit, blue = pixel[2] * unit;
 	double channels[3] = {sampled[pixel[0]], sampled[256 + pixel[1]], sampled[512 + pixel[2]]};
-	double before = .3 * red + .59 * green + .11 * blue;
-	double after = .3 * channels[0] + .59 * channels[1] + .11 * channels[2];
+	double before = get_luma(red, green, blue);
+	double after = get_luma(channels[0], channels[1], channels[2]);
 	if (before > after) {
 		double lift = (before - after) / (1 - after);
 		for (int channel = 0; channel < 3; channel++)

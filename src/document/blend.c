@@ -3,6 +3,7 @@
 
 #include "blend.h"
 #include "numbers.h"
+#include "color/color-spaces.h"
 
 const char *const blend_mode_keys[BLEND_MODE_COUNT] = {
 	"norm", "diss", "dark", "mul ", "idiv", "lbrn", "dkCl", "lite", "scrn", "div ", "lddg", "lgCl", "over", "sLit",
@@ -155,9 +156,8 @@ static double divide_channel(double source, double destination, double fill) {
 	return nan_min(destination / source, 1);
 }
 
-
 static double get_luminosity(const double *color) {
-	return .3 * color[0] + .59 * color[1] + .11 * color[2];
+	return get_luma(color[0], color[1], color[2]);
 }
 
 /* Saturation as the spread between the strongest and weakest channel */

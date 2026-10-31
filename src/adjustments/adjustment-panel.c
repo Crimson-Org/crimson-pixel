@@ -53,7 +53,7 @@ static void count_backdrop(AdjustmentPanel *panel, Document *document) {
 	for (gsize index = 0; index + 3 < pixels->value.buffer.length; index += 4) {
 		if (!data[index + 3])
 			continue;
-		panel->counts[0][(int)(data[index] * .3 + data[index + 1] * .59 + data[index + 2] * .11 + .5)]++;
+		panel->counts[0][(int)(get_luma(data[index], data[index + 1], data[index + 2]) + .5)]++;
 		for (int channel = 0; channel < 3; channel++)
 			panel->counts[channel + 1][data[index + channel]]++;
 	}

@@ -53,7 +53,6 @@
 #define COLOR_VALUES_COUNT 4
 #define COLOR_STOP_BYTES (COLOR_VALUES_AT + COLOR_VALUES_COUNT * VALUE_BYTES + VALUE_BYTES)
 #define OPACITY_STOP_BYTES (STOP_PLACE_BYTES + VALUE_BYTES)
-#define PERCENT 100.0
 /* After the stops: the kind, the smoothness and the colour model, where only the solid kind keeps its smoothness */
 #define SOLID_GRADIENT 2
 #define GRADIENT_SMOOTHNESS_AT 2
@@ -407,13 +406,12 @@ static gsize put_black_white_block(PsdWriter *writer, gsize offset, const Record
 
 static gsize put_photo_filter_block(PsdWriter *writer, gsize offset, const Record *descriptor) {
 	Record *color = get_record(get_record(descriptor, "Clr"), "v");
-	const char *keys[] = {"Lmnc", "A", "B"};
 	gsize position = offset + VERSION_BYTES;
 	put_u16(writer, offset, FILTER_LAB_VERSION);
 	put_u16(writer, position, FILTER_LAB_SPACE);
 	for (int channel = 0; channel < RGB_CHANNELS; channel++)
 		put_i16(writer, position + VALUE_BYTES + channel * VALUE_BYTES,
-				floor(get_descriptor_number(color, keys[channel], 0) * FILTER_LAB_SCALE + .5));
+				floor(get_descriptor_number(color, LAB_KEYS[channel], 0) * FILTER_LAB_SCALE + .5));
 	position += FILTER_LAB_BYTES;
 	put_u16(writer, position, 0);
 	position += VALUE_BYTES;

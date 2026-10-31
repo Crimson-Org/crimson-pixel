@@ -35,7 +35,6 @@ enum { HANDLE_REFERENCE = HANDLE_GRID_COUNT, HANDLE_MOVE, HANDLE_ROTATE };
 #define ROTATION_CURSOR_HEAD_HALF_WIDTH 4.5
 #define ROTATION_CURSOR_LINE 2.2
 #define ROTATION_CURSOR_OUTLINE 2.6
-#define DEGREES_PER_TURN 360
 #define CURSOR_TURN_STEP (DEGREES_PER_TURN / CURSOR_DIRECTIONS)
 /* The box and handle outline colour, and the shade outside a crop box */
 static const GdkRGBA BOX_COLOR = {0.1, 0.4, 0.9, 1};
