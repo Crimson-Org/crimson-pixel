@@ -10,11 +10,6 @@
 #include "psd.h"
 #include "psd-output.h"
 
-/* PackBits rows hold runs of up to 128 bytes, three equal bytes or more are worth a repeat, and a repeat's header
- * counts down from 257 */
-#define PACKBITS_LONGEST_RUN 128
-#define PACKBITS_SHORTEST_REPEAT 3
-#define PACKBITS_REPEAT_BASE 257
 /* Zip data starts with the zlib header 78 9C, is deflated with zlib's usual memory level, and ends with four bytes of
  * room that earlier files also have */
 #define ZLIB_HEADER_FIRST 0x78
@@ -27,42 +22,19 @@
 /* Delta prediction works on samples a byte apart, wrapping around a byte or a sixteen bit range */
 #define BYTE_RANGE (G_MAXUINT8 + 1)
 #define WORD_RANGE (G_MAXUINT16 + 1)
-#define FLOAT_BYTES 4
-/* The file header: signature, version, six reserved bytes, channel count, height, width, depth and colour mode */
-#define PSD_SIGNATURE "8BPS"
-#define PSD_VERSION 1
-#define PSB_VERSION 2
-#define HEADER_VERSION 4
-#define HEADER_RESERVED 6
-#define HEADER_CHANNELS 12
-#define HEADER_HEIGHT 14
-#define HEADER_WIDTH 18
-#define HEADER_DEPTH 22
-#define HEADER_MODE 24
-#define HEADER_BYTES 26
-/* Image resources, most signed 8BIM and the two image ready ones MeSa */
-#define IMAGE_READY_FIRST 7000
-#define IMAGE_READY_LAST 7001
-#define IMAGE_READY_SIGNATURE "MeSa"
 #define FIRST_PATH_RESOURCE 2000
 #define LAST_PATH_RESOURCE 2016
-/* Descriptor resources start with their version, and slices with one more before it */
-#define DESCRIPTOR_VERSION 16
+/* Slices start with a version of their own before the descriptor version */
 #define SLICES_VERSION 8
 /* Resolution is a 16.16 fixed point number per axis, in pixels per inch, shown in centimetres */
 #define FIXED_POINT_ONE WORD_RANGE
 #define RESOLUTION_AXES 2
 #define PIXELS_PER_INCH 1
 #define SHOWN_IN_CENTIMETRES 2
-/* Guides and the grid count in 32nds of a pixel, and every guide record carries the same version, size and ending */
-#define GUIDES_VERSION 3
-#define GUIDE_RECORD_BYTES 14
+/* Every guide record carries the same ending */
 #define GUIDE_AXES 2
 #define GUIDE_ENDING G_MAXUINT16
 #define GUIDE_FLAGS 8
-#define GRID_VERSION 1
-#define GRID_CYCLE 576
-#define UNITS_PER_PIXEL 32
 /* Slice ids count from 2 in steps of 3, and sheets and the timeline name their versions */
 #define FIRST_SLICE_ID 2
 #define SLICE_ID_STEP 3

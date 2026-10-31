@@ -1,7 +1,16 @@
+#include <limits.h>
 #include <math.h>
 #include <string.h>
 
 #include "psd.h"
+
+/* UTF-16 pairs a high and a low surrogate into a character past the first 65536 */
+#define HIGH_SURROGATE 0xd800
+#define LOW_SURROGATE 0xdc00
+#define SURROGATES_END 0xe000
+#define SURROGATE_BITS 10
+#define FIRST_PAIRED_CHARACTER 0x10000
+#define REPLACEMENT_CHARACTER 0xfffd
 #include "descriptor.h"
 
 void fail_psd(PsdReader *reader, const char *message) {
@@ -33,12 +42,11 @@ int read_psd_byte(PsdReader *reader, gsize offset) {
 }
 
 guint read_psd_u16(PsdReader *reader, gsize offset) {
-	return read_psd_byte(reader, offset) << 8 | read_psd_byte(reader, offset + 1);
+	return read_psd_byte(reader, offset) << CHAR_BIT | read_psd_byte(reader, offset + 1);
 }
 
 guint32 read_psd_u32(PsdReader *reader, gsize offset) {
-	return (guint32)read_psd_byte(reader, offset) << 24 | read_psd_byte(reader, offset + 1) << 16 |
-		   read_psd_byte(reader, offset + 2) << 8 | read_psd_byte(reader, offset + 3);
+	return (guint32)read_psd_u16(reader, offset) << 2 * CHAR_BIT | read_psd_u16(reader, offset + sizeof(guint16));
 }
 
 gint16 read_i16(PsdReader *reader, gsize offset) {
@@ -50,7 +58,7 @@ gint32 read_i32(PsdReader *reader, gsize offset) {
 }
 
 gint64 read_large(PsdReader *reader, gsize offset) {
-	return (gint32)(read_psd_u32(reader, offset) | read_psd_u32(reader, offset + 4));
+	return (gint32)(read_psd_u32(reader, offset) | read_psd_u32(reader, offset + sizeof(guint32)));
 }
 
 gint64 read_length(PsdReader *reader, gsize offset) {
@@ -58,7 +66,8 @@ gint64 read_length(PsdReader *reader, gsize offset) {
 }
 
 double read_double(PsdReader *reader, gsize offset) {
-	guint64 bits = (guint64)read_psd_u32(reader, offset) << 32 | read_psd_u32(reader, offset + 4);
+	guint64 bits = (guint64)read_psd_u32(reader, offset) << sizeof(guint32) * CHAR_BIT |
+				   read_psd_u32(reader, offset + sizeof(guint32));
 	double value;
 	memcpy(&value, &bits, sizeof value);
 	return value;
@@ -72,13 +81,13 @@ double read_float(PsdReader *reader, gsize offset) {
 }
 
 double read_fixed(PsdReader *reader, gsize offset) {
-	return read_psd_u16(reader, offset) + read_psd_u16(reader, offset + 2) * (1.0 / 65536);
+	return read_psd_u16(reader, offset) + read_psd_u16(reader, offset + sizeof(guint16)) * (1.0 / (G_MAXUINT16 + 1));
 }
 
-void read_key(PsdReader *reader, gsize offset, char key[5]) {
-	for (int index = 0; index < 4; index++)
+void read_key(PsdReader *reader, gsize offset, char key[PSD_KEY_SIZE]) {
+	for (int index = 0; index < PSD_KEY_LENGTH; index++)
 		key[index] = read_psd_byte(reader, offset + index);
-	key[4] = 0;
+	key[PSD_KEY_LENGTH] = 0;
 }
 
 const char *const LARGE_LENGTH_KEYS =
@@ -101,37 +110,39 @@ char *read_pascal(PsdReader *reader, gsize offset, gsize *length) {
 		int byte = read_psd_byte(reader, offset + 1 + index);
 		g_string_append_unichar(text, byte);
 	}
+	/* The count byte and the text take an even number of bytes */
 	*length = count + 1 - count % 2 + 1;
 	return g_string_free(text, FALSE);
 }
 
 char *read_utf16(PsdReader *reader, gsize offset, gsize count) {
-	if (!has_psd_bytes(reader, offset, count * 2))
+	if (!has_psd_bytes(reader, offset, count * sizeof(gunichar2)))
 		return g_strdup("");
 	g_autofree gunichar2 *units = g_new(gunichar2, count + 1);
 	for (gsize index = 0; index < count; index++)
-		units[index] = read_psd_u16(reader, offset + index * 2);
+		units[index] = read_psd_u16(reader, offset + index * sizeof(gunichar2));
+	/* Pairs of surrogates join into one character, and a lone surrogate becomes the replacement character */
 	GString *text = g_string_new(NULL);
 	for (gsize index = 0; index < count; index++) {
 		gunichar unit = units[index];
-		gboolean pair = unit >= 0xd800 && unit < 0xdc00 && index + 1 < count && units[index + 1] >= 0xdc00 &&
-						units[index + 1] < 0xe000;
+		gboolean pair = unit >= HIGH_SURROGATE && unit < LOW_SURROGATE && index + 1 < count &&
+						units[index + 1] >= LOW_SURROGATE && units[index + 1] < SURROGATES_END;
 		if (pair)
-			unit = 0x10000 + ((unit - 0xd800) << 10) + (units[++index] - 0xdc00);
-		else if (unit >= 0xd800 && unit < 0xe000)
-			unit = 0xfffd;
+			unit = FIRST_PAIRED_CHARACTER + ((unit - HIGH_SURROGATE) << SURROGATE_BITS) + (units[++index] - LOW_SURROGATE);
+		else if (unit >= HIGH_SURROGATE && unit < SURROGATES_END)
+			unit = REPLACEMENT_CHARACTER;
 		g_string_append_unichar(text, unit);
 	}
 	return g_string_free(text, FALSE);
 }
 
 char *read_unicode(PsdReader *reader, gsize offset) {
-	return read_utf16(reader, offset + 4, read_psd_u32(reader, offset));
+	return read_utf16(reader, offset + sizeof(guint32), read_psd_u32(reader, offset));
 }
 
 Record *read_rectangle(PsdReader *reader, gsize offset) {
-	double top = read_i32(reader, offset), left = read_i32(reader, offset + 4);
-	double bottom = read_i32(reader, offset + 8), right = read_i32(reader, offset + 12);
+	double top = read_i32(reader, offset), left = read_i32(reader, offset + sizeof(guint32));
+	double bottom = read_i32(reader, offset + 2 * sizeof(guint32)), right = read_i32(reader, offset + 3 * sizeof(guint32));
 	return create_extent(left, top, right - left, bottom - top);
 }
 
@@ -145,27 +156,27 @@ Record *create_byte_array(PsdReader *reader, gsize offset, gsize length) {
 
 static gsize read_header(PsdReader *reader, gsize offset) {
 	Record *record = reader->document->record;
-	char signature[5];
+	char signature[PSD_KEY_SIZE];
 	read_key(reader, offset, signature);
-	guint version = read_psd_u16(reader, offset + 4);
-	if (strcmp(signature, "8BPS") || (version != 1 && version != 2)) {
+	guint version = read_psd_u16(reader, offset + HEADER_VERSION);
+	if (strcmp(signature, PSD_SIGNATURE) || (version != PSD_VERSION && version != PSB_VERSION)) {
 		fail_psd(reader, TEXT_PSD_DAMAGED);
 		return offset;
 	}
-	reader->large = version == 2;
+	reader->large = version == PSB_VERSION;
 	set_boolean(record, "p7", reader->large);
-	set_number(record, "P9", read_psd_u16(reader, offset + 12));
-	set_number(record, "T", read_i32(reader, offset + 14));
-	set_number(record, "s", read_i32(reader, offset + 18));
-	set_number(record, "g_", read_psd_u16(reader, offset + 22));
+	set_number(record, "P9", read_psd_u16(reader, offset + HEADER_CHANNELS));
+	set_number(record, "T", read_i32(reader, offset + HEADER_HEIGHT));
+	set_number(record, "s", read_i32(reader, offset + HEADER_WIDTH));
+	set_number(record, "g_", read_psd_u16(reader, offset + HEADER_DEPTH));
 	set_number(record, "depth", get_number(record, "g_"));
-	set_number(record, "Ia", read_psd_u16(reader, offset + 24));
-	return offset + 26;
+	set_number(record, "Ia", read_psd_u16(reader, offset + HEADER_MODE));
+	return offset + HEADER_BYTES;
 }
 
 static gsize read_color_mode_data(PsdReader *reader, gsize offset) {
 	gint32 length = read_i32(reader, offset);
-	offset += 4;
+	offset += sizeof(guint32);
 	if (length != 0) {
 		if (length < 0 || !has_psd_bytes(reader, offset, length)) {
 			fail_psd(reader, TEXT_PSD_DAMAGED);
@@ -178,27 +189,28 @@ static gsize read_color_mode_data(PsdReader *reader, gsize offset) {
 
 static gsize read_image_resources(PsdReader *reader, gsize offset) {
 	guint32 total = read_psd_u32(reader, offset);
-	offset += 4;
+	offset += sizeof(guint32);
 	Record *resources = get_record(reader->document->record, "Pz");
 	g_autoptr(GArray) unknown = g_array_new(FALSE, FALSE, sizeof(guint));
 	for (gsize position = 0; position < total && !reader->failed;) {
-		char signature[5];
+		char signature[PSD_KEY_SIZE];
 		read_key(reader, offset + position, signature);
-		position += 4;
+		position += PSD_KEY_LENGTH;
 		guint identifier = read_psd_u16(reader, offset + position);
-		position += 2;
+		position += sizeof(guint16);
 		gsize name_length;
 		g_free(read_pascal(reader, offset + position, &name_length));
 		position += name_length;
-		if (!(!strcmp(signature, "MeSa") && (identifier == 7000 || identifier == 7001)) && strcmp(signature, "8BIM"))
+		gboolean image_ready = identifier == IMAGE_READY_FIRST || identifier == IMAGE_READY_LAST;
+		if (!(!strcmp(signature, IMAGE_READY_SIGNATURE) && image_ready) && strcmp(signature, BLOCK_SIGNATURE))
 			g_array_append_val(unknown, identifier);
 		guint32 size = read_psd_u32(reader, offset + position);
-		position += 4;
+		position += sizeof(guint32);
 		g_autofree char *key = g_strdup_printf("r%u", identifier);
 		if (!has_psd_bytes(reader, offset + position, size))
 			break;
 		set_record(resources, key, create_byte_array(reader, offset + position, size));
-		position += size + (size & 1);
+		position += size + size % 2;
 	}
 	for (guint index = 0; index < unknown->len; index++) {
 		g_autofree char *key = g_strdup_printf("r%u", g_array_index(unknown, guint, index));
@@ -217,15 +229,16 @@ static PsdReader create_resource_view(const Record *resource) {
 
 static Record *read_guides(PsdReader *reader, const Record *resource) {
 	PsdReader guides = create_resource_view(resource);
-	gsize offset = 12;
+	gsize offset = GRID_COUNT_AT;
 	guint32 count = read_psd_u32(&guides, offset);
-	offset += 4;
-	count = MIN(count, (guint32)((guides.length > offset ? guides.length - offset : 0) / 5));
+	offset += sizeof(guint32);
+	count = MIN(count, (guint32)((guides.length > offset ? guides.length - offset : 0) / GRID_RECORD_BYTES));
 	Record *list = create_array();
 	for (guint32 index = 0; index < count; index++) {
+		gsize at = offset + index * GRID_RECORD_BYTES;
 		Record *guide = create_array();
-		append_record(guide, create_number(MIN(guides.data[offset + index * 5 + 4], 1)));
-		append_record(guide, create_number(read_i32(&guides, offset + index * 5) / 32.0));
+		append_record(guide, create_number(MIN(guides.data[at + sizeof(guint32)], 1)));
+		append_record(guide, create_number(read_i32(&guides, at) / (double)UNITS_PER_PIXEL));
 		append_record(list, guide);
 	}
 	return list;
@@ -240,8 +253,8 @@ static void apply_image_resources(PsdReader *reader) {
 	}
 	if ((resource = get_record(resources, "r1026"))) {
 		PsdReader view = create_resource_view(resource);
-		for (gsize index = 0; index + 1 < view.length; index += 2) {
-			Record *layer = get_item(layers, index >> 1);
+		for (gsize index = 0; index + 1 < view.length; index += sizeof(guint16)) {
+			Record *layer = get_item(layers, index / sizeof(guint16));
 			if (layer)
 				set_number(layer, "kr", read_psd_u16(&view, index));
 		}
@@ -257,16 +270,17 @@ static void apply_image_resources(PsdReader *reader) {
 		for (gsize offset = 0; offset < view.length;) {
 			guint32 count = read_psd_u32(&view, offset);
 			guint32 units = count ? count - 1 : 0;
-			g_autofree char *name = read_utf16(&view, offset + 4, units);
+			/* Each name counts its closing zero, which is skipped */
+			g_autofree char *name = read_utf16(&view, offset + sizeof(guint32), units);
 			append_record(names, create_string(name));
-			offset += 4 + 2 + (gsize)units * 2;
+			offset += sizeof(guint32) + (gsize)(units + 1) * sizeof(gunichar2);
 		}
 		set_record(record, "Wa", names);
 	}
 	if ((resource = get_record(resources, "r1069"))) {
 		PsdReader view = create_resource_view(resource);
 		Record *selected = create_array();
-		for (gsize offset = 2; offset < view.length; offset += 4) {
+		for (gsize offset = sizeof(guint16); offset < view.length; offset += sizeof(guint32)) {
 			double identifier = read_psd_u32(&view, offset);
 			for (guint index = 0; index < count_records(layers); index++) {
 				Record *descriptors = get_record(get_item(layers, index), "add");
@@ -291,12 +305,15 @@ static void apply_image_resources(PsdReader *reader) {
 	}
 	if ((resource = get_record(resources, "r1073"))) {
 		PsdReader view = create_resource_view(resource);
-		gint32 version = read_i32(&view, 0), count = read_i32(&view, 4);
+		/* Version 2 and later keep floats, earlier ones fixed point numbers */
+		gint32 version = read_i32(&view, 0), count = read_i32(&view, sizeof(guint32));
 		Record *guides = get_record(record, "Jd");
-		for (gint32 index = 0, offset = 8; index < MIN(count, 65536); index++, offset += 14) {
+		for (gint32 index = 0, offset = 2 * sizeof(guint32); index < MIN(count, G_MAXUINT16 + 1);
+			 index++, offset += GUIDE_RECORD_BYTES) {
+			gsize y = offset + sizeof(guint16), x = y + sizeof(guint32);
 			Record *guide = create_object(RECORD_PLAIN);
-			set_number(guide, "y", version >= 2 ? read_float(&view, offset + 2) : read_fixed(&view, offset + 2));
-			set_number(guide, "x", version >= 2 ? read_float(&view, offset + 6) : read_fixed(&view, offset + 6));
+			set_number(guide, "y", version >= 2 ? read_float(&view, y) : read_fixed(&view, y));
+			set_number(guide, "x", version >= 2 ? read_float(&view, x) : read_fixed(&view, x));
 			append_record(guides, guide);
 		}
 		remove_record(resources, "r1073");
@@ -304,20 +321,20 @@ static void apply_image_resources(PsdReader *reader) {
 	if ((resource = get_record(resources, "r1065"))) {
 		PsdReader view = create_resource_view(resource);
 		Record *comps = create_object(RECORD_PLAIN);
-		read_descriptor(&view, 4, comps);
+		read_descriptor(&view, DESCRIPTOR_AT, comps);
 		set_record(record, "gL", comps);
 	}
 	if ((resource = get_record(resources, "r1074"))) {
 		PsdReader view = create_resource_view(resource);
 		Record *options = create_object(RECORD_PLAIN);
-		read_descriptor(&view, 4, options);
+		read_descriptor(&view, DESCRIPTOR_AT, options);
 		set_record(record, "S8", options);
 		remove_record(resources, "r1074");
 	}
 	if ((resource = get_record(resources, "r1076"))) {
 		PsdReader view = create_resource_view(resource);
 		g_autoptr(Record) options = create_object(RECORD_PLAIN);
-		read_descriptor(&view, 4, options);
+		read_descriptor(&view, DESCRIPTOR_AT, options);
 		Record *sheets = get_record(get_record(options, "sheetTimelineOptions"), "v");
 		for (guint index = 0; index < count_records(sheets); index++) {
 			Record *sheet = get_record(get_item(sheets, index), "v");
@@ -362,9 +379,9 @@ static void finish_layers(PsdReader *reader) {
 	int balance = 0;
 	for (guint index = 0; index < count_records(layers); index++) {
 		double section = get_number(get_record(get_item(layers, index), "add"), "lsct");
-		if (section == 3)
+		if (section == SECTION_GROUP_END)
 			balance++;
-		else if (section == 1 || section == 2)
+		else if (section == SECTION_OPEN || section == SECTION_CLOSED)
 			balance--;
 	}
 	for (; balance < 0; balance++)
@@ -374,14 +391,14 @@ static void finish_layers(PsdReader *reader) {
 	for (guint index = 0; index < count_records(layers); index++) {
 		Record *layer = get_item(layers, index), *descriptors = get_record(layer, "add");
 		double section = get_number(descriptors, "lsct");
-		if (section == 3)
+		if (section == SECTION_GROUP_END)
 			set_number(descriptors, "lspf", 0);
 		if (!g_strcmp0(get_string(layer, "name"), "")) {
 			g_autofree char *name = g_strdup_printf("Layer %u", index + 1);
 			set_string(layer, "name", name);
 			renamed = TRUE;
 		}
-		if (renamed && (section == 1 || section == 2) && !g_strcmp0(get_string(layer, "qu"), "norm"))
+		if (renamed && (section == SECTION_OPEN || section == SECTION_CLOSED) && !g_strcmp0(get_string(layer, "qu"), "norm"))
 			set_string(layer, "qu", "pass");
 		Record *mask = get_record(layer, "yy"), *editable = get_editable_layer_mask(layer);
 		if (!editable && mask && mask->type == RECORD_OBJECT && !get_boolean(mask, "L7")) {
@@ -431,7 +448,7 @@ Document *read_psd_document(const guint8 *data, gsize length, const char *name, 
 	Record *record = document->record;
 	int mode = get_number(record, "Ia"), depth = get_number(record, "g_");
 	double width = get_number(record, "s"), height = get_number(record, "T");
-	if (!reader.failed && (mode < 1 || mode > 3 || (depth != BYTE_DEPTH && depth != WORD_DEPTH && depth != FLOAT_DEPTH))) {
+	if (!reader.failed && (mode < PSD_GRAY_MODE || mode > PSD_RGB_MODE || (depth != BYTE_DEPTH && depth != WORD_DEPTH && depth != FLOAT_DEPTH))) {
 		g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED, TEXT_PSD_COLOR_MODE);
 		reader.failed = TRUE;
 	}

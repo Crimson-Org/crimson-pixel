@@ -11,6 +11,48 @@
 #define PSD_RECTANGLE_BYTES 16
 #define PSD_KEY_SIZE (PSD_KEY_LENGTH + 1)
 #define PSD_GRAY_MODE 1
+#define PSD_INDEXED_MODE 2
+
+/* The file header: signature, version, six reserved bytes, channel count, height, width, depth and colour mode */
+#define PSD_SIGNATURE "8BPS"
+#define PSD_VERSION 1
+#define PSB_VERSION 2
+#define HEADER_VERSION 4
+#define HEADER_RESERVED 6
+#define HEADER_CHANNELS 12
+#define HEADER_HEIGHT 14
+#define HEADER_WIDTH 18
+#define HEADER_DEPTH 22
+#define HEADER_MODE 24
+#define HEADER_BYTES 26
+
+/* Image resources are signed 8BIM, except the two image ready ones, signed MeSa */
+#define IMAGE_READY_FIRST 7000
+#define IMAGE_READY_LAST 7001
+#define IMAGE_READY_SIGNATURE "MeSa"
+/* Descriptors in resources and blocks start with their version */
+#define DESCRIPTOR_VERSION 16
+#define DESCRIPTOR_AT sizeof(guint32)
+/* Guides count in 32nds of a pixel; the guides resource has a version, then records of a size, the grid one has a
+ * version, two cycles and a count, then records of a location and a direction */
+#define UNITS_PER_PIXEL 32
+#define GUIDES_VERSION 3
+#define GUIDE_RECORD_BYTES 14
+#define GRID_VERSION 1
+#define GRID_CYCLE 576
+#define GRID_COUNT_AT (3 * sizeof(guint32))
+#define GRID_RECORD_BYTES 5
+
+/* PackBits rows hold runs of up to 128 bytes, three equal bytes or more are worth a repeat, and a repeat's header
+ * counts down from 257 */
+#define PACKBITS_LONGEST_RUN 128
+#define PACKBITS_SHORTEST_REPEAT 3
+#define PACKBITS_REPEAT_BASE 257
+/* Zip data has a two byte header and four bytes of room after it */
+#define ZIP_HEADER_BYTES 2
+#define ZIP_TRAILER_BYTES 4
+/* Floats are predicted as separate byte planes */
+#define FLOAT_BYTES 4
 #define PSD_RGB_MODE 3
 
 /* Tagged blocks and layer names are padded to four bytes, and most blocks are signed 8BIM, or 8B64 for large

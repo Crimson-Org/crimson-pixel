@@ -31,7 +31,6 @@
 #define CURVE_POINT_BYTES (2 * VALUE_BYTES)
 
 /* Descriptor blocks start with their descriptor version, after a version of their own for some */
-#define DESCRIPTOR_VERSION 16
 #define DESCRIPTOR_AT sizeof(guint32)
 #define VERSIONED_DESCRIPTOR_AT (VERSION_BYTES + sizeof(guint32))
 
