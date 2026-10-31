@@ -151,7 +151,7 @@ gsize put_counted_text(PsdWriter *writer, gsize offset, const char *text) {
 }
 
 void put_i16(PsdWriter *writer, gsize offset, double value) {
-	put_u16(writer, offset, isfinite(value) ? (guint16)(gint64)fmod(trunc(value), WORD_RANGE) : 0);
+	put_u16(writer, offset, (guint16)wrap_uint32(value));
 }
 
 static void put_rectangle(PsdWriter *writer, gsize offset, RasterExtent extent) {
@@ -706,7 +706,7 @@ static void prepare_resources(Record *document_record, gboolean transparency) {
 	write_u32(bytes, count_records(grid));
 	for (guint index = 0; index < count_records(grid); index++) {
 		Record *line = get_item(grid, index);
-		write_u32(bytes, round_like_source(get_item(line, 1)->value.number * UNITS_PER_PIXEL));
+		write_u32(bytes, round_half_up(get_item(line, 1)->value.number * UNITS_PER_PIXEL));
 		write_u8(bytes, get_item(line, 0)->value.number);
 	}
 	set_resource(resources, "r1032", bytes);

@@ -270,8 +270,8 @@ static void scale_in_unit_square(const BoxDrag *drag, const double current[QUAD_
 	gboolean corner = is_corner_handle(handle);
 	gboolean uniform = shift || drag->keeps_ratio;
 	if (is_axis_aligned_quad(current)) {
-		x = round_like_source(x);
-		y = round_like_source(y);
+		x = round_half_up(x);
+		y = round_half_up(y);
 	}
 	/* The grid is symmetric, so the opposite handle counts back from the last one */
 	int opposite = HANDLE_GRID_COUNT - 1 - handle;
@@ -418,7 +418,7 @@ static Record *draw_resampled(const Record *pixels, RasterExtent extent, Project
 	gboolean whole = TRUE;
 	double size = 0;
 	for (int index = 0; index < PROJECTIVE_VALUES; index++) {
-		double rounded = round_like_source(unit.m[index]);
+		double rounded = round_half_up(unit.m[index]);
 		/* The third and sixth values move rather than scale */
 		if (index != 2 && index != 5)
 			size += fabs(rounded);

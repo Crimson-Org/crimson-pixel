@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include "document/numbers.h"
 #include "document/record.h"
 
 typedef struct {
@@ -20,7 +21,6 @@ gboolean empty_extent(RasterExtent extent);
 RasterExtent intersect_region(RasterExtent first, RasterExtent second);
 RasterExtent union_region(RasterExtent first, RasterExtent second);
 gboolean equal_region(RasterExtent first, RasterExtent second);
-double round_like_source(double value);
 double step_zoom_level(double zoom, gboolean in);
 double clamp_zoom_level(double zoom);
 

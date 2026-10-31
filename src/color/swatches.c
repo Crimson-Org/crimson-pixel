@@ -188,9 +188,9 @@ GBytes *write_swatches(const GArray *swatches) {
 		for (guint index = 0; index < swatches->len; index++) {
 			const Swatch *swatch = &g_array_index(swatches, Swatch, index);
 			append_short(bytes, 0);
-			append_short(bytes, round_like_source(swatch->red * (65535.0 / 255)));
-			append_short(bytes, round_like_source(swatch->green * (65535.0 / 255)));
-			append_short(bytes, round_like_source(swatch->blue * (65535.0 / 255)));
+			append_short(bytes, round_half_up(swatch->red * (65535.0 / 255)));
+			append_short(bytes, round_half_up(swatch->green * (65535.0 / 255)));
+			append_short(bytes, round_half_up(swatch->blue * (65535.0 / 255)));
 			append_short(bytes, 0);
 			if (version == 1)
 				continue;
@@ -207,8 +207,8 @@ GBytes *write_swatches(const GArray *swatches) {
 }
 
 guint32 get_swatch_color(const Swatch *swatch) {
-	return (guint32)round_like_source(swatch->red) << 16 | (guint32)round_like_source(swatch->green) << 8 |
-		   (guint32)round_like_source(swatch->blue);
+	return (guint32)round_half_up(swatch->red) << 16 | (guint32)round_half_up(swatch->green) << 8 |
+		   (guint32)round_half_up(swatch->blue);
 }
 
 void add_swatch(GArray *swatches, const char *name, guint32 color) {

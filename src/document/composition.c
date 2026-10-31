@@ -32,9 +32,9 @@ typedef struct {
 	gboolean failed;
 } Composition;
 
-/* et.Q_.Y9 combines the default color with density outside the mask extent */
+/* Outside its extent a mask has its default color, weakened by its density */
 static guint mask_outside_value(const Record *mask) {
-	return (guint)round_like_source(255 - (255 - get_number(mask, "color")) * (get_number(mask, "mU") / 255));
+	return (guint)round_half_up(255 - (255 - get_number(mask, "color")) * (get_number(mask, "mU") / 255));
 }
 
 /* Masks that are disabled, or empty with an opaque outside, are ignored */
@@ -44,7 +44,7 @@ static gboolean is_mask_active(const Record *layer) {
 		   (!empty_extent(read_extent(get_record(mask, "V"))) || mask_outside_value(mask) != 255);
 }
 
-/* et.Q_.AM applies density through two inversions and leaves padding transformed too */
+/* Density is applied through two inversions, and the padding is changed the same way */
 static guint8 *create_mask_values(const Record *mask) {
 	Record *channels = get_record(mask, "C");
 	guint8 *values = g_memdup2(channels->value.buffer.data, channels->value.buffer.length);
@@ -52,7 +52,7 @@ static guint8 *create_mask_values(const Record *mask) {
 	if (density == 255)
 		return values;
 	for (gsize index = 0; index < channels->value.buffer.length; index++)
-		values[index] = 255 - ((guint)round_like_source((255 - values[index]) * (density / 255)) & 255);
+		values[index] = 255 - ((guint)round_half_up((255 - values[index]) * (density / 255)) & 255);
 	return values;
 }
 
@@ -733,7 +733,7 @@ static void compose_layer(Composition *composition, LayerTree *tree, Record *des
 		fill_region(foreground, foreground_extent, work, 0, FALSE);
 		if (pass)
 			copy_region(destination, extent, foreground, foreground_extent, work);
-		/* The CPU branch of d6.oK.R_ is empty, so the pass group copy is only released */
+		/* A pass through group draws nothing more here, so its copy is only released */
 		if (masked_pass)
 			release_buffer(composition, group_pixels);
 		compose_children(composition, tree, foreground, foreground_extent, clip);

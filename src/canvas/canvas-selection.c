@@ -166,7 +166,7 @@ static void start_wand_selection(DocumentView *view, double x, double y) {
 }
 
 void drag_wand_selection(DocumentView *view, double x) {
-	int tolerance = CLAMP((int)round_like_source(view->wand_base + (x - view->wand_start) / 4), 0, 255);
+	int tolerance = CLAMP((int)round_half_up(view->wand_base + (x - view->wand_start) / 4), 0, 255);
 	if (tolerance == view->wand_tolerance)
 		return;
 	select_with_wand(view, tolerance);

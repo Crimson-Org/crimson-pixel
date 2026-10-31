@@ -1,6 +1,7 @@
 #include <math.h>
 #include <string.h>
 
+#include "document/numbers.h"
 #include "color-lookup.h"
 #include "color/color-spaces.h"
 
@@ -42,7 +43,7 @@ typedef struct {
 	GHashTable *tags;
 } IccProfile;
 
-/* Reads past the profile end make the whole profile unusable instead of reading undefined values */
+/* A read past the profile end makes the whole profile unusable */
 typedef struct {
 	const guint8 *data;
 	gsize length;
@@ -307,7 +308,7 @@ static void fill_tables(void) {
 	g_once_init_leave(&ready, 1);
 }
 
-/* JavaScript reads undefined past an array end, which turns the arithmetic into NaN */
+/* A read past the table end gives NaN, which carries through the arithmetic */
 static double read_item(const double *values, gsize count, double index) {
 	return index >= 0 && index < count && values ? values[(gsize)index] : NAN;
 }
@@ -560,10 +561,9 @@ static gboolean sample_profile(const guint8 *data, gsize length, double *samples
 
 /* ============================== Applying ======================================== */
 
-/* JavaScript stores ToInt32 of the rounded value into a Uint8Array, keeping its low byte */
+/* A unit value rounded to a byte, where values out of range wrap */
 static guint8 store_rounded_byte(double value) {
-	double rounded = trunc(.5 + value * 255);
-	return isfinite(rounded) ? (guint8)(gint64)fmod(rounded, 4294967296.0) : 0;
+	return wrap_byte(.5 + value * G_MAXUINT8);
 }
 
 /* Each channel byte always falls in the same grid cell and part of it, so those are worked out once */

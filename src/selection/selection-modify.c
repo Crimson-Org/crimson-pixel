@@ -1,19 +1,11 @@
 #include <math.h>
 #include <string.h>
 
+#include "document/numbers.h"
 #include "selection-modify.h"
 #include "pixel-selection.h"
 
-/* ============================== Source arithmetic ============================== */
-
-/* Math.max and Math.min return NaN when either side is NaN */
-static double source_max(double first, double second) {
-	return isnan(first) || isnan(second) ? NAN : MAX(first, second);
-}
-
-static double source_min(double first, double second) {
-	return isnan(first) || isnan(second) ? NAN : MIN(first, second);
-}
+/* ============================== Arithmetic ============================== */
 
 static RasterExtent grow_extent(RasterExtent extent, int amount) {
 	return (RasterExtent){extent.x - amount, extent.y - amount, extent.width + 2 * amount, extent.height + 2 * amount};
@@ -113,7 +105,7 @@ static float *measure_edge_distances(const guint8 *mask, int width, int height) 
 		double offset = .5 - nearest[((gint64)vertices[top] << 1) + 1] * (1.0 / 255);
 		for (gint64 point = end - 1; point >= start; point--) {
 			distances[point] =
-				source_max(0, sqrt((double)(point - vertex) * (point - vertex) + vertex_square) + offset);
+				nan_max(0, sqrt((double)(point - vertex) * (point - vertex) + vertex_square) + offset);
 			if (!top || point != boundary)
 				continue;
 			boundary = boundaries[--top];
@@ -134,7 +126,7 @@ static void draw_distance_coverage(const Record *source, Record *target, RasterE
 	float *distances = measure_edge_distances(source->value.buffer.data, extent.width, extent.height);
 	guint8 *values = target->value.buffer.data;
 	for (gsize index = 0; index < count_extent(extent); index++) {
-		double value = round_like_source(source_max(0, source_min(1, radius + .5 - distances[index])) * 255);
+		double value = round_half_up(nan_max(0, nan_min(1, radius + .5 - distances[index])) * 255);
 		values[index] = isnan(value) ? 0 : value;
 	}
 	g_free(distances);
@@ -166,7 +158,7 @@ static void get_box_sizes(double radius, int sizes[3]) {
 	if (lower % 2 == 0)
 		lower--;
 	double count = (12 * radius * radius - 3.0 * lower * lower - 4 * 3.0 * lower - 3 * 3.0) / (-4.0 * lower - 4);
-	int smaller = round_like_source(count);
+	int smaller = round_half_up(count);
 	for (int index = 0; index < 3; index++)
 		sizes[index] = index < smaller ? lower : lower + 2;
 }
@@ -246,7 +238,7 @@ static void blur_mask(Record *values, RasterExtent extent, double radius) {
 static Record *blur_selection(const Record *selection, double radius, gboolean smooth, RasterExtent canvas,
 							  gboolean at_canvas_bounds) {
 	if (smooth)
-		radius = round_like_source(radius * .7);
+		radius = round_half_up(radius * .7);
 	RasterExtent from = read_extent(get_record(selection, "V"));
 	RasterExtent extent = grow_extent(from, ceil(2.6 * radius));
 	if (!at_canvas_bounds)
@@ -262,7 +254,7 @@ static Record *blur_selection(const Record *selection, double radius, gboolean s
 	double full = channel_maximum(depth), half = full / 2;
 	for (gsize index = 0; smooth && index < values->value.buffer.length; index++)
 		write_channel(values, index,
-					  source_max(0, source_min(full, half + (read_channel(values, index) - half) * radius * 2.5)));
+					  nan_max(0, nan_min(full, half + (read_channel(values, index) - half) * radius * 2.5)));
 	Record *mask = create_channels(count, depth);
 	memcpy(mask->value.buffer.data, values->value.buffer.data, count * (depth / 8));
 	free_record(values);

@@ -40,7 +40,7 @@ static const char LINK_PROFILE_NAME[] = "ICC by CrimsonPix";
 #define LUT_VALUE_BYTES 2
 #define LUT_TABLE_HEADER_SIZE (MAB_HEADER_SIZE + CLUT_HEADER_SIZE)
 
-/* JavaScript parseFloat reads the longest decimal number at the start after white space, or NaN */
+/* Reads the longest decimal number at the start after white space, or NaN */
 static double parse_float(const char *text) {
 	if (!text)
 		return NAN;
@@ -75,7 +75,7 @@ static double parse_float(const char *text) {
 	return g_ascii_strtod(number, NULL);
 }
 
-/* JavaScript parseInt in base ten */
+/* Reads a whole number in base ten after white space, or NaN */
 static double parse_integer(const char *text) {
 	if (!text)
 		return NAN;

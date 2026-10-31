@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "numbers.h"
 #include "record.h"
 
 static Record *allocate_record(RecordType type) {
@@ -120,7 +121,7 @@ void free_record(Record *record) {
 	g_free(record);
 }
 
-/* Objects remember insertion order so source descriptors keep their JavaScript key order */
+/* Objects remember insertion order, so descriptors keep their key order */
 void set_record(Record *object, const char *key, Record *value) {
 	g_return_if_fail(object && object->type == RECORD_OBJECT && value);
 	gpointer existing;
@@ -157,7 +158,7 @@ static gint compare_array_keys(gconstpointer first, gconstpointer second) {
 	return a < b ? -1 : a > b;
 }
 
-/* JavaScript enumerates integer-like keys ascending before other keys in insertion order */
+/* Keys that are whole numbers come first in ascending order, then the other keys in insertion order */
 GPtrArray *get_record_keys(const Record *object) {
 	GPtrArray *keys = g_ptr_array_new(), *named = g_ptr_array_new();
 	for (guint index = 0; object && index < object->order->len; index++) {
@@ -469,22 +470,13 @@ char *describe_record_in_order(const Record *record) {
 	return g_string_free(output, FALSE);
 }
 
-static double truncate_to_int32(double value) {
-	if (!isfinite(value))
-		return 0;
-	double wrapped = fmod(trunc(value), 4294967296.0);
-	if (wrapped < 0)
-		wrapped += 4294967296.0;
-	return wrapped >= 2147483648.0 ? wrapped - 4294967296.0 : wrapped;
-}
-
 double convert_channel_depth(double value, unsigned from, unsigned to) {
 	if (from == to)
 		return value;
 	if (to == 8 && from == 16)
 		return (guint32)value >> 8;
 	if (to == 8)
-		return MIN(255, truncate_to_int32(.5 + 255 * value));
+		return MIN(255, wrap_int32(.5 + 255 * value));
 	if (to == 16 && from == 8)
 		return (guint32)value << 8 | (guint32)value;
 	if (to == 16)
@@ -492,7 +484,7 @@ double convert_channel_depth(double value, unsigned from, unsigned to) {
 	return value * (1.0 / (from == 8 ? 255 : 65535));
 }
 
-/* The channel value as h._l stores it in an eight bit typed array */
+/* The channel value stored as a byte, wrapping and truncating */
 guint8 read_channel_byte(const Record *buffer, gsize index) {
 	double value = read_channel(buffer, index);
 	if (buffer->value.buffer.depth == 8)

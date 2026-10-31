@@ -2,49 +2,24 @@
 #include <string.h>
 
 #include "blend.h"
+#include "numbers.h"
 
 const char *const blend_mode_keys[BLEND_MODE_COUNT] = {
 	"norm", "diss", "dark", "mul ", "idiv", "lbrn", "dkCl", "lite", "scrn", "div ", "lddg", "lgCl", "over", "sLit",
 	"hLit", "vLit", "lLit", "pLit", "hMix", "diff", "smud", "fsub", "fdiv", "hue ", "sat ", "colr", "lum "};
 
-/* JavaScript Math.min and Math.max return NaN when either side is NaN, unlike fmin and fmax */
-static double js_min(double first, double second) {
-	if (isnan(first) || isnan(second))
-		return NAN;
-	return first < second ? first : second;
-}
-
-static double js_max(double first, double second) {
-	if (isnan(first) || isnan(second))
-		return NAN;
-	return first > second ? first : second;
-}
-
-/* JavaScript bitwise operators wrap every number into a signed 32 bit integer and turn NaN into zero */
-static int32_t to_int32(double value) {
-	if (!isfinite(value))
-		return 0;
-	double wrapped = fmod(trunc(value), 4294967296.0);
-	if (wrapped < 0)
-		wrapped += 4294967296.0;
-	return (int32_t)(uint32_t)wrapped;
-}
-
-static uint32_t to_uint32(double value) {
-	return (uint32_t)to_int32(value);
-}
-
-static int32_t round_half_up(double value) {
-	return to_int32(value + .5);
+/* Adds a half and wraps the whole part into 32 bits, so negative halves round toward zero */
+static int32_t round_to_int32(double value) {
+	return wrap_int32(value + .5);
 }
 
 int32_t hash_dissolve_position(double position) {
-	int32_t value = to_int32(position);
-	value = value ^ 61 ^ (int32_t)(to_uint32(value) >> 16);
+	int32_t value = wrap_int32(position);
+	value = value ^ 61 ^ (int32_t)(wrap_uint32(value) >> 16);
 	double sum = (double)value + (double)(int32_t)((uint32_t)value << 3);
-	value = to_int32(sum) ^ (int32_t)(to_uint32(sum) >> 4);
+	value = wrap_int32(sum) ^ (int32_t)(wrap_uint32(sum) >> 4);
 	double product = (double)value * 668265261.0;
-	return to_int32(product) ^ (int32_t)(to_uint32(product) >> 15);
+	return wrap_int32(product) ^ (int32_t)(wrap_uint32(product) >> 15);
 }
 
 int find_blend_mode(const char *key) {
@@ -82,7 +57,7 @@ static double normal_channel(double source, double destination, double fill) {
 }
 
 static double darken_channel(double source, double destination, double fill) {
-	return js_min(source, destination);
+	return nan_min(source, destination);
 }
 
 static double multiply_channel(double source, double destination, double fill) {
@@ -90,7 +65,7 @@ static double multiply_channel(double source, double destination, double fill) {
 }
 
 static double lighten_channel(double source, double destination, double fill) {
-	return js_max(source, destination);
+	return nan_max(source, destination);
 }
 
 static double screen_channel(double source, double destination, double fill) {
@@ -103,7 +78,7 @@ static double color_burn_channel(double source, double destination, double fill)
 }
 
 static double linear_burn_channel(double source, double destination, double fill) {
-	return js_max(0, source * fill + destination - fill);
+	return nan_max(0, source * fill + destination - fill);
 }
 
 static double color_dodge_channel(double source, double destination, double fill) {
@@ -113,16 +88,16 @@ static double color_dodge_channel(double source, double destination, double fill
 
 static double linear_dodge_channel(double source, double destination, double fill) {
 	source *= fill;
-	return js_min(1, source + destination);
+	return nan_min(1, source + destination);
 }
 
 static double vivid_burn(double source, double destination, double fill) {
 	double scaled = source * fill + 1 - fill;
-	return scaled < .001 ? 0 : 1 - js_min(1, (1 - destination) / scaled);
+	return scaled < .001 ? 0 : 1 - nan_min(1, (1 - destination) / scaled);
 }
 
 static double vivid_dodge(double source, double destination, double fill) {
-	return source * fill == 1 ? 1 : js_min(1, destination / (1 - source * fill));
+	return source * fill == 1 ? 1 : nan_min(1, destination / (1 - source * fill));
 }
 
 static double soft_light_curve(double value) {
@@ -160,7 +135,7 @@ static double pin_light_channel(double source, double destination, double fill) 
 static double hard_mix_channel(double source, double destination, double fill) {
 	if (fill > .99)
 		return source + destination < 1 ? 0 : 1;
-	return js_min(1, js_max(0, (destination + source * fill - fill) / (1 - fill + 1e-6)));
+	return nan_min(1, nan_max(0, (destination + source * fill - fill) / (1 - fill + 1e-6)));
 }
 
 static double difference_channel(double source, double destination, double fill) {
@@ -173,11 +148,11 @@ static double exclusion_channel(double source, double destination, double fill) 
 }
 
 static double subtract_channel(double source, double destination, double fill) {
-	return js_max(destination - source, 0);
+	return nan_max(destination - source, 0);
 }
 
 static double divide_channel(double source, double destination, double fill) {
-	return js_min(destination / source, 1);
+	return nan_min(destination / source, 1);
 }
 
 
@@ -187,12 +162,12 @@ static double get_luminosity(const double *color) {
 
 /* Saturation as the spread between the strongest and weakest channel */
 static double get_saturation(const double *color) {
-	return js_max(js_max(color[0], color[1]), color[2]) - js_min(js_min(color[0], color[1]), color[2]);
+	return nan_max(nan_max(color[0], color[1]), color[2]) - nan_min(nan_min(color[0], color[1]), color[2]);
 }
 
 static void clip_color(double *color) {
 	double red = color[0], green = color[1], blue = color[2], luminosity = get_luminosity(color);
-	double lowest = js_min(js_min(red, green), blue), highest = js_max(js_max(red, green), blue);
+	double lowest = nan_min(nan_min(red, green), blue), highest = nan_max(nan_max(red, green), blue);
 	if (lowest < 0) {
 		double scale = luminosity / (luminosity - lowest);
 		red = luminosity + (red - luminosity) * scale;
@@ -286,21 +261,21 @@ static void luminosity_color(const double *source, const double *destination, do
 }
 
 static double measure_range(double value, const double *ranges, int index) {
-	return js_min((value - ranges[index]) * ranges[index + 1], (value - ranges[index + 3]) * ranges[index + 2]);
+	return nan_min((value - ranges[index]) * ranges[index + 1], (value - ranges[index + 3]) * ranges[index + 2]);
 }
 
 static double measure_blend_ranges(const double *source, const double *destination, double destination_alpha,
 								   const double *ranges) {
 	double top = measure_range(get_luminosity(source), ranges, 0);
-	top = js_min(top, measure_range(source[0], ranges, 8));
-	top = js_min(top, measure_range(source[1], ranges, 16));
-	top = js_min(top, measure_range(source[2], ranges, 24));
+	top = nan_min(top, measure_range(source[0], ranges, 8));
+	top = nan_min(top, measure_range(source[1], ranges, 16));
+	top = nan_min(top, measure_range(source[2], ranges, 24));
 	double below = measure_range(get_luminosity(destination), ranges, 4);
-	below = js_min(below, measure_range(destination[0], ranges, 12));
-	below = js_min(below, measure_range(destination[1], ranges, 20));
-	below = js_min(below, measure_range(destination[2], ranges, 28));
-	below = js_max(below, 1 - destination_alpha);
-	double factor = js_min(top, below);
+	below = nan_min(below, measure_range(destination[0], ranges, 12));
+	below = nan_min(below, measure_range(destination[1], ranges, 20));
+	below = nan_min(below, measure_range(destination[2], ranges, 28));
+	below = nan_max(below, 1 - destination_alpha);
+	double factor = nan_min(top, below);
 	return factor < 0 ? 0 : factor > 1 ? 1 : factor;
 }
 
@@ -341,10 +316,10 @@ static uint32_t blend_normal_pixel(const BlendKernel *kernel, uint32_t source, u
 		return destination;
 	double opacity = kernel->opacity, destination_alpha = (destination >> 24) * (1.0 / 255);
 	double below = 1 - opacity, reciprocal = 1 / (opacity + below);
-	uint32_t pixel = (uint32_t)round_half_up(destination_alpha * 255) << 24;
+	uint32_t pixel = (uint32_t)round_to_int32(destination_alpha * 255) << 24;
 	for (unsigned shift = 0; shift <= 16; shift += 8) {
 		double top = (source >> shift) & 255, bottom = (destination >> shift) & 255;
-		pixel |= ((uint32_t)round_half_up((top * opacity + bottom * below) * reciprocal) & 255) << shift;
+		pixel |= ((uint32_t)round_to_int32((top * opacity + bottom * below) * reciprocal) & 255) << shift;
 	}
 	return pixel;
 }
@@ -355,7 +330,7 @@ static uint32_t blend_dissolve_pixel(const BlendKernel *kernel, uint32_t source,
 	double share = preserve * 255 + (1 - preserve) * (source >> 24);
 	if ((hash_dissolve_position(index) & 16777215) >= share * scale)
 		return destination;
-	return (source & 16777215) | (uint32_t)to_int32(preserve * (destination >> 24) + (1 - preserve) * 255) << 24;
+	return (source & 16777215) | (uint32_t)wrap_int32(preserve * (destination >> 24) + (1 - preserve) * 255) << 24;
 }
 
 static uint32_t blend_separable_pixel(const BlendKernel *kernel, uint32_t source, uint32_t destination,
@@ -381,10 +356,10 @@ static uint32_t blend_separable_pixel(const BlendKernel *kernel, uint32_t source
 		double value = ((1 - bottom_alpha) * top_alpha * top[channel] + (1 - weight) * bottom_alpha * bottom[channel] +
 						weight * bottom_alpha * kernel->channel(top[channel], bottom[channel], mixed_fill)) *
 					   scale;
-		pixel |= ((uint32_t)round_half_up(value) & 255) << (16 - channel * 8);
+		pixel |= ((uint32_t)round_to_int32(value) & 255) << (16 - channel * 8);
 	}
 	double alpha = top_alpha * fill + bottom_alpha * (1 - top_alpha * fill);
-	return pixel | (uint32_t)round_half_up(preserve * (destination >> 24) + (1 - preserve) * round_half_up(alpha * 255))
+	return pixel | (uint32_t)round_to_int32(preserve * (destination >> 24) + (1 - preserve) * round_to_int32(alpha * 255))
 					   << 24;
 }
 
@@ -407,10 +382,10 @@ static uint32_t blend_color_pixel(const BlendKernel *kernel, uint32_t source, ui
 		double value = (((1 - bottom_alpha) * top[channel] + bottom_alpha * mixed[channel]) * top_alpha +
 						bottom[channel] * below) *
 					   scale;
-		pixel |= ((uint32_t)to_int32(value) & 255) << (16 - channel * 8);
+		pixel |= ((uint32_t)wrap_int32(value) & 255) << (16 - channel * 8);
 	}
 	double alpha = preserve * (destination >> 24) + (1 - preserve) * floor(total * 255 + .5);
-	return pixel | (uint32_t)to_int32(alpha) << 24;
+	return pixel | (uint32_t)wrap_int32(alpha) << 24;
 }
 
 BlendKernel prepare_blend_kernel(BlendMode mode, double opacity, BlendOptions options) {

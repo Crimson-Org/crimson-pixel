@@ -73,11 +73,6 @@ gboolean equal_region(RasterExtent first, RasterExtent second) {
 	return first.x == second.x && first.y == second.y && first.width == second.width && first.height == second.height;
 }
 
-/* Math.round rounds halves upward, unlike C round */
-double round_like_source(double value) {
-	double whole = floor(value);
-	return value - whole >= .5 ? whole + 1 : whole;
-}
 
 static const double ZOOM_LEVELS[] = {128,
 									 64,

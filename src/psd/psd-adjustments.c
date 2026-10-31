@@ -374,7 +374,7 @@ static gsize put_curves_block(PsdWriter *writer, gsize offset, const Record *des
 	for (int channel = 0; channel < TONE_CHANNELS; channel++) {
 		if (mapped) {
 			for (int level = 0; level < CURVE_LEVELS; level++)
-				put_byte(writer, position + level, (guint)(gint64)fmod(trunc(levels[channel][level]), CURVE_LEVELS));
+				put_byte(writer, position + level, wrap_byte(levels[channel][level]));
 			position += CURVE_LEVELS;
 		} else if (points[channel]) {
 			guint count = points[channel]->len;

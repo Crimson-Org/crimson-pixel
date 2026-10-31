@@ -27,7 +27,7 @@ static void fill_color_tables(void) {
 	g_once_init_leave(&ready, 1);
 }
 
-/* JavaScript reads undefined past the end of an array, which turns the arithmetic into NaN */
+/* A read past the table end gives NaN, which carries through the arithmetic */
 static double read_table(const double *table, double position) {
 	double index = trunc(.5 + position);
 	return index >= 0 && index < COLOR_TABLE_SIZE ? table[(int)index] : NAN;

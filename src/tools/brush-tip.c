@@ -112,7 +112,7 @@ BrushLevel create_computed_tip(double diameter, double hardness, double scale) {
 	if (diameter < 4)
 		hardness = 1;
 	double margin = 1 + .55 * (1 - hardness);
-	int size = (int)round_like_source(scale * diameter * margin) + 2;
+	int size = (int)round_half_up(scale * diameter * margin) + 2;
 	BrushLevel level = {create_channels((gsize)size * size, 8), {0, 0, size, size}};
 	guint8 *tip = level.values->value.buffer.data;
 	double center = size / 2.0, step = margin / (center - 1);
@@ -121,7 +121,7 @@ BrushLevel create_computed_tip(double diameter, double hardness, double scale) {
 	if (diameter == 3)
 		step *= 1.6;
 	const TipProfile *profile = get_tip_profile(hardness);
-	int border = (int)round_like_source(PROFILE_SAMPLES / center);
+	int border = (int)round_half_up(PROFILE_SAMPLES / center);
 	int solid = profile->last_solid - border, empty = profile->first_empty + border;
 	int half = MIN(size, (size + 1) >> 1);
 	double blur = step * .4 * (4000 / 1.55);
@@ -187,7 +187,7 @@ void free_brush_levels(GArray *levels) {
 		g_array_unref(levels);
 }
 
-/* Typed array reads beyond the buffer give undefined, which turns the whole sample into NaN */
+/* A read beyond the buffer gives NaN, so the whole sample becomes NaN */
 static double read_tip_value(const Record *values, int index) {
 	if (index < 0 || (gsize)index >= values->value.buffer.length)
 		return NAN;

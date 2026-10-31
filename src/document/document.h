@@ -32,7 +32,7 @@ enum {
 	SECTION_GROUP_END = 3,
 };
 
-/* A tree node indexes the original bottom-to-top layer record stream */
+/* A tree node indexes the bottom-to-top list of layer records */
 typedef struct LayerTree LayerTree;
 
 struct LayerTree {
@@ -45,7 +45,7 @@ struct LayerTree {
 /* The product mode preserves source creation and composition gates */
 typedef enum { DOCUMENT_RASTER, DOCUMENT_VECTOR } DocumentMode;
 
-/* Native ownership keeps the original document record and its derived tree together */
+/* The document record and the tree made from it are kept together */
 typedef struct {
 	Record *record;
 	DocumentMode mode;
@@ -61,9 +61,10 @@ typedef struct {
 	/* Set when an undo or redo changed the selection, and when that was all it changed */
 	gboolean selection_changed, selection_only;
 	guint history_limit;
-	/* Counts history steps, undos and redos, since NP stops moving once the history is full */
+	/* Counts history steps, undos and redos, since the history position stops moving once the history is full */
 	guint revision;
-	/* Steps trimmed from the front of the history, so NP plus this counts every step and the saved step stays put */
+	/* Steps trimmed from the front of the history, so the history position plus this counts every step and the
+	 * saved step stays put */
 	guint trimmed_steps;
 	gint64 saved_step;
 } Document;

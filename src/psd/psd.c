@@ -27,7 +27,7 @@ gboolean has_psd_bytes(PsdReader *reader, gsize offset, gsize count) {
 	return FALSE;
 }
 
-/* Resource views read missing bytes as zero like source typed arrays, while the file itself stays strict */
+/* Resource views read missing bytes as zero, while the file itself stays strict */
 int read_psd_byte(PsdReader *reader, gsize offset) {
 	return has_psd_bytes(reader, offset, 1) ? reader->data[offset] : 0;
 }

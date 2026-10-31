@@ -1,11 +1,11 @@
 #include <math.h>
 
+#include "document/numbers.h"
 #include "color-spaces.h"
 #include "psd/descriptor.h"
 #include "gradient.h"
 #include "selection/pixel-selection.h"
 
-#define TWO_TO_32 4294967296.0
 
 static const GradientColorStop DEFAULT_COLORS[] = {{0, 50, GRADIENT_FOREGROUND, 0, 0, 0},
 												   {4096, 50, GRADIENT_BACKGROUND, 0, 0, 0}};
@@ -124,28 +124,12 @@ Record *create_gradient_record(const Gradient *gradient, const char *name) {
 	return record;
 }
 
-/* ============================== Source number conversions ============================== */
-
-/* JavaScript ToUint32 wraps a number into 32 bits */
-static guint32 wrap_to_uint32(double value) {
-	if (!isfinite(value))
-		return 0;
-	double wrapped = fmod(trunc(value), TWO_TO_32);
-	return (guint32)(wrapped < 0 ? wrapped + TWO_TO_32 : wrapped);
-}
-
-static gint32 truncate_like_source(double value) {
-	if (value > -2147483648.0 && value < 2147483648.0)
-		return (gint32)value;
-	return (gint32)wrap_to_uint32(value);
-}
-
 static guint32 hash_dither_index(gint64 index) {
 	guint32 value = (guint32)index;
 	gint32 mixed = (gint32)(value ^ 61 ^ (value >> 16));
-	guint32 grown = wrap_to_uint32((double)mixed + (double)(gint32)((guint32)mixed << 3));
+	guint32 grown = wrap_uint32((double)mixed + (double)(gint32)((guint32)mixed << 3));
 	gint32 shifted = (gint32)(grown ^ (grown >> 4));
-	guint32 product = wrap_to_uint32((double)shifted * 668265261.0);
+	guint32 product = wrap_uint32((double)shifted * 668265261.0);
 	return product ^ (product >> 15);
 }
 
@@ -345,7 +329,7 @@ static double get_shape_position(GradientType type, double along, double sideway
 }
 
 static int find_lookup_entry(double position) {
-	gint32 entry = truncate_like_source(.499 + position * (GRADIENT_LOOKUP_SIZE - 1));
+	gint32 entry = wrap_int32(.499 + position * (GRADIENT_LOOKUP_SIZE - 1));
 	return CLAMP(entry, 0, GRADIENT_LOOKUP_SIZE - 1) * 4;
 }
 
@@ -399,7 +383,7 @@ void fill_gradient_pixels(const Gradient *gradient, const GradientOptions *optio
 	double opacity = options->opacity / 100;
 	gsize length = (gsize)area.width * area.height * 4;
 	for (gsize index = 3; index < length; index += 4)
-		pixels[index] = (guint8)round_like_source(pixels[index] * opacity);
+		pixels[index] = (guint8)round_half_up(pixels[index] * opacity);
 }
 
 gboolean draw_gradient(PaintTool *tool, Document *document, const GradientOptions *options, guint32 foreground,
@@ -410,7 +394,7 @@ gboolean draw_gradient(PaintTool *tool, Document *document, const GradientOption
 	RasterExtent area = selection ? read_extent(get_record(selection, "V"))
 								  : (RasterExtent){0, 0, document_width(document), document_height(document)};
 	g_autoptr(Record) pixels = create_channels((gsize)area.width * area.height * 4, 8);
-	guint32 offset = (guint32)fmod(round_like_source(g_random_double() * area.width * area.height * 100), TWO_TO_32);
+	guint32 offset = wrap_uint32(round_half_up(g_random_double() * area.width * area.height * 100));
 	fill_gradient_pixels(get_default_gradient(), options, foreground, background, start_x, start_y, end_x, end_y, area,
 						 offset, pixels->value.buffer.data);
 	return draw_paint_bitmap(tool, document, pixels, area, error);

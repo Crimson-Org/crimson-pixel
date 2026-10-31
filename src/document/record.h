@@ -13,7 +13,7 @@ typedef enum {
 	RECORD_REFERENCE
 } RecordType;
 
-/* Prototype identity controls the original class-specific copy operations */
+/* The class decides how a record is copied */
 typedef enum {
 	RECORD_PLAIN,
 	RECORD_POINT,
@@ -107,7 +107,7 @@ char *describe_record(const Record *record);
 char *describe_record_in_order(const Record *record);
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(Record, free_record)
 
-/* Eight-bit samples stay inline; deeper or wrapped values take the typed array path */
+/* Eight-bit samples are read right here, and deeper ones go through the depth conversion */
 static inline double read_channel(const Record *buffer, gsize index) {
 	if (buffer && buffer->type == RECORD_BUFFER && buffer->value.buffer.depth == 8 &&
 		index < buffer->value.buffer.length)

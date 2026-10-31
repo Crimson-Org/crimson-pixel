@@ -21,8 +21,8 @@ static void read_crop_controls(CropControls *controls) {
 	options->width = get_value_field_value(controls->width);
 	options->height = get_value_field_value(controls->height);
 	if (options->mode == CROP_SIZE) {
-		options->width = round_like_source(options->width);
-		options->height = round_like_source(options->height);
+		options->width = round_half_up(options->width);
+		options->height = round_half_up(options->height);
 	}
 	options->resolution = get_value_field_value(controls->resolution);
 }

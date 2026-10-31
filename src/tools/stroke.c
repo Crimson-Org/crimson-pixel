@@ -171,17 +171,17 @@ static void threshold_tip(Record *values) {
 }
 
 static BrushLevel shape_dab(Stroke *stroke, Affine transform, double x, double y, Record **rgba) {
-	int size = round_like_source(stroke->shape.diameter);
+	int size = round_half_up(stroke->shape.diameter);
 	BrushLevel dab = {0};
 	gboolean shared = FALSE;
 	if (stroke->hard && size <= 3) {
 		dab.values = create_channels((gsize)size * size, 8);
 		memset(dab.values->value.buffer.data, 255, dab.values->value.buffer.length);
-		dab.extent = (RasterExtent){round_like_source(x - size / 2.0), round_like_source(y - size / 2.0), size, size};
+		dab.extent = (RasterExtent){round_half_up(x - size / 2.0), round_half_up(y - size / 2.0), size, size};
 	} else if (is_translation_affine(transform)) {
 		BrushLevel tip = g_array_index(stroke->tip_levels, BrushLevel, 0);
 		dab.values = tip.values;
-		dab.extent = (RasterExtent){round_like_source(transform.e), round_like_source(transform.f), tip.extent.width,
+		dab.extent = (RasterExtent){round_half_up(transform.e), round_half_up(transform.f), tip.extent.width,
 									tip.extent.height};
 		shared = TRUE;
 	} else if (sqrt(fabs(transform.a * transform.d - transform.b * transform.c)) > 1e-4)

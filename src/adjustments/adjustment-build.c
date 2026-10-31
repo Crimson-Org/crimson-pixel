@@ -7,7 +7,7 @@
 
 /* ============================== Curves =========================================== */
 
-/* JavaScript Math.max and Math.min keep a NaN, which the eight-bit conversion then turns into zero */
+/* Clamping keeps a NaN, which the eight-bit conversion then turns into zero */
 static double clamp_unit(double value) {
 	if (isnan(value))
 		return value;

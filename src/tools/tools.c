@@ -188,7 +188,7 @@ static void choose_group_tool(GtkButton *button, Editor *editor) {
 	gtk_popover_popdown(GTK_POPOVER(gtk_widget_get_ancestor(GTK_WIDGET(button), GTK_TYPE_POPOVER)));
 }
 
-/* A secondary click lists the other tools of a group like the original column */
+/* A secondary click lists the other tools of a group in a column */
 static void show_group_tools(GtkGestureClick *gesture, int presses, double x, double y, Editor *editor) {
 	GtkWidget *button = gtk_event_controller_get_widget(GTK_EVENT_CONTROLLER(gesture));
 	guint group = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(button), "group"));

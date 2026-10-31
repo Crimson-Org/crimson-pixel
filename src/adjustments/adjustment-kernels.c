@@ -6,15 +6,6 @@
 
 /* ============================== Tables ========================================== */
 
-/* JavaScript stores numbers into a Uint8Array by truncating and wrapping, where a NaN becomes zero */
-static guint8 store_byte(double value) {
-	if (value >= 0 && value < 256)
-		return (guint8)value;
-	if (!isfinite(value))
-		return 0;
-	return (guint8)(gint64)fmod(trunc(value), 256);
-}
-
 static guint8 round_to_byte(float value) {
 	if (isnan(value))
 		return 0;
@@ -42,10 +33,10 @@ static void fill_curve_lookups(Adjustment *adjustment) {
 			adjustment->lookup[channel][index] =
 				adjustment->curve_length == 256
 					? round_to_byte(curves[channel][index])
-					: store_byte(sample_curve(curves[channel], adjustment->curve_length, last * (index * unit)) * 255);
+					: wrap_byte(sample_curve(curves[channel], adjustment->curve_length, last * (index * unit)) * 255);
 }
 
-/* The gamma encoding at the end of IK, store_byte(pow(value, 1 / 2.4) * 255), never falls as the value grows, so
+/* The gamma encoding at the end of vibrance, wrap_byte(pow(value, 1 / 2.4) * 255), never falls as the value grows, so
  * each byte starts at a fixed value; these thresholds are found once by bisecting the real formula, which keeps
  * the result exact while a pixel needs a short search instead of a power */
 static double encoding_thresholds[256];
@@ -56,7 +47,7 @@ enum { ENCODING_BUCKETS = 1 << 16 };
 static guint8 encoding_starts[ENCODING_BUCKETS + 1];
 
 static guint8 encode_gamma_slowly(double value) {
-	return store_byte(pow(value, 1 / 2.4) * 255);
+	return wrap_byte(pow(value, 1 / 2.4) * 255);
 }
 
 static void find_encoding_thresholds(void) {
@@ -120,7 +111,7 @@ static void transform_luminance_curves(const Adjustment *adjustment, guint8 *pix
 	double luminance = terms[pixel[0]] + terms[256 + pixel[1]] + terms[512 + pixel[2]], channels[3];
 	sample_curves_at(adjustment, (adjustment->curve_length - 1) * .999999 * luminance, channels);
 	for (int channel = 0; channel < 3; channel++)
-		pixel[channel] = store_byte(channels[channel] * 255);
+		pixel[channel] = wrap_byte(channels[channel] * 255);
 }
 
 static void transform_preserving_curves(const Adjustment *adjustment, guint8 *pixel) {
@@ -141,7 +132,7 @@ static void transform_preserving_curves(const Adjustment *adjustment, guint8 *pi
 			channels[channel] = scale * channels[channel];
 	}
 	for (int channel = 0; channel < 3; channel++)
-		pixel[channel] = store_byte(channels[channel] * 255);
+		pixel[channel] = wrap_byte(channels[channel] * 255);
 }
 
 static void transform_black_white(const Adjustment *adjustment, guint8 *pixel) {
@@ -162,7 +153,7 @@ static void transform_black_white(const Adjustment *adjustment, guint8 *pixel) {
 	} else
 		convert_hsl_to_rgb(0, 0, gray, rgb);
 	for (int channel = 0; channel < 3; channel++)
-		pixel[channel] = store_byte(rgb[channel] * 255);
+		pixel[channel] = wrap_byte(rgb[channel] * 255);
 }
 
 static void transform_selective_color(const Adjustment *adjustment, guint8 *pixel) {
@@ -203,11 +194,6 @@ static double weigh_replaced_color(const Adjustment *adjustment, const double la
 	return distance <= fuzziness ? MIN(1, 1.17 * (1 - distance * (1 / fuzziness))) : 0;
 }
 
-/* JavaScript shifts a number by ToInt32, which makes a NaN zero */
-static guint8 shift_byte(double value) {
-	return isfinite(value) ? (guint8)(gint64)fmod(trunc(value), 4294967296.0) : 0;
-}
-
 static void transform_replace_color(const Adjustment *adjustment, guint8 *pixel) {
 	const double unit = 1 / 255.0, *shift = adjustment->replace_shift;
 	double lab[3];
@@ -220,7 +206,7 @@ static void transform_replace_color(const Adjustment *adjustment, guint8 *pixel)
 	double hue = 2 + hsl[0] + shift[0];
 	convert_hsl_to_rgb(hue - trunc(hue), MAX(0, MIN(1, hsl[1] + shift[1])), MAX(0, MIN(1, hsl[2] + shift[2])), changed);
 	for (int channel = 0; channel < 3; channel++)
-		pixel[channel] = shift_byte(((1 - weight) * rgb[channel] + weight * changed[channel]) * 255);
+		pixel[channel] = wrap_byte(((1 - weight) * rgb[channel] + weight * changed[channel]) * 255);
 }
 
 static void transform_hue_saturation(const Adjustment *adjustment, guint8 *pixel) {
@@ -260,7 +246,7 @@ static void transform_hue_saturation(const Adjustment *adjustment, guint8 *pixel
 	double rgb[3];
 	convert_hsl_to_rgb(hue, result, middle, rgb);
 	for (int channel = 0; channel < 3; channel++)
-		pixel[channel] = store_byte(rgb[channel] * 255);
+		pixel[channel] = wrap_byte(rgb[channel] * 255);
 }
 
 static void transform_vibrance(const Adjustment *adjustment, guint8 *pixel) {
@@ -288,7 +274,7 @@ static void transform_channel_mixer(const Adjustment *adjustment, guint8 *pixel)
 	double red = pixel[0] * unit, green = pixel[1] * unit, blue = pixel[2] * unit;
 	for (int row = 0; row < 3; row++) {
 		double value = mix[row * 4] * red + mix[row * 4 + 1] * green + mix[row * 4 + 2] * blue + mix[row * 4 + 3];
-		pixel[row] = store_byte(255 * MAX(0, MIN(1, value)));
+		pixel[row] = wrap_byte(255 * MAX(0, MIN(1, value)));
 	}
 }
 

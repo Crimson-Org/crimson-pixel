@@ -84,8 +84,8 @@ Record *create_wand_mask(const guint8 *pixels, RasterExtent pixels_extent, Raste
 						 WandSettings settings) {
 	Record *channels = create_channels((gsize)area.width * area.height, 8);
 	guint8 *mask = channels->value.buffer.data;
-	int start_x = CLAMP((int)round_like_source(x - .5 - area.x), 0, area.width - 1);
-	int start_y = CLAMP((int)round_like_source(y - .5 - area.y), 0, area.height - 1);
+	int start_x = CLAMP((int)round_half_up(x - .5 - area.x), 0, area.width - 1);
+	int start_y = CLAMP((int)round_half_up(y - .5 - area.y), 0, area.height - 1);
 	guint8 color[4];
 	memcpy(color, read_area_pixel(pixels, pixels_extent, area.x + start_x, area.y + start_y), 4);
 	if (settings.contiguous)

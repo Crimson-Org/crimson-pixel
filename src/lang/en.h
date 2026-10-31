@@ -407,7 +407,7 @@
 #define TEXT_CANCEL "Cancel"
 #define TEXT_DISCARD "Discard"
 
-/* Select Modify, Fill and Stroke from the source c3, jI and ch dialogs */
+/* Select Modify, Fill and Stroke */
 #define TEXT_MENU_MODIFY "Modify"
 #define TEXT_MODIFY_BORDER_ITEM "Border..."
 #define TEXT_MODIFY_SMOOTH_ITEM "Smooth..."

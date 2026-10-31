@@ -17,14 +17,14 @@ RasterExtent get_crop_rectangle(const double quad[QUAD_VALUES], double *angle) {
 	double across_x = quad[2] - quad[0], across_y = quad[3] - quad[1];
 	double down_x = quad[6] - quad[0], down_y = quad[7] - quad[1];
 	*angle = atan2(across_y, across_x);
-	return (RasterExtent){round_like_source(quad[0]), round_like_source(quad[1]),
-						  round_like_source(hypot(across_x, across_y)), round_like_source(hypot(down_x, down_y))};
+	return (RasterExtent){round_half_up(quad[0]), round_half_up(quad[1]),
+						  round_half_up(hypot(across_x, across_y)), round_half_up(hypot(down_x, down_y))};
 }
 
 RasterExtent constrain_crop_drag(double start_x, double start_y, double end_x, double end_y, const CropOptions *options,
 								 gboolean square, gboolean centered) {
 	if (options->mode == CROP_SIZE) {
-		double right = round_like_source(end_x), bottom = round_like_source(end_y);
+		double right = round_half_up(end_x), bottom = round_half_up(end_y);
 		return (RasterExtent){right - options->width, bottom - options->height, options->width, options->height};
 	}
 	double ratio = square ? 1 : 0;
@@ -38,16 +38,16 @@ RasterExtent get_crop_start_box(int width, int height, const CropOptions *option
 	if (options->mode == CROP_RATIO) {
 		double ratio = options->width / options->height;
 		if (box.width / ratio < box.height)
-			box.height = round_like_source(box.width / ratio);
+			box.height = round_half_up(box.width / ratio);
 		else
-			box.width = round_like_source(box.height * ratio);
+			box.width = round_half_up(box.height * ratio);
 	}
 	if (options->mode == CROP_SIZE) {
 		box.width = options->width;
 		box.height = options->height;
 	}
-	box.x = round_like_source((width - box.width) / 2.0);
-	box.y = round_like_source((height - box.height) / 2.0);
+	box.x = round_half_up((width - box.width) / 2.0);
+	box.y = round_half_up((height - box.height) / 2.0);
 	return box;
 }
 
@@ -272,11 +272,11 @@ gboolean resize_canvas(Document *document, int width, int height, int anchor, gb
 	int spare_x = old_width - width, spare_y = old_height - height;
 	RasterExtent rectangle = {0, 0, width, height};
 	if (anchor % 3 == 1)
-		rectangle.x = (int)round_like_source(spare_x / 2.0);
+		rectangle.x = (int)round_half_up(spare_x / 2.0);
 	if (anchor % 3 == 2)
 		rectangle.x = spare_x;
 	if (anchor / 3 == 1)
-		rectangle.y = (int)round_like_source(spare_y / 2.0);
+		rectangle.y = (int)round_half_up(spare_y / 2.0);
 	if (anchor / 3 == 2)
 		rectangle.y = spare_y;
 	CropPlan plan = {rectangle, rectangle, {{1, 0, 0, 0, 1, 0, 0, 0}}, FALSE, FALSE, 0, RESAMPLE_BILINEAR};

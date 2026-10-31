@@ -79,7 +79,7 @@ void add_dialog_input(GtkWidget *grid, const char *name, GtkWidget *input, int r
 
 static void change_document_mode(GObject *mode, GParamSpec *property, NewDocumentDialog *dialog) {
 	gboolean illustration = gtk_drop_down_get_selected(GTK_DROP_DOWN(mode)) == DOCUMENT_VECTOR;
-	/* lg starts image documents at 1280 by 720 and illustration documents at 8.3 by 11.7 inches */
+	/* Image documents start at 1280 by 720 and illustration documents at 8.3 by 11.7 inches */
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->width), illustration ? 598 : 1280);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->height), illustration ? 842 : 720);
 }

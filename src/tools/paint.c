@@ -186,7 +186,7 @@ static Record *get_target_layer(PaintTool *tool) {
 }
 
 static guint32 erase_pixel(guint32 coverage, guint32 pixel, double opacity) {
-	guint keep = ~(guint)round_like_source((coverage >> 24) * opacity) & 255;
+	guint keep = ~(guint)round_half_up((coverage >> 24) * opacity) & 255;
 	guint alpha = (pixel >> 24) * keep;
 	alpha = (alpha + 1 + (alpha >> 8)) >> 8;
 	return (pixel & 0x00ffffffu) | alpha << 24;
@@ -572,7 +572,7 @@ guint32 sample_document_color(Document *document, double x, double y, int size, 
 		scale = 255 / count;
 	guint32 color = 0;
 	for (int channel = 0; channel < 3; channel++) {
-		double value = round_like_source(sums[channel] * scale);
+		double value = round_half_up(sums[channel] * scale);
 		color |= (guint32)(isfinite(value) ? (gint64)value & 255 : 0) << (16 - channel * 8);
 	}
 	return color;
