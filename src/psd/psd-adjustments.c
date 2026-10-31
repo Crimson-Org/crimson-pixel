@@ -59,7 +59,7 @@
 #define GRADIENT_COLOR_MODEL_AT 4
 #define GRADIENT_COLOR_MODEL 32
 #define GRADIENT_TAIL_BYTES 6
-#define DEFAULT_SMOOTHNESS 4096
+#define DEFAULT_SMOOTHNESS GRADIENT_LOCATION_RANGE
 
 /* Gradient map: version, reverse and dither flags, an interpolation method in version 3, the name and the gradient */
 #define GRADIENT_MAP_VERSION 3

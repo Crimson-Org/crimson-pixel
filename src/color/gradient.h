@@ -3,6 +3,8 @@
 #include "tools/paint.h"
 
 #define GRADIENT_LOOKUP_SIZE 1024
+/* Stop locations and the smoothness run from 0 to this */
+#define GRADIENT_LOCATION_RANGE 4096
 
 typedef enum { GRADIENT_LINEAR, GRADIENT_RADIAL, GRADIENT_ANGLE, GRADIENT_REFLECTED, GRADIENT_DIAMOND } GradientType;
 

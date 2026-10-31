@@ -15,7 +15,73 @@
 enum { LEVEL_INPUT_BLACK, LEVEL_GAMMA, LEVEL_INPUT_WHITE, LEVEL_OUTPUT_BLACK, LEVEL_OUTPUT_WHITE };
 
 /* The most sliders one adjustment shows, which Black & White needs for its six hue ranges */
-enum { ADJUSTMENT_SLOTS = 6 };
+#define ADJUSTMENT_SLOTS GRAY_WEIGHTS_COUNT
+/* The grid has a label, a slider and a number box, and wide rows span all three */
+#define PANEL_COLUMNS 3
+#define NUMBER_COLUMN 2
+#define SLIDER_WIDTH 220
+/* Clicking beside a slider moves it this many steps */
+#define PAGE_STEPS 10
+/* The histogram shows one column per level, with the Levels markers under it */
+#define HISTOGRAM_HEIGHT 112
+#define MARKER_HEIGHT 8
+#define MARKER_HALF_WIDTH 4
+#define MARKER_BORDER 1
+#define HISTOGRAM_BAR_ALPHA .75
+#define GRADIENT_PREVIEW_HEIGHT 24
+/* Levels keeps the input white at least this far above the input black, and the gamma marker off both ends */
+#define LEVELS_GAP 2
+#define GAMMA_SHARE_LIMIT .001
+
+/* One slider: its label, range, step and decimals, the setting it edits with that setting's type, and the value the
+ * setting falls back to; sliders whose values a choice picks have no setting */
+typedef struct {
+	const char *label;
+	double minimum, maximum, step;
+	int digits;
+	const char *key, *type;
+	double fallback;
+} SliderSpec;
+
+#define PERCENT_SLIDER(label, key) {label, -100, 100, 1, 0, key, "long", 0}
+#define HUE_SLIDER(label, key) {label, -180, 180, 1, 0, key, "long", 0}
+#define MIXER_SLIDER(label) {label, -200, 200, 1, 0, NULL, NULL, 0}
+#define GAMMA_SLIDER(label, key, type) {label, .01, 9.99, .01, 2, key, type, 1}
+
+static const SliderSpec BRIGHTNESS_SLIDERS[] = {{TEXT_BRIGHTNESS, -150, 150, 1, 0, "Brgh", "long", 0},
+												{TEXT_CONTRAST, -50, 100, 1, 0, "Cntr", "long", 0}};
+static const SliderSpec VIBRANCE_SLIDERS[] = {PERCENT_SLIDER(TEXT_VIBRANCE, "vibrance"),
+											  PERCENT_SLIDER(TEXT_SATURATION, "Strt")};
+static const SliderSpec EXPOSURE_SLIDERS[] = {{TEXT_ADJUSTMENT_EXPOSURE, -20, 20, .01, 2, "Exps", "doub", 0},
+											  {TEXT_EXPOSURE_OFFSET, -.5, .5, .0001, 4, "Ofst", "doub", 0},
+											  GAMMA_SLIDER(TEXT_EXPOSURE_GAMMA, "gammaCorrection", "doub")};
+static const SliderSpec POSTERIZE_SLIDERS[] = {
+	{TEXT_POSTERIZE_LEVELS, 2, G_MAXUINT8, 1, 0, "Lvls", "long", DEFAULT_POSTERIZE_LEVELS}};
+static const SliderSpec THRESHOLD_SLIDERS[] = {
+	{TEXT_THRESHOLD_LEVEL, 1, G_MAXUINT8, 1, 0, "Lvl", "long", DEFAULT_THRESHOLD}};
+static const SliderSpec FILTER_SLIDERS[] = {{TEXT_DENSITY, 0, 100, 1, 0, "Dnst", "long", DEFAULT_FILTER_DENSITY}};
+static const SliderSpec REPLACE_SLIDERS[] = {{TEXT_FUZZINESS, 0, 200, 1, 0, "Fzns", "long", DEFAULT_REPLACE_FUZZINESS},
+											 HUE_SLIDER(TEXT_HUE, "H"), PERCENT_SLIDER(TEXT_SATURATION, "Strt"),
+											 PERCENT_SLIDER(TEXT_LIGHTNESS, "Lght")};
+/* In the order of the LEVEL slots */
+static const SliderSpec LEVELS_SLIDERS[] = {{TEXT_LEVELS_INPUT_BLACK, 0, G_MAXUINT8 - LEVELS_GAP, 1, 0, NULL, NULL, 0},
+											GAMMA_SLIDER(TEXT_LEVELS_GAMMA, NULL, NULL),
+											{TEXT_LEVELS_INPUT_WHITE, LEVELS_GAP, G_MAXUINT8, 1, 0, NULL, NULL, G_MAXUINT8},
+											{TEXT_LEVELS_OUTPUT_BLACK, 0, G_MAXUINT8, 1, 0, NULL, NULL, 0},
+											{TEXT_LEVELS_OUTPUT_WHITE, 0, G_MAXUINT8, 1, 0, NULL, NULL, G_MAXUINT8}};
+static const SliderSpec HUE_SLIDERS[] = {HUE_SLIDER(TEXT_HUE, NULL), PERCENT_SLIDER(TEXT_SATURATION, NULL),
+										 PERCENT_SLIDER(TEXT_LIGHTNESS, NULL)};
+static const SliderSpec BALANCE_SLIDERS[] = {PERCENT_SLIDER(TEXT_BALANCE_CYAN_RED, NULL),
+											 PERCENT_SLIDER(TEXT_BALANCE_MAGENTA_GREEN, NULL),
+											 PERCENT_SLIDER(TEXT_BALANCE_YELLOW_BLUE, NULL)};
+static const SliderSpec MIXER_SLIDERS[] = {MIXER_SLIDER(TEXT_CHANNEL_RED), MIXER_SLIDER(TEXT_CHANNEL_GREEN),
+										   MIXER_SLIDER(TEXT_CHANNEL_BLUE), MIXER_SLIDER(TEXT_CONSTANT)};
+static const SliderSpec SELECTIVE_SLIDERS[] = {PERCENT_SLIDER(TEXT_INK_CYAN, NULL), PERCENT_SLIDER(TEXT_INK_MAGENTA, NULL),
+											   PERCENT_SLIDER(TEXT_INK_YELLOW, NULL), PERCENT_SLIDER(TEXT_INK_BLACK, NULL)};
+/* Black & White has one of these for each hue range, editing that range's weight */
+static const SliderSpec GRAY_SLIDER = {NULL, -200, 300, 1, 0, NULL, "long", DEFAULT_GRAY_WEIGHT};
+/* The mixer settings each slider edits */
+static const int MIXER_PARTS_SHOWN[] = {MIXER_RED, MIXER_GREEN, MIXER_BLUE, MIXER_CONSTANT};
 
 /* One open settings popover, editing its layer live */
 typedef struct {
@@ -30,8 +96,10 @@ typedef struct {
 	const char *key;
 	Record *settings;
 	GtkAdjustment *values[ADJUSTMENT_SLOTS];
+	SliderSpec specs[ADJUSTMENT_SLOTS];
+	int slider_count, next_row;
 	/* Pixel counts of the luminance and the red, green and blue channels of the layers below */
-	guint32 counts[4][256];
+	guint32 counts[TONE_CHANNELS][CURVE_LEVELS];
 	gboolean has_histogram, updating;
 	/* The pending canvas redraw, which slider moves made while a redraw ran fold into */
 	guint redraw;
@@ -50,11 +118,11 @@ static void count_backdrop(AdjustmentPanel *panel, Document *document) {
 	if (!pixels)
 		return;
 	const guint8 *data = pixels->value.buffer.data;
-	for (gsize index = 0; index + 3 < pixels->value.buffer.length; index += 4) {
-		if (!data[index + 3])
+	for (gsize index = 0; index + ALPHA_CHANNEL < pixels->value.buffer.length; index += RGBA_CHANNELS) {
+		if (!data[index + ALPHA_CHANNEL])
 			continue;
 		panel->counts[0][(int)(get_luma(data[index], data[index + 1], data[index + 2]) + .5)]++;
-		for (int channel = 0; channel < 3; channel++)
+		for (int channel = 0; channel < RGB_CHANNELS; channel++)
 			panel->counts[channel + 1][data[index + channel]]++;
 	}
 	panel->has_histogram = TRUE;
@@ -81,13 +149,13 @@ static void draw_histogram(GtkWidget *widget, GtkSnapshot *snapshot, int width, 
 	gtk_widget_get_color(widget, &color);
 	const guint32 *counts = panel->counts[!g_strcmp0(panel->key, "levl") ? get_shown_channel(panel) : 0];
 	guint32 peak = 1;
-	for (int level = 0; level < 256; level++)
+	for (int level = 0; level < CURVE_LEVELS; level++)
 		peak = MAX(peak, counts[level]);
-	const int marker_height = panel->values[LEVEL_INPUT_BLACK] ? 8 : 0;
-	double bar_height = height - marker_height, column = width / 256.0;
+	const int marker_height = panel->values[LEVEL_INPUT_BLACK] ? MARKER_HEIGHT : 0;
+	double bar_height = height - marker_height, column = (double)width / CURVE_LEVELS;
 	GdkRGBA bar = color;
-	bar.alpha *= .75;
-	for (int level = 0; level < 256; level++) {
+	bar.alpha *= HISTOGRAM_BAR_ALPHA;
+	for (int level = 0; level < CURVE_LEVELS; level++) {
 		/* A square root scale keeps small counts visible beside large peaks */
 		double size = round(sqrt((double)counts[level] / peak) * bar_height);
 		gtk_snapshot_append_color(snapshot, &bar,
@@ -97,19 +165,21 @@ static void draw_histogram(GtkWidget *widget, GtkSnapshot *snapshot, int width, 
 		return;
 	const GdkRGBA shades[] = {{0, 0, 0, 1}, {.5, .5, .5, 1}, {1, 1, 1, 1}};
 	for (int marker = LEVEL_INPUT_BLACK; marker <= LEVEL_INPUT_WHITE; marker++) {
-		double x = get_marker_level(panel, marker) / 255 * width;
+		double x = byte_to_unit(get_marker_level(panel, marker)) * width;
+		graphene_rect_t box = GRAPHENE_RECT_INIT(x - MARKER_HALF_WIDTH, bar_height, 2 * MARKER_HALF_WIDTH, marker_height);
 		GskRoundedRect outline;
-		gsk_rounded_rect_init_from_rect(&outline, &GRAPHENE_RECT_INIT(x - 4, bar_height, 8, marker_height), 1);
+		gsk_rounded_rect_init_from_rect(&outline, &box, MARKER_BORDER);
 		gtk_snapshot_push_rounded_clip(snapshot, &outline);
-		gtk_snapshot_append_color(snapshot, &color, &GRAPHENE_RECT_INIT(x - 4, bar_height, 8, marker_height));
-		gtk_snapshot_append_color(snapshot, &shades[marker],
-								  &GRAPHENE_RECT_INIT(x - 3, bar_height + 1, 6, marker_height - 2));
+		gtk_snapshot_append_color(snapshot, &color, &box);
+		graphene_rect_t inside;
+		graphene_rect_inset_r(&box, MARKER_BORDER, MARKER_BORDER, &inside);
+		gtk_snapshot_append_color(snapshot, &shades[marker], &inside);
 		gtk_snapshot_pop(snapshot);
 	}
 }
 
 static double get_histogram_level(GtkWidget *histogram, double x) {
-	return CLAMP(x / MAX(1, gtk_widget_get_width(histogram)) * 255, 0, 255);
+	return CLAMP(unit_to_byte(x / MAX(1, gtk_widget_get_width(histogram))), 0, G_MAXUINT8);
 }
 
 static void move_marker(AdjustmentPanel *panel, double level) {
@@ -120,7 +190,7 @@ static void move_marker(AdjustmentPanel *panel, double level) {
 	}
 	double black = gtk_adjustment_get_value(values[LEVEL_INPUT_BLACK]);
 	double white = gtk_adjustment_get_value(values[LEVEL_INPUT_WHITE]);
-	double share = CLAMP((level - black) / MAX(1, white - black), .001, .999);
+	double share = CLAMP((level - black) / MAX(1, white - black), GAMMA_SHARE_LIMIT, 1 - GAMMA_SHARE_LIMIT);
 	gtk_adjustment_set_value(values[LEVEL_GAMMA], log(share) / log(.5));
 }
 
@@ -179,12 +249,14 @@ static void apply_panel_settings(AdjustmentPanel *panel) {
 }
 
 static void read_levels_channel(AdjustmentPanel *panel) {
-	double levels[5];
+	double levels[LEVELS_VALUES];
 	get_levels_channel(panel->settings, get_shown_channel(panel), levels);
-	const int order[] = {LEVEL_INPUT_BLACK, LEVEL_INPUT_WHITE, LEVEL_OUTPUT_BLACK, LEVEL_OUTPUT_WHITE, LEVEL_GAMMA};
+	const int order[LEVELS_VALUES] = {LEVEL_INPUT_BLACK, LEVEL_INPUT_WHITE, LEVEL_OUTPUT_BLACK, LEVEL_OUTPUT_WHITE,
+									  LEVEL_GAMMA};
 	panel->updating = TRUE;
-	for (int field = 0; field < 5; field++)
-		gtk_adjustment_set_value(panel->values[order[field]], field == 4 ? levels[4] / 100 : levels[field]);
+	for (int field = 0; field < LEVELS_VALUES; field++)
+		gtk_adjustment_set_value(panel->values[order[field]],
+								 field == LEVELS_GAMMA ? levels[field] / LEVELS_GAMMA_SCALE : levels[field]);
 	panel->updating = FALSE;
 }
 
@@ -193,17 +265,16 @@ static void store_levels_channel(AdjustmentPanel *panel) {
 	/* Photoshop keeps the input white at least two levels above the input black */
 	double black = gtk_adjustment_get_value(values[LEVEL_INPUT_BLACK]);
 	double white = gtk_adjustment_get_value(values[LEVEL_INPUT_WHITE]);
-	if (white < black + 2) {
+	if (white < black + LEVELS_GAP) {
 		panel->updating = TRUE;
-		if (black > 253)
-			black = 253;
+		black = MIN(black, G_MAXUINT8 - LEVELS_GAP);
 		gtk_adjustment_set_value(values[LEVEL_INPUT_BLACK], black);
-		gtk_adjustment_set_value(values[LEVEL_INPUT_WHITE], white = black + 2);
+		gtk_adjustment_set_value(values[LEVEL_INPUT_WHITE], white = black + LEVELS_GAP);
 		panel->updating = FALSE;
 	}
-	const double levels[5] = {black, white, gtk_adjustment_get_value(values[LEVEL_OUTPUT_BLACK]),
-							  gtk_adjustment_get_value(values[LEVEL_OUTPUT_WHITE]),
-							  round(gtk_adjustment_get_value(values[LEVEL_GAMMA]) * 100)};
+	const double levels[LEVELS_VALUES] = {black, white, gtk_adjustment_get_value(values[LEVEL_OUTPUT_BLACK]),
+										  gtk_adjustment_get_value(values[LEVEL_OUTPUT_WHITE]),
+										  round(gtk_adjustment_get_value(values[LEVEL_GAMMA]) * LEVELS_GAMMA_SCALE)};
 	set_levels_channel(panel->settings, get_shown_channel(panel), levels);
 }
 
@@ -218,7 +289,7 @@ static int get_mixer_output(AdjustmentPanel *panel) {
 
 /* Curves mapping levels directly come from files and have no points to drag, so their graph cannot be dragged */
 static void read_curve_channel(AdjustmentPanel *panel) {
-	double levels[256];
+	double levels[CURVE_LEVELS];
 	int channel = get_shown_channel(panel);
 	g_autoptr(GArray) points = get_curve_points(panel->settings, channel, levels);
 	gtk_widget_set_sensitive(panel->curve, points != NULL);
@@ -233,15 +304,15 @@ static void change_curve(GtkWidget *curve, AdjustmentPanel *panel) {
 	apply_panel_settings(panel);
 }
 
-static void get_button_color(GtkWidget *button, double rgb[3]) {
+static void get_button_color(GtkWidget *button, double rgb[RGB_CHANNELS]) {
 	const GdkRGBA *color = gtk_color_dialog_button_get_rgba(GTK_COLOR_DIALOG_BUTTON(button));
-	rgb[0] = round(color->red * 255);
-	rgb[1] = round(color->green * 255);
-	rgb[2] = round(color->blue * 255);
+	rgb[0] = round(unit_to_byte(color->red));
+	rgb[1] = round(unit_to_byte(color->green));
+	rgb[2] = round(unit_to_byte(color->blue));
 }
 
 static Record *create_button_lab(GtkWidget *button) {
-	double rgb[3], lab[3];
+	double rgb[RGB_CHANNELS], lab[RGB_CHANNELS];
 	get_button_color(button, rgb);
 	convert_rgb_to_lab(rgb[0], rgb[1], rgb[2], lab);
 	return create_typed_value("Objc", create_lab_descriptor(lab[0], lab[1], lab[2]));
@@ -266,8 +337,8 @@ static void store_gradient_map(AdjustmentPanel *panel) {
 			last = index;
 	}
 	int ends[] = {first, last};
-	for (int end = 0; end < 2; end++) {
-		double rgb[3];
+	for (guint end = 0; end < G_N_ELEMENTS(ends); end++) {
+		double rgb[RGB_CHANNELS];
 		get_button_color(panel->colors[end], rgb);
 		stops[ends[end]] = (GradientColorStop){
 			stops[ends[end]].location, stops[ends[end]].midpoint, GRADIENT_USER_COLOR, rgb[0], rgb[1], rgb[2]};
@@ -282,8 +353,8 @@ static void store_gradient_map(AdjustmentPanel *panel) {
 
 /* Shows the values of the chosen range, tone or output channel in the sliders */
 static void read_choice(AdjustmentPanel *panel) {
-	double values[20];
-	int count = 3;
+	double values[MIXER_VALUES];
+	int count = RGB_CHANNELS;
 	if (!strcmp(panel->key, "levl")) {
 		read_levels_channel(panel);
 		return;
@@ -296,19 +367,18 @@ static void read_choice(AdjustmentPanel *panel) {
 		return;
 	if (!strcmp(panel->key, "selc")) {
 		get_selective_color(panel->settings, get_shown_channel(panel), values);
-		count = 4;
+		count = SELECTIVE_INKS_COUNT;
 	} else if (!strcmp(panel->key, "hue2")) {
 		get_hue_range(panel->settings, get_shown_channel(panel), values);
-		memmove(values, values + 4, 3 * sizeof *values);
+		memmove(values, values + HUE_SHIFT, (HUE_RANGE_VALUES - HUE_SHIFT) * sizeof *values);
 	} else if (!strcmp(panel->key, "blnc"))
 		get_color_balance(panel->settings, get_shown_channel(panel), values);
 	else {
-		double mixer[20];
+		double mixer[MIXER_VALUES];
 		get_channel_mixer(panel->settings, mixer);
-		const int *output = (const int[]){0, 1, 2, 4};
-		for (int part = 0; part < 4; part++)
-			values[part] = mixer[get_mixer_output(panel) * 5 + output[part]];
-		count = 4;
+		for (guint part = 0; part < G_N_ELEMENTS(MIXER_PARTS_SHOWN); part++)
+			values[part] = mixer[get_mixer_output(panel) * MIXER_INPUTS_COUNT + MIXER_PARTS_SHOWN[part]];
+		count = G_N_ELEMENTS(MIXER_PARTS_SHOWN);
 	}
 	panel->updating = TRUE;
 	for (int slot = 0; slot < count; slot++)
@@ -319,38 +389,47 @@ static void read_choice(AdjustmentPanel *panel) {
 static void store_choice(AdjustmentPanel *panel) {
 	GtkAdjustment **slots = panel->values;
 	if (!strcmp(panel->key, "selc")) {
-		double inks[4];
-		for (int ink = 0; ink < 4; ink++)
+		double inks[SELECTIVE_INKS_COUNT];
+		for (int ink = 0; ink < SELECTIVE_INKS_COUNT; ink++)
 			inks[ink] = gtk_adjustment_get_value(slots[ink]);
 		set_selective_color(panel->settings, get_shown_channel(panel), inks);
 		set_absolute_selective_color(panel->settings, is_option_active(panel));
 	} else if (!strcmp(panel->key, "hue2")) {
-		double values[7];
+		double values[HUE_RANGE_VALUES];
 		int range = get_shown_channel(panel);
 		get_hue_range(panel->settings, range, values);
-		for (int field = 0; field < 3; field++)
-			values[4 + field] = gtk_adjustment_get_value(slots[field]);
+		for (int field = HUE_SHIFT; field < HUE_RANGE_VALUES; field++)
+			values[field] = gtk_adjustment_get_value(slots[field - HUE_SHIFT]);
 		set_hue_range(panel->settings, range, values);
 		set_descriptor_boolean(panel->settings, "Clrz", is_option_active(panel));
 	} else if (!strcmp(panel->key, "blnc")) {
-		const double values[3] = {gtk_adjustment_get_value(slots[0]), gtk_adjustment_get_value(slots[1]),
-								  gtk_adjustment_get_value(slots[2])};
+		const double values[RGB_CHANNELS] = {gtk_adjustment_get_value(slots[0]), gtk_adjustment_get_value(slots[1]),
+											 gtk_adjustment_get_value(slots[2])};
 		set_color_balance(panel->settings, get_shown_channel(panel), values);
 		set_descriptor_boolean(panel->settings, "PrsL", is_option_active(panel));
 	} else {
-		double values[20];
+		double values[MIXER_VALUES];
 		get_channel_mixer(panel->settings, values);
-		const int output[] = {0, 1, 2, 4};
-		for (int part = 0; part < 4; part++)
-			values[get_mixer_output(panel) * 5 + output[part]] = gtk_adjustment_get_value(slots[part]);
+		for (guint part = 0; part < G_N_ELEMENTS(MIXER_PARTS_SHOWN); part++)
+			values[get_mixer_output(panel) * MIXER_INPUTS_COUNT + MIXER_PARTS_SHOWN[part]] =
+				gtk_adjustment_get_value(slots[part]);
 		set_channel_mixer(panel->settings, is_option_active(panel), values);
+	}
+}
+
+/* Sliders that edit a setting of their own write it straight back */
+static void store_keyed_sliders(AdjustmentPanel *panel) {
+	for (int slot = 0; slot < panel->slider_count; slot++) {
+		const SliderSpec *spec = &panel->specs[slot];
+		if (spec->key)
+			set_descriptor_number(panel->settings, spec->key, spec->type, gtk_adjustment_get_value(panel->values[slot]));
 	}
 }
 
 static void change_value(GtkAdjustment *adjustment, AdjustmentPanel *panel) {
 	if (panel->updating)
 		return;
-	GtkAdjustment **values = panel->values;
+	store_keyed_sliders(panel);
 	if (!strcmp(panel->key, "levl"))
 		store_levels_channel(panel);
 	else if (!strcmp(panel->key, "hue2") || !strcmp(panel->key, "blnc") || !strcmp(panel->key, "mixr") ||
@@ -359,39 +438,19 @@ static void change_value(GtkAdjustment *adjustment, AdjustmentPanel *panel) {
 	else if (!strcmp(panel->key, "grdm"))
 		store_gradient_map(panel);
 	else if (!strcmp(panel->key, "blwh")) {
-		for (int index = 0; index < 6; index++)
-			set_descriptor_number(panel->settings, GRAY_WEIGHTS[index], "long",
-								  gtk_adjustment_get_value(values[index]));
 		set_descriptor_boolean(panel->settings, "useTint", is_option_active(panel));
-		double rgb[3];
+		double rgb[RGB_CHANNELS];
 		get_button_color(panel->colors[0], rgb);
 		set_record(panel->settings, "tintColor",
 				   create_typed_value("Objc", create_rgb_descriptor(rgb[0], rgb[1], rgb[2])));
 	} else if (!strcmp(panel->key, "phfl")) {
 		set_record(panel->settings, "Clr", create_button_lab(panel->colors[0]));
-		set_descriptor_number(panel->settings, "Dnst", "long", gtk_adjustment_get_value(values[0]));
 		set_descriptor_boolean(panel->settings, "PrsL", is_option_active(panel));
 	} else if (!strcmp(panel->key, "rplc")) {
 		set_record(panel->settings, "Mnm", create_button_lab(panel->colors[0]));
 		set_record(panel->settings, "Mxm", create_button_lab(panel->colors[0]));
-		const char *keys[] = {"Fzns", "H", "Strt", "Lght"};
-		for (int index = 0; index < 4; index++)
-			set_descriptor_number(panel->settings, keys[index], "long", gtk_adjustment_get_value(values[index]));
-	} else if (!strcmp(panel->key, "brit")) {
-		set_descriptor_number(panel->settings, "Brgh", "long", gtk_adjustment_get_value(values[0]));
-		set_descriptor_number(panel->settings, "Cntr", "long", gtk_adjustment_get_value(values[1]));
+	} else if (!strcmp(panel->key, "brit"))
 		set_descriptor_boolean(panel->settings, "useLegacy", is_option_active(panel));
-	} else if (!strcmp(panel->key, "vibA")) {
-		set_descriptor_number(panel->settings, "vibrance", "long", gtk_adjustment_get_value(values[0]));
-		set_descriptor_number(panel->settings, "Strt", "long", gtk_adjustment_get_value(values[1]));
-	} else if (!strcmp(panel->key, "expA")) {
-		set_descriptor_number(panel->settings, "Exps", "doub", gtk_adjustment_get_value(values[0]));
-		set_descriptor_number(panel->settings, "Ofst", "doub", gtk_adjustment_get_value(values[1]));
-		set_descriptor_number(panel->settings, "gammaCorrection", "doub", gtk_adjustment_get_value(values[2]));
-	} else if (!strcmp(panel->key, "post"))
-		set_descriptor_number(panel->settings, "Lvls", "long", gtk_adjustment_get_value(values[0]));
-	else if (!strcmp(panel->key, "thrs"))
-		set_descriptor_number(panel->settings, "Lvl", "long", gtk_adjustment_get_value(values[0]));
 	if (panel->histogram)
 		gtk_widget_queue_draw(panel->histogram);
 	apply_panel_settings(panel);
@@ -421,20 +480,37 @@ static void toggle_option(GtkCheckButton *button, AdjustmentPanel *panel) {
 	change_value(NULL, panel);
 }
 
-/* A label, a slider and a number box sharing one value */
-static void add_slider(AdjustmentPanel *panel, int slot, const char *name, double minimum, double maximum, double step,
-					   int digits, double value, int row) {
-	GtkAdjustment *adjustment = gtk_adjustment_new(value, minimum, maximum, step, step * 10, 0);
+/* Rows go below each other, so each part takes the next row */
+static int take_row(AdjustmentPanel *panel) {
+	return panel->next_row++;
+}
+
+static void attach_wide(AdjustmentPanel *panel, GtkWidget *widget) {
+	gtk_grid_attach(GTK_GRID(panel->grid), widget, 0, take_row(panel), PANEL_COLUMNS, 1);
+}
+
+/* A label, a slider and a number box sharing one value, which a setting of its own gives or a choice sets later */
+static void add_slider(AdjustmentPanel *panel, const SliderSpec *spec) {
+	int slot = panel->slider_count++, row = take_row(panel);
+	panel->specs[slot] = *spec;
+	double value = spec->key ? get_descriptor_number(panel->settings, spec->key, spec->fallback) : spec->fallback;
+	GtkAdjustment *adjustment =
+		gtk_adjustment_new(value, spec->minimum, spec->maximum, spec->step, spec->step * PAGE_STEPS, 0);
 	panel->values[slot] = adjustment;
 	GtkWidget *scale = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, adjustment);
 	gtk_scale_set_draw_value(GTK_SCALE(scale), FALSE);
-	gtk_widget_set_size_request(scale, 220, -1);
+	gtk_widget_set_size_request(scale, SLIDER_WIDTH, -1);
 	gtk_widget_set_hexpand(scale, TRUE);
-	add_dialog_input(panel->grid, name, scale, row);
-	GtkWidget *number = gtk_spin_button_new(adjustment, step, digits);
-	gtk_accessible_update_property(GTK_ACCESSIBLE(number), GTK_ACCESSIBLE_PROPERTY_LABEL, name, -1);
-	gtk_grid_attach(GTK_GRID(panel->grid), number, 2, row, 1, 1);
+	add_dialog_input(panel->grid, spec->label, scale, row);
+	GtkWidget *number = gtk_spin_button_new(adjustment, spec->step, spec->digits);
+	gtk_accessible_update_property(GTK_ACCESSIBLE(number), GTK_ACCESSIBLE_PROPERTY_LABEL, spec->label, -1);
+	gtk_grid_attach(GTK_GRID(panel->grid), number, NUMBER_COLUMN, row, 1, 1);
 	g_signal_connect(adjustment, "value-changed", G_CALLBACK(change_value), panel);
+}
+
+static void add_sliders(AdjustmentPanel *panel, const SliderSpec *specs, guint count) {
+	for (guint index = 0; index < count; index++)
+		add_slider(panel, &specs[index]);
 }
 
 static void change_color(GObject *button, GParamSpec *property, AdjustmentPanel *panel) {
@@ -445,49 +521,49 @@ static void toggle_second_option(GtkCheckButton *button, AdjustmentPanel *panel)
 	change_value(NULL, panel);
 }
 
-static void add_color(AdjustmentPanel *panel, int slot, const char *name, const double rgb[3], int row) {
+static void add_color(AdjustmentPanel *panel, int slot, const char *name, const double rgb[RGB_CHANNELS]) {
 	GtkWidget *button = gtk_color_dialog_button_new(gtk_color_dialog_new());
 	gtk_color_dialog_set_with_alpha(gtk_color_dialog_button_get_dialog(GTK_COLOR_DIALOG_BUTTON(button)), FALSE);
 	gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(button),
-									 &(GdkRGBA){rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, 1});
+									 &(GdkRGBA){byte_to_unit(rgb[0]), byte_to_unit(rgb[1]), byte_to_unit(rgb[2]), 1});
 	gtk_widget_set_halign(button, GTK_ALIGN_START);
 	panel->colors[slot] = button;
-	add_dialog_input(panel->grid, name, button, row);
+	add_dialog_input(panel->grid, name, button, take_row(panel));
 	g_signal_connect(button, "notify::rgba", G_CALLBACK(change_color), panel);
 }
 
-static void add_second_option(AdjustmentPanel *panel, const char *name, gboolean active, int row) {
+static void add_second_option(AdjustmentPanel *panel, const char *name, gboolean active) {
 	panel->second_option = gtk_check_button_new_with_label(name);
 	gtk_check_button_set_active(GTK_CHECK_BUTTON(panel->second_option), active);
-	gtk_grid_attach(GTK_GRID(panel->grid), panel->second_option, 0, row, 3, 1);
+	attach_wide(panel, panel->second_option);
 	g_signal_connect(panel->second_option, "toggled", G_CALLBACK(toggle_second_option), panel);
 }
 
-static void read_color(const Record *settings, const char *key, double rgb[3]) {
+static void read_color(const Record *settings, const char *key, double rgb[RGB_CHANNELS]) {
 	rgb[0] = rgb[1] = rgb[2] = 0;
 	read_descriptor_color(get_record(get_record(settings, key), "v"), rgb);
 }
 
-static void add_choice(AdjustmentPanel *panel, const char *name, const char *const *labels, int row) {
+static void add_choice(AdjustmentPanel *panel, const char *name, const char *const *labels) {
 	panel->choice = gtk_drop_down_new_from_strings(labels);
-	add_dialog_input(panel->grid, name, panel->choice, row);
+	add_dialog_input(panel->grid, name, panel->choice, take_row(panel));
 	g_signal_connect(panel->choice, "notify::selected", G_CALLBACK(change_choice), panel);
 }
 
-static void add_option(AdjustmentPanel *panel, const char *name, gboolean active, int row) {
+static void add_option(AdjustmentPanel *panel, const char *name, gboolean active) {
 	panel->option = gtk_check_button_new_with_label(name);
 	gtk_check_button_set_active(GTK_CHECK_BUTTON(panel->option), active);
-	gtk_grid_attach(GTK_GRID(panel->grid), panel->option, 0, row, 3, 1);
+	attach_wide(panel, panel->option);
 	g_signal_connect(panel->option, "toggled", G_CALLBACK(toggle_option), panel);
 }
 
-static void add_histogram(AdjustmentPanel *panel, int row) {
+static void add_histogram(AdjustmentPanel *panel) {
 	if (!panel->has_histogram)
 		return;
 	panel->histogram = create_snapshot_area(draw_histogram, NULL, panel);
-	gtk_widget_set_size_request(panel->histogram, 256, 112);
+	gtk_widget_set_size_request(panel->histogram, CURVE_LEVELS, HISTOGRAM_HEIGHT);
 	gtk_widget_add_css_class(panel->histogram, "dim-label");
-	gtk_grid_attach(GTK_GRID(panel->grid), panel->histogram, 0, row, 3, 1);
+	attach_wide(panel, panel->histogram);
 	if (strcmp(panel->key, "levl"))
 		return;
 	GtkGesture *drag = gtk_gesture_drag_new();
@@ -555,180 +631,137 @@ static void load_lut(GtkButton *button, AdjustmentPanel *panel) {
 	g_object_unref(dialog);
 }
 
-static int add_curves_rows(AdjustmentPanel *panel) {
+static void add_curves_rows(AdjustmentPanel *panel) {
 	add_choice(panel, TEXT_CHANNEL,
-			   (const char *[]){TEXT_CHANNEL_RGB, TEXT_CHANNEL_RED, TEXT_CHANNEL_GREEN, TEXT_CHANNEL_BLUE, NULL}, 0);
+			   (const char *[]){TEXT_CHANNEL_RGB, TEXT_CHANNEL_RED, TEXT_CHANNEL_GREEN, TEXT_CHANNEL_BLUE, NULL});
 	panel->curve = create_curve_editor((CurveEditorChanged)change_curve, panel);
-	gtk_grid_attach(GTK_GRID(panel->grid), panel->curve, 0, 1, 3, 1);
+	attach_wide(panel, panel->curve);
 	read_curve_channel(panel);
-	return 2;
 }
 
-static int add_gradient_map_rows(AdjustmentPanel *panel) {
+static void add_gradient_map_rows(AdjustmentPanel *panel) {
 	const Record *settings = panel->settings;
 	panel->preview = create_snapshot_area(draw_gradient_preview, NULL, panel);
-	gtk_widget_set_size_request(panel->preview, 256, 24);
-	gtk_grid_attach(GTK_GRID(panel->grid), panel->preview, 0, 0, 3, 1);
+	gtk_widget_set_size_request(panel->preview, CURVE_LEVELS, GRADIENT_PREVIEW_HEIGHT);
+	attach_wide(panel, panel->preview);
 	add_choice(panel, TEXT_GRADIENT_METHOD,
 			   (const char *[]){TEXT_GRADIENT_CLASSIC, TEXT_GRADIENT_LINEAR, TEXT_GRADIENT_PERCEPTUAL,
-								TEXT_GRADIENT_SMOOTH, TEXT_GRADIENT_STRIPES, NULL},
-			   1);
+								TEXT_GRADIENT_SMOOTH, TEXT_GRADIENT_STRIPES, NULL});
 	gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->choice), get_gradient_map_method(settings));
 	g_autoptr(Gradient) gradient = read_gradient_record(get_record(get_record(settings, "Grad"), "v"));
-	double colors[2][3] = {{0, 0, 0}, {255, 255, 255}};
+	/* Stops in the first half color the start and the others the end, black to white without a gradient */
+	double colors[2][RGB_CHANNELS] = {{0, 0, 0}, {G_MAXUINT8, G_MAXUINT8, G_MAXUINT8}};
 	for (int index = 0; gradient && index < gradient->color_count; index++) {
 		const GradientColorStop *stop = &gradient->colors[index];
-		int end = stop->location >= 2048;
+		int end = stop->location >= GRADIENT_LOCATION_RANGE / 2;
 		colors[end][0] = stop->red;
 		colors[end][1] = stop->green;
 		colors[end][2] = stop->blue;
 	}
-	add_color(panel, 0, TEXT_GRADIENT_START, colors[0], 2);
-	add_color(panel, 1, TEXT_GRADIENT_END, colors[1], 3);
-	add_option(panel, TEXT_REVERSE, get_descriptor_boolean(settings, "Rvrs", FALSE), 4);
-	add_second_option(panel, TEXT_DITHER, get_descriptor_boolean(settings, "Dthr", FALSE), 5);
-	return 6;
+	add_color(panel, 0, TEXT_GRADIENT_START, colors[0]);
+	add_color(panel, 1, TEXT_GRADIENT_END, colors[1]);
+	add_option(panel, TEXT_REVERSE, get_descriptor_boolean(settings, "Rvrs", FALSE));
+	add_second_option(panel, TEXT_DITHER, get_descriptor_boolean(settings, "Dthr", FALSE));
 }
 
-static int add_settings_rows(AdjustmentPanel *panel) {
+static void add_black_white_rows(AdjustmentPanel *panel) {
+	const char *names[GRAY_WEIGHTS_COUNT] = {TEXT_HUE_REDS,	 TEXT_HUE_YELLOWS, TEXT_HUE_GREENS,
+											 TEXT_HUE_CYANS, TEXT_HUE_BLUES,   TEXT_HUE_MAGENTAS};
+	for (int index = 0; index < GRAY_WEIGHTS_COUNT; index++) {
+		SliderSpec spec = GRAY_SLIDER;
+		spec.label = names[index];
+		spec.key = GRAY_WEIGHTS[index];
+		add_slider(panel, &spec);
+	}
+	add_option(panel, TEXT_TINT, get_descriptor_boolean(panel->settings, "useTint", FALSE));
+	double tint[RGB_CHANNELS];
+	read_color(panel->settings, "tintColor", tint);
+	add_color(panel, 0, TEXT_TINT_COLOR, tint);
+}
+
+static void add_color_lookup_rows(AdjustmentPanel *panel) {
+	const char *name = get_color_lookup_name(panel->settings);
+	panel->file_label = gtk_label_new(name ? name : TEXT_LUT_NONE);
+	gtk_label_set_ellipsize(GTK_LABEL(panel->file_label), PANGO_ELLIPSIZE_MIDDLE);
+	gtk_label_set_xalign(GTK_LABEL(panel->file_label), 0);
+	attach_wide(panel, panel->file_label);
+	GtkWidget *load = gtk_button_new_with_label(TEXT_LOAD_LUT);
+	gtk_widget_set_halign(load, GTK_ALIGN_START);
+	g_signal_connect(load, "clicked", G_CALLBACK(load_lut), panel);
+	attach_wide(panel, load);
+}
+
+static void add_settings_rows(AdjustmentPanel *panel) {
 	const Record *settings = panel->settings;
-	if (!strcmp(panel->key, "curv"))
-		return add_curves_rows(panel);
-	if (!strcmp(panel->key, "grdm"))
-		return add_gradient_map_rows(panel);
-	if (!strcmp(panel->key, "blwh")) {
-		const char *names[] = {TEXT_HUE_REDS,  TEXT_HUE_YELLOWS, TEXT_HUE_GREENS,
-							   TEXT_HUE_CYANS, TEXT_HUE_BLUES,	 TEXT_HUE_MAGENTAS};
-		for (int index = 0; index < 6; index++)
-			add_slider(panel, index, names[index], -200, 300, 1, 0,
-					   get_descriptor_number(settings, GRAY_WEIGHTS[index], 50), index);
-		add_option(panel, TEXT_TINT, get_descriptor_boolean(settings, "useTint", FALSE), 6);
-		double tint[3];
-		read_color(settings, "tintColor", tint);
-		add_color(panel, 0, TEXT_TINT_COLOR, tint, 7);
-		return 8;
-	}
-	if (!strcmp(panel->key, "phfl")) {
-		double color[3];
+	const char *key = panel->key;
+	if (!strcmp(key, "curv"))
+		add_curves_rows(panel);
+	else if (!strcmp(key, "grdm"))
+		add_gradient_map_rows(panel);
+	else if (!strcmp(key, "blwh"))
+		add_black_white_rows(panel);
+	else if (!strcmp(key, "clrL"))
+		add_color_lookup_rows(panel);
+	else if (!strcmp(key, "phfl")) {
+		double color[RGB_CHANNELS];
 		read_color(settings, "Clr", color);
-		add_color(panel, 0, TEXT_FILTER_COLOR, color, 0);
-		add_slider(panel, 0, TEXT_DENSITY, 0, 100, 1, 0, get_descriptor_number(settings, "Dnst", 80), 1);
-		add_option(panel, TEXT_PRESERVE_LUMINOSITY, get_descriptor_boolean(settings, "PrsL", TRUE), 2);
-		return 3;
-	}
-	if (!strcmp(panel->key, "selc")) {
+		add_color(panel, 0, TEXT_FILTER_COLOR, color);
+		add_sliders(panel, FILTER_SLIDERS, G_N_ELEMENTS(FILTER_SLIDERS));
+		add_option(panel, TEXT_PRESERVE_LUMINOSITY, get_descriptor_boolean(settings, "PrsL", TRUE));
+	} else if (!strcmp(key, "selc")) {
 		add_choice(panel, TEXT_SELECTIVE_COLORS,
 				   (const char *[]){TEXT_HUE_REDS, TEXT_HUE_YELLOWS, TEXT_HUE_GREENS, TEXT_HUE_CYANS, TEXT_HUE_BLUES,
 									TEXT_HUE_MAGENTAS, TEXT_SELECTIVE_WHITES, TEXT_SELECTIVE_NEUTRALS,
-									TEXT_SELECTIVE_BLACKS, NULL},
-				   0);
-		const char *inks[] = {TEXT_INK_CYAN, TEXT_INK_MAGENTA, TEXT_INK_YELLOW, TEXT_INK_BLACK};
-		for (int ink = 0; ink < 4; ink++)
-			add_slider(panel, ink, inks[ink], -100, 100, 1, 0, 0, ink + 1);
-		add_option(panel, TEXT_ABSOLUTE, is_absolute_selective_color(settings), 5);
+									TEXT_SELECTIVE_BLACKS, NULL});
+		add_sliders(panel, SELECTIVE_SLIDERS, G_N_ELEMENTS(SELECTIVE_SLIDERS));
+		add_option(panel, TEXT_ABSOLUTE, is_absolute_selective_color(settings));
 		read_choice(panel);
-		return 6;
-	}
-	if (!strcmp(panel->key, "clrL")) {
-		const char *name = get_color_lookup_name(settings);
-		panel->file_label = gtk_label_new(name ? name : TEXT_LUT_NONE);
-		gtk_label_set_ellipsize(GTK_LABEL(panel->file_label), PANGO_ELLIPSIZE_MIDDLE);
-		gtk_label_set_xalign(GTK_LABEL(panel->file_label), 0);
-		gtk_grid_attach(GTK_GRID(panel->grid), panel->file_label, 0, 0, 3, 1);
-		GtkWidget *load = gtk_button_new_with_label(TEXT_LOAD_LUT);
-		gtk_widget_set_halign(load, GTK_ALIGN_START);
-		g_signal_connect(load, "clicked", G_CALLBACK(load_lut), panel);
-		gtk_grid_attach(GTK_GRID(panel->grid), load, 0, 1, 3, 1);
-		return 2;
-	}
-	if (!strcmp(panel->key, "rplc")) {
-		double color[3];
+	} else if (!strcmp(key, "rplc")) {
+		double color[RGB_CHANNELS];
 		read_color(settings, "Mnm", color);
-		add_color(panel, 0, TEXT_REPLACE_COLOR_SAMPLE, color, 0);
-		add_slider(panel, 0, TEXT_FUZZINESS, 0, 200, 1, 0, get_descriptor_number(settings, "Fzns", 55), 1);
-		add_slider(panel, 1, TEXT_HUE, -180, 180, 1, 0, get_descriptor_number(settings, "H", 0), 2);
-		add_slider(panel, 2, TEXT_SATURATION, -100, 100, 1, 0, get_descriptor_number(settings, "Strt", 0), 3);
-		add_slider(panel, 3, TEXT_LIGHTNESS, -100, 100, 1, 0, get_descriptor_number(settings, "Lght", 0), 4);
-		return 5;
-	}
-	if (!strcmp(panel->key, "levl")) {
+		add_color(panel, 0, TEXT_REPLACE_COLOR_SAMPLE, color);
+		add_sliders(panel, REPLACE_SLIDERS, G_N_ELEMENTS(REPLACE_SLIDERS));
+	} else if (!strcmp(key, "levl")) {
 		add_choice(panel, TEXT_CHANNEL,
-				   (const char *[]){TEXT_CHANNEL_RGB, TEXT_CHANNEL_RED, TEXT_CHANNEL_GREEN, TEXT_CHANNEL_BLUE, NULL},
-				   0);
-		add_histogram(panel, 1);
-		add_slider(panel, LEVEL_INPUT_BLACK, TEXT_LEVELS_INPUT_BLACK, 0, 253, 1, 0, 0, 2);
-		add_slider(panel, LEVEL_GAMMA, TEXT_LEVELS_GAMMA, .01, 9.99, .01, 2, 1, 3);
-		add_slider(panel, LEVEL_INPUT_WHITE, TEXT_LEVELS_INPUT_WHITE, 2, 255, 1, 0, 255, 4);
-		add_slider(panel, LEVEL_OUTPUT_BLACK, TEXT_LEVELS_OUTPUT_BLACK, 0, 255, 1, 0, 0, 5);
-		add_slider(panel, LEVEL_OUTPUT_WHITE, TEXT_LEVELS_OUTPUT_WHITE, 0, 255, 1, 0, 255, 6);
+				   (const char *[]){TEXT_CHANNEL_RGB, TEXT_CHANNEL_RED, TEXT_CHANNEL_GREEN, TEXT_CHANNEL_BLUE, NULL});
+		add_histogram(panel);
+		add_sliders(panel, LEVELS_SLIDERS, G_N_ELEMENTS(LEVELS_SLIDERS));
 		read_levels_channel(panel);
-		return 7;
-	}
-	if (!strcmp(panel->key, "brit")) {
-		add_slider(panel, 0, TEXT_BRIGHTNESS, -150, 150, 1, 0, get_descriptor_number(settings, "Brgh", 0), 0);
-		add_slider(panel, 1, TEXT_CONTRAST, -50, 100, 1, 0, get_descriptor_number(settings, "Cntr", 0), 1);
-		add_option(panel, TEXT_USE_LEGACY, get_descriptor_boolean(settings, "useLegacy", FALSE), 2);
-		return 3;
-	}
-	if (!strcmp(panel->key, "vibA")) {
-		add_slider(panel, 0, TEXT_VIBRANCE, -100, 100, 1, 0, get_descriptor_number(settings, "vibrance", 0), 0);
-		add_slider(panel, 1, TEXT_SATURATION, -100, 100, 1, 0, get_descriptor_number(settings, "Strt", 0), 1);
-		return 2;
-	}
-	if (!strcmp(panel->key, "hue2")) {
+	} else if (!strcmp(key, "brit")) {
+		add_sliders(panel, BRIGHTNESS_SLIDERS, G_N_ELEMENTS(BRIGHTNESS_SLIDERS));
+		add_option(panel, TEXT_USE_LEGACY, get_descriptor_boolean(settings, "useLegacy", FALSE));
+	} else if (!strcmp(key, "vibA"))
+		add_sliders(panel, VIBRANCE_SLIDERS, G_N_ELEMENTS(VIBRANCE_SLIDERS));
+	else if (!strcmp(key, "hue2")) {
 		add_choice(panel, TEXT_HUE_RANGE,
 				   (const char *[]){TEXT_HUE_MASTER, TEXT_HUE_REDS, TEXT_HUE_YELLOWS, TEXT_HUE_GREENS, TEXT_HUE_CYANS,
-									TEXT_HUE_BLUES, TEXT_HUE_MAGENTAS, NULL},
-				   0);
-		add_slider(panel, 0, TEXT_HUE, -180, 180, 1, 0, 0, 1);
-		add_slider(panel, 1, TEXT_SATURATION, -100, 100, 1, 0, 0, 2);
-		add_slider(panel, 2, TEXT_LIGHTNESS, -100, 100, 1, 0, 0, 3);
-		add_option(panel, TEXT_COLORIZE, get_descriptor_boolean(settings, "Clrz", FALSE), 4);
+									TEXT_HUE_BLUES, TEXT_HUE_MAGENTAS, NULL});
+		add_sliders(panel, HUE_SLIDERS, G_N_ELEMENTS(HUE_SLIDERS));
+		add_option(panel, TEXT_COLORIZE, get_descriptor_boolean(settings, "Clrz", FALSE));
 		gtk_widget_set_sensitive(panel->choice, !is_option_active(panel));
 		read_choice(panel);
-		return 5;
-	}
-	if (!strcmp(panel->key, "blnc")) {
-		add_choice(panel, TEXT_TONE,
-				   (const char *[]){TEXT_TONE_SHADOWS, TEXT_TONE_MIDTONES, TEXT_TONE_HIGHLIGHTS, NULL}, 0);
-		add_slider(panel, 0, TEXT_BALANCE_CYAN_RED, -100, 100, 1, 0, 0, 1);
-		add_slider(panel, 1, TEXT_BALANCE_MAGENTA_GREEN, -100, 100, 1, 0, 0, 2);
-		add_slider(panel, 2, TEXT_BALANCE_YELLOW_BLUE, -100, 100, 1, 0, 0, 3);
-		add_option(panel, TEXT_PRESERVE_LUMINOSITY, get_descriptor_boolean(settings, "PrsL", TRUE), 4);
-		/* Photoshop opens Color Balance on the midtones, and the choice shows their values */
-		gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->choice), 1);
-		return 5;
-	}
-	if (!strcmp(panel->key, "mixr")) {
+	} else if (!strcmp(key, "blnc")) {
+		add_choice(panel, TEXT_TONE, (const char *[]){TEXT_TONE_SHADOWS, TEXT_TONE_MIDTONES, TEXT_TONE_HIGHLIGHTS, NULL});
+		add_sliders(panel, BALANCE_SLIDERS, G_N_ELEMENTS(BALANCE_SLIDERS));
+		add_option(panel, TEXT_PRESERVE_LUMINOSITY, get_descriptor_boolean(settings, "PrsL", TRUE));
+		/* Color Balance opens on the midtones, and the choice shows their values */
+		gtk_drop_down_set_selected(GTK_DROP_DOWN(panel->choice), BALANCE_MIDTONES);
+	} else if (!strcmp(key, "mixr")) {
 		add_choice(panel, TEXT_OUTPUT_CHANNEL,
-				   (const char *[]){TEXT_CHANNEL_RED, TEXT_CHANNEL_GREEN, TEXT_CHANNEL_BLUE, NULL}, 0);
-		add_slider(panel, 0, TEXT_CHANNEL_RED, -200, 200, 1, 0, 0, 1);
-		add_slider(panel, 1, TEXT_CHANNEL_GREEN, -200, 200, 1, 0, 0, 2);
-		add_slider(panel, 2, TEXT_CHANNEL_BLUE, -200, 200, 1, 0, 0, 3);
-		add_slider(panel, 3, TEXT_CONSTANT, -200, 200, 1, 0, 0, 4);
-		double values[20];
-		add_option(panel, TEXT_MONOCHROME, get_channel_mixer(settings, values), 5);
+				   (const char *[]){TEXT_CHANNEL_RED, TEXT_CHANNEL_GREEN, TEXT_CHANNEL_BLUE, NULL});
+		add_sliders(panel, MIXER_SLIDERS, G_N_ELEMENTS(MIXER_SLIDERS));
+		double values[MIXER_VALUES];
+		add_option(panel, TEXT_MONOCHROME, get_channel_mixer(settings, values));
 		gtk_widget_set_sensitive(panel->choice, !is_option_active(panel));
 		read_choice(panel);
-		return 6;
+	} else if (!strcmp(key, "expA"))
+		add_sliders(panel, EXPOSURE_SLIDERS, G_N_ELEMENTS(EXPOSURE_SLIDERS));
+	else if (!strcmp(key, "post"))
+		add_sliders(panel, POSTERIZE_SLIDERS, G_N_ELEMENTS(POSTERIZE_SLIDERS));
+	else if (!strcmp(key, "thrs")) {
+		add_histogram(panel);
+		add_sliders(panel, THRESHOLD_SLIDERS, G_N_ELEMENTS(THRESHOLD_SLIDERS));
 	}
-	if (!strcmp(panel->key, "expA")) {
-		add_slider(panel, 0, TEXT_ADJUSTMENT_EXPOSURE, -20, 20, .01, 2, get_descriptor_number(settings, "Exps", 0), 0);
-		add_slider(panel, 1, TEXT_EXPOSURE_OFFSET, -.5, .5, .0001, 4, get_descriptor_number(settings, "Ofst", 0), 1);
-		add_slider(panel, 2, TEXT_EXPOSURE_GAMMA, .01, 9.99, .01, 2,
-				   get_descriptor_number(settings, "gammaCorrection", 1), 2);
-		return 3;
-	}
-	if (!strcmp(panel->key, "post")) {
-		add_slider(panel, 0, TEXT_POSTERIZE_LEVELS, 2, 255, 1, 0, get_descriptor_number(settings, "Lvls", 3), 0);
-		return 1;
-	}
-	if (!strcmp(panel->key, "thrs")) {
-		add_histogram(panel, 0);
-		add_slider(panel, 0, TEXT_THRESHOLD_LEVEL, 1, 255, 1, 0, get_descriptor_number(settings, "Lvl", 128), 1);
-		return 2;
-	}
-	return 0;
 }
 
 /* ============================== Panel =========================================== */
@@ -783,15 +816,15 @@ void show_adjustment_panel(Editor *editor, int layer_index) {
 	gtk_label_set_xalign(GTK_LABEL(title), 0);
 	gtk_box_append(GTK_BOX(box), title);
 	panel->grid = gtk_grid_new();
-	gtk_grid_set_row_spacing(GTK_GRID(panel->grid), 8);
-	gtk_grid_set_column_spacing(GTK_GRID(panel->grid), 12);
+	gtk_grid_set_row_spacing(GTK_GRID(panel->grid), SPACING_SNUG);
+	gtk_grid_set_column_spacing(GTK_GRID(panel->grid), SPACING_NORMAL);
 	gtk_box_append(GTK_BOX(box), panel->grid);
-	int row = add_settings_rows(panel);
+	add_settings_rows(panel);
 	GtkWidget *clip = gtk_check_button_new_with_label(TEXT_CLIP_TO_LAYER_BELOW);
 	gtk_check_button_set_active(GTK_CHECK_BUTTON(clip), get_boolean(layer, "jl"));
 	gtk_widget_set_sensitive(clip, get_boolean(layer, "jl") || can_clip_layer(document, layer_index));
 	g_signal_connect(clip, "toggled", G_CALLBACK(toggle_clip), panel);
-	gtk_grid_attach(GTK_GRID(panel->grid), clip, 0, row, 3, 1);
+	attach_wide(panel, clip);
 	gtk_widget_set_margin_start(box, SPACING_SMALL);
 	gtk_widget_set_margin_end(box, SPACING_SMALL);
 	gtk_widget_set_margin_top(box, SPACING_SMALL);
