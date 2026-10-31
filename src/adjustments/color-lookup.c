@@ -18,18 +18,12 @@
 /* A curv tag keeps its count and then its values, and a parametric curve has one of five parameter counts */
 #define CURVE_HEADER_SIZE (ICC_TAG_HEAD + ICC_NUMBER_BYTES)
 static const int PARAMETRIC_COUNTS[] = {1, 3, 4, 5, 7};
-/* The colour space tables cover 0 to 2 in this many steps */
-#define COLOR_TABLE_SIZE 8000
-#define COLOR_TABLE_SCALE 4e3
 /* Positions are pulled in a hair, so the last entry is never passed */
 #define LAST_ENTRY_PULL .9999999
 #define GRID_EDGE_PULL 1.000001
 /* Blending a grid cell starts from its four corner pairs */
 #define CELL_CORNERS 4
 
-static const double ICC_WHITE[LUT_CHANNELS] = {.9642, 1, .8249};
-static const double ICC_XYZ_TO_RGB[LUT_CHANNELS * LUT_CHANNELS] = {3.1338561, -1.6168667, -.4906146, -.9787684, 1.9161415,
-										 .033454,	.0719453,	-.2289914, 1.4052427};
 static const double ICC_RGB_TO_XYZ[LUT_CHANNELS * LUT_CHANNELS] = {.4360747, .3850649, .14308038, .2225045, .7168786,
 										 .0606169, .0139322, .0971045,	.7141733};
 
@@ -69,8 +63,6 @@ typedef struct {
 	gsize length;
 	gboolean failed;
 } IccReader;
-
-static double linear_table[COLOR_TABLE_SIZE], lab_table[COLOR_TABLE_SIZE];
 
 /* ============================== Reading ========================================= */
 
@@ -321,31 +313,15 @@ static IccProfile *read_profile(const guint8 *data, gsize length) {
 
 /* ============================== Sampling ======================================== */
 
-static void fill_tables(void) {
-	static gsize ready;
-	if (!g_once_init_enter(&ready))
-		return;
-	for (int index = 0; index < COLOR_TABLE_SIZE; index++) {
-		double value = index / COLOR_TABLE_SCALE;
-		linear_table[index] = linearize_srgb(value);
-		lab_table[index] = value > .008856 ? pow(value, 1 / 3.0) : (903.3 * value + 16) * (1 / 116.0);
-	}
-	g_once_init_leave(&ready, 1);
-}
-
 /* A read past the table end gives NaN, which carries through the arithmetic */
 static double read_item(const double *values, gsize count, double index) {
 	return index >= 0 && index < count && values ? values[(gsize)index] : NAN;
 }
 
-static double read_color_table(const double *table, double position) {
-	return read_item(table, COLOR_TABLE_SIZE, trunc(.5 + position));
-}
-
 static void convert_rgb_to_xyz(const double rgb[LUT_CHANNELS], double xyz[LUT_CHANNELS]) {
-	double red = read_color_table(linear_table, rgb[0] * COLOR_TABLE_SCALE);
-	double green = read_color_table(linear_table, rgb[1] * COLOR_TABLE_SCALE);
-	double blue = read_color_table(linear_table, rgb[2] * COLOR_TABLE_SCALE);
+	double red = read_linear_table(rgb[0] * COLOR_TABLE_SCALE);
+	double green = read_linear_table(rgb[1] * COLOR_TABLE_SCALE);
+	double blue = read_linear_table(rgb[2] * COLOR_TABLE_SCALE);
 	for (int row = 0; row < LUT_CHANNELS; row++) {
 		const double *weights = ICC_RGB_TO_XYZ + row * LUT_CHANNELS;
 		xyz[row] = weights[0] * red + weights[1] * green + weights[2] * blue;
@@ -355,23 +331,19 @@ static void convert_rgb_to_xyz(const double rgb[LUT_CHANNELS], double xyz[LUT_CH
 /* Lab with the lightness in hundredths, and a and b centered on half a byte, all as fractions */
 static void convert_xyz_to_fractions(const double xyz[LUT_CHANNELS], const double *white, double *point) {
 	double x = xyz[0] * (1 / white[0]), y = xyz[1] * (1 / white[1]), z = xyz[2] < 0 ? 0 : xyz[2] * (1 / white[2]);
-	double fx = read_color_table(lab_table, x * COLOR_TABLE_SCALE), fy = read_color_table(lab_table, y * COLOR_TABLE_SCALE);
-	double fz = read_color_table(lab_table, z * COLOR_TABLE_SCALE);
+	double fx = read_lab_table(x * COLOR_TABLE_SCALE), fy = read_lab_table(y * COLOR_TABLE_SCALE);
+	double fz = read_lab_table(z * COLOR_TABLE_SCALE);
 	point[0] = from_percent(116 * fy - 16);
 	point[1] = byte_to_unit(127.5 + 500 * (fx - fy));
 	point[2] = byte_to_unit(127.5 + 200 * (fy - fz));
 }
 
 static void convert_lab_to_fractions(double lightness, double a, double b, const double *white, double *point) {
-	const double kappa = 903.3, epsilon = .008856;
-	double fy = (lightness + 16) / 116, y_cube = fy * fy * fy, fz = fy - b / 200, z_cube = fz * fz * fz;
-	double fx = a / 500 + fy, x_cube = fx * fx * fx;
-	double z = z_cube > epsilon ? z_cube : (116 * fz - 16) / kappa;
-	double y = y_cube > epsilon ? y_cube : (116 * fy - 16) / kappa;
-	double x = x_cube > epsilon ? x_cube : (116 * fx - 16) / kappa;
-	double xyz[LUT_CHANNELS] = {x * white[0], y * white[1], z * white[2]};
+	double shares[LUT_CHANNELS];
+	convert_lab_to_white_shares(lightness, a, b, shares);
+	double xyz[LUT_CHANNELS] = {shares[0] * white[0], shares[1] * white[1], shares[2] * white[2]};
 	for (int row = 0; row < LUT_CHANNELS; row++) {
-		const double *weights = ICC_XYZ_TO_RGB + row * LUT_CHANNELS;
+		const double *weights = XYZ_TO_RGB + row * (LUT_CHANNELS + 1);
 		point[row] = MAX(0, MIN(1, encode_srgb(weights[0] * xyz[0] + weights[1] * xyz[1] + weights[2] * xyz[2])));
 	}
 }
@@ -492,7 +464,7 @@ static gboolean sample_point(const IccProfile *profile, double *point) {
 	if (!g_ascii_strcasecmp(input, "lab ")) {
 		double xyz[LUT_CHANNELS];
 		convert_rgb_to_xyz(point, xyz);
-		convert_xyz_to_fractions(xyz, ICC_WHITE, point);
+		convert_xyz_to_fractions(xyz, D50_WHITE, point);
 	} else if (!g_ascii_strcasecmp(input, "xyz ")) {
 		double xyz[LUT_CHANNELS];
 		convert_rgb_to_xyz(point, xyz);
@@ -535,7 +507,7 @@ static gboolean sample_point(const IccProfile *profile, double *point) {
 	if (!g_ascii_strcasecmp(output, "rgb "))
 		return TRUE;
 	IccTag *white_tag = find_tag(profile, "wtpt");
-	const double *white = white_tag && white_tag->value_count == LUT_CHANNELS ? white_tag->values : ICC_WHITE;
+	const double *white = white_tag && white_tag->value_count == LUT_CHANNELS ? white_tag->values : D50_WHITE;
 	if (!g_ascii_strcasecmp(output, "xyz ")) {
 		double xyz[LUT_CHANNELS] = {point[0], point[1], point[2]};
 		convert_xyz_to_fractions(xyz, white, point);
@@ -573,7 +545,6 @@ gboolean sample_color_lookup(const guint8 *data, gsize length, double *samples) 
 }
 
 static gboolean sample_profile(const guint8 *data, gsize length, double *samples) {
-	fill_tables();
 	g_autoptr(IccProfile) profile = read_profile(data, length);
 	if (!profile)
 		return FALSE;

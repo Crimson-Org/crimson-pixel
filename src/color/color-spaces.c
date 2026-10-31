@@ -4,11 +4,15 @@
 #include "color-spaces.h"
 #include "psd/descriptor.h"
 
-enum { COLOR_TABLE_SIZE = 8000 };
+/* Two whole units of COLOR_TABLE_SCALE steps */
+#define COLOR_TABLE_SIZE 8000
+/* The Lab curve turns from a straight line into a cube root at this point */
+#define LAB_EPSILON .008856
+#define LAB_KAPPA 903.3
 
-static const double XYZ_TO_RGB[16] = {3.1338561, -1.6168667, -.4906146, 0, -.9787684, 1.9161415, .033454, 0,
+const double XYZ_TO_RGB[16] = {3.1338561, -1.6168667, -.4906146, 0, -.9787684, 1.9161415, .033454, 0,
 									  .0719453,	 -.2289914,	 1.4052427, 0, 0,		  0,		 0,		  1};
-static const double D50_WHITE[3] = {.9642, 1, .8249};
+const double D50_WHITE[3] = {.9642, 1, .8249};
 
 static double linear_table[COLOR_TABLE_SIZE], lab_table[COLOR_TABLE_SIZE], rgb_to_xyz[16];
 
@@ -19,9 +23,9 @@ static void fill_color_tables(void) {
 	if (!g_once_init_enter(&ready))
 		return;
 	for (int index = 0; index < COLOR_TABLE_SIZE; index++) {
-		double value = index * (1 / 4e3);
+		double value = index / COLOR_TABLE_SCALE;
 		linear_table[index] = linearize_srgb(value);
-		lab_table[index] = value > .008856 ? pow(value, 1 / 3.0) : (903.3 * value + 16) * (1 / 116.0);
+		lab_table[index] = value > LAB_EPSILON ? pow(value, 1 / 3.0) : (LAB_KAPPA * value + 16) * (1 / 116.0);
 	}
 	invert_matrix(XYZ_TO_RGB, rgb_to_xyz);
 	g_once_init_leave(&ready, 1);
@@ -31,6 +35,16 @@ static void fill_color_tables(void) {
 static double read_table(const double *table, double position) {
 	double index = trunc(.5 + position);
 	return index >= 0 && index < COLOR_TABLE_SIZE ? table[(int)index] : NAN;
+}
+
+double read_linear_table(double position) {
+	fill_color_tables();
+	return read_table(linear_table, position);
+}
+
+double read_lab_table(double position) {
+	fill_color_tables();
+	return read_table(lab_table, position);
 }
 
 /* ============================== Conversions ===================================== */
@@ -84,26 +98,31 @@ double encode_srgb(double value) {
 	return value < .0031308 ? 12.92 * value : 1.055 * pow(value, 1 / 2.4) - .055;
 }
 
-void convert_lab_to_rgb(double lightness, double a, double b, double rgb[3]) {
-	const double kappa = 903.3, epsilon = .008856;
+void convert_lab_to_white_shares(double lightness, double a, double b, double shares[3]) {
 	double y = (lightness + 16) / 116, y_cube = y * y * y, z = y - b / 200, z_cube = z * z * z;
 	double x = a / 500 + y, x_cube = x * x * x;
-	double z_value = z_cube > epsilon ? z_cube : (116 * z - 16) / kappa;
-	double y_value = y_cube > epsilon ? y_cube : (116 * y - 16) / kappa;
-	double x_value = x_cube > epsilon ? x_cube : (116 * x - 16) / kappa;
-	const double xyz[4] = {x_value * 96.42 / 100, y_value * 100 / 100, z_value * 82.49 / 100, 0};
+	shares[0] = x_cube > LAB_EPSILON ? x_cube : (116 * x - 16) / LAB_KAPPA;
+	shares[1] = y_cube > LAB_EPSILON ? y_cube : (116 * y - 16) / LAB_KAPPA;
+	shares[2] = z_cube > LAB_EPSILON ? z_cube : (116 * z - 16) / LAB_KAPPA;
+}
+
+void convert_lab_to_rgb(double lightness, double a, double b, double rgb[3]) {
+	double shares[3];
+	convert_lab_to_white_shares(lightness, a, b, shares);
+	/* The D50 white point in percent */
+	const double xyz[4] = {shares[0] * 96.42 / PERCENT, shares[1] * PERCENT / PERCENT, shares[2] * 82.49 / PERCENT, 0};
 	for (int channel = 0; channel < 3; channel++) {
 		const double *row = XYZ_TO_RGB + channel * 4;
 		double linear = row[0] * xyz[0] + row[1] * xyz[1] + row[2] * xyz[2] + row[3] * xyz[3];
-		double value = encode_srgb(linear) * 255;
-		rgb[channel] = isnan(value) ? value : MAX(0, MIN(255, value));
+		double value = unit_to_byte(encode_srgb(linear));
+		rgb[channel] = isnan(value) ? value : MAX(0, MIN(G_MAXUINT8, value));
 	}
 }
 
 void convert_xyz_to_lab(double x, double y, double z, double lab[3]) {
 	fill_color_tables();
-	double fx = read_table(lab_table, x * 4e3), fy = read_table(lab_table, y * 4e3),
-		   fz = read_table(lab_table, z * 4e3);
+	double fx = read_table(lab_table, x * COLOR_TABLE_SCALE), fy = read_table(lab_table, y * COLOR_TABLE_SCALE),
+		   fz = read_table(lab_table, z * COLOR_TABLE_SCALE);
 	lab[0] = 116 * fy - 16;
 	lab[1] = 500 * (fx - fy);
 	lab[2] = 200 * (fy - fz);
@@ -111,7 +130,7 @@ void convert_xyz_to_lab(double x, double y, double z, double lab[3]) {
 
 void convert_rgb_to_lab(double red, double green, double blue, double lab[3]) {
 	fill_color_tables();
-	const double scale = 4e3 / 255;
+	const double scale = COLOR_TABLE_SCALE / 255;
 	red = read_table(linear_table, red * scale);
 	green = read_table(linear_table, green * scale);
 	blue = read_table(linear_table, blue * scale);

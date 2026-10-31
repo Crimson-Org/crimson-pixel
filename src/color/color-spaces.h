@@ -38,3 +38,14 @@ Record *create_rgb_descriptor(double red, double green, double blue);
 /* The descriptor keys of Lab lightness, a and b */
 extern const char *const LAB_KEYS[3];
 Record *create_lab_descriptor(double lightness, double a, double b);
+
+/* The D50 white point, and the matrix from XYZ to linear sRGB with a fourth row and column for an offset */
+extern const double D50_WHITE[3];
+extern const double XYZ_TO_RGB[16];
+/* Linear light and the Lab curve are tables over 0 to 2 in steps of one in COLOR_TABLE_SCALE, read at the nearest
+ * step of a position, with NaN past the end */
+#define COLOR_TABLE_SCALE 4e3
+double read_linear_table(double position);
+double read_lab_table(double position);
+/* X, Y and Z of a Lab colour as shares of the white point */
+void convert_lab_to_white_shares(double lightness, double a, double b, double shares[3]);
