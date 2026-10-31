@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <math.h>
 #include <string.h>
 
@@ -32,16 +33,22 @@ typedef struct {
 	gboolean failed;
 } Composition;
 
+/* Extents past this many pixels from the origin are refused, and masks are padded to four bytes */
+#define LARGEST_COORDINATE 32768
+#define MASK_ALIGNMENT 4
+/* A spare buffer is reused unless it is this many times larger than needed */
+#define LARGEST_BUFFER_WASTE 10
+
 /* Outside its extent a mask has its default color, weakened by its density */
 static guint mask_outside_value(const Record *mask) {
-	return (guint)round_half_up(255 - (255 - get_number(mask, "color")) * (get_number(mask, "mU") / 255));
+	return (guint)round_half_up(G_MAXUINT8 - (G_MAXUINT8 - get_number(mask, "color")) * (get_number(mask, "mU") / G_MAXUINT8));
 }
 
 /* Masks that are disabled, or empty with an opaque outside, are ignored */
 static gboolean is_mask_active(const Record *layer) {
 	Record *mask = get_record(layer, "yy");
 	return has_record(layer, "yy") && get_boolean(mask, "isEnabled") &&
-		   (!empty_extent(read_extent(get_record(mask, "V"))) || mask_outside_value(mask) != 255);
+		   (!empty_extent(read_extent(get_record(mask, "V"))) || mask_outside_value(mask) != G_MAXUINT8);
 }
 
 /* Density is applied through two inversions, and the padding is changed the same way */
@@ -49,16 +56,16 @@ static guint8 *create_mask_values(const Record *mask) {
 	Record *channels = get_record(mask, "C");
 	guint8 *values = g_memdup2(channels->value.buffer.data, channels->value.buffer.length);
 	double density = get_number(mask, "mU");
-	if (density == 255)
+	if (density == G_MAXUINT8)
 		return values;
 	for (gsize index = 0; index < channels->value.buffer.length; index++)
-		values[index] = 255 - ((guint)round_half_up((255 - values[index]) * (density / 255)) & 255);
+		values[index] = G_MAXUINT8 - ((guint)round_half_up((G_MAXUINT8 - values[index]) * (density / G_MAXUINT8)) & G_MAXUINT8);
 	return values;
 }
 
 static MaskSampler create_mask_sampler(const guint8 *values, gsize length, RasterExtent extent, guint outside) {
-	gboolean is_rgba = length == (gsize)extent.width * extent.height * 4;
-	return (MaskSampler){values, extent, is_rgba ? 4 : 1, is_rgba ? 3 : 0, outside};
+	gboolean is_rgba = length == (gsize)extent.width * extent.height * RGBA_CHANNELS;
+	return (MaskSampler){values, extent, is_rgba ? RGBA_CHANNELS : 1, is_rgba ? ALPHA_CHANNEL : 0, outside};
 }
 
 static guint sample_mask(const MaskSampler *mask, int x, int y) {
@@ -109,7 +116,7 @@ static gboolean valid_extent(const Record *extent) {
 	const char *fields[] = {"x", "y", "s", "T"};
 	for (guint index = 0; index < G_N_ELEMENTS(fields); index++) {
 		double value = get_number(extent, fields[index]);
-		if (!isfinite(value) || value != trunc(value) || fabs(value) > 32768)
+		if (!isfinite(value) || value != trunc(value) || fabs(value) > LARGEST_COORDINATE)
 			return FALSE;
 	}
 	return get_number(extent, "s") >= 0 && get_number(extent, "T") >= 0;
@@ -118,7 +125,7 @@ static gboolean valid_extent(const Record *extent) {
 static gboolean has_bounded_number(const Record *record, const char *key) {
 	Record *value = get_record(record, key);
 	return value && value->type == RECORD_NUMBER && isfinite(value->value.number) && value->value.number >= 0 &&
-		   value->value.number <= 255;
+		   value->value.number <= G_MAXUINT8;
 }
 
 static gboolean supports_layer_mask(const Record *mask) {
@@ -131,8 +138,8 @@ static gboolean supports_layer_mask(const Record *mask) {
 	Record *channels = get_record(mask, "C");
 	RasterExtent extent = read_extent(get_record(mask, "V"));
 	gsize area = (gsize)extent.width * extent.height;
-	return channels && channels->type == RECORD_BUFFER && channels->value.buffer.depth == 8 &&
-		   channels->value.buffer.length == area + (4 - area % 4) % 4;
+	return channels && channels->type == RECORD_BUFFER && channels->value.buffer.depth == BYTE_DEPTH &&
+		   channels->value.buffer.length == area + (MASK_ALIGNMENT - area % MASK_ALIGNMENT) % MASK_ALIGNMENT;
 }
 
 static gboolean supports_adjustment(const char *key, const Record *descriptor) {
@@ -144,7 +151,7 @@ static gboolean supports_adjustment(const char *key, const Record *descriptor) {
 		return FALSE;
 	if (!strcmp(key, "post")) {
 		double levels = get_descriptor_number(descriptor, "Lvls", 0);
-		return levels >= 2 && levels <= 255;
+		return levels >= 2 && levels <= G_MAXUINT8;
 	}
 	if (!strcmp(key, "thrs"))
 		return isfinite(get_descriptor_number(descriptor, "Lvl", NAN));
@@ -158,7 +165,7 @@ static gboolean supports_adjustment(const char *key, const Record *descriptor) {
 		const char *tones[] = {"ShdL", "MdtL", "HghL"};
 		for (guint index = 0; index < G_N_ELEMENTS(tones); index++) {
 			Record *shifts = get_record(get_record(descriptor, tones[index]), "v");
-			if (has_record(descriptor, tones[index]) && (!shifts || count_records(shifts) < 3))
+			if (has_record(descriptor, tones[index]) && (!shifts || count_records(shifts) < RGB_CHANNELS))
 				return FALSE;
 		}
 	}
@@ -171,11 +178,12 @@ static gboolean supports_adjustment(const char *key, const Record *descriptor) {
 		return get_descriptor_number(descriptor, "gammaCorrection", 1) > 0;
 	}
 	if (!strcmp(key, "levl")) {
-		for (int channel = 0; channel < 4; channel++) {
-			double values[5];
+		for (int channel = 0; channel < TONE_CHANNELS; channel++) {
+			double values[LEVELS_VALUES];
 			get_levels_channel(descriptor, channel, values);
-			if (!(values[0] >= 0 && values[1] <= 255 && values[0] < values[1] && values[2] >= 0 && values[3] <= 255 &&
-				  values[4] > 0))
+			if (!(values[LEVELS_INPUT_BLACK] >= 0 && values[LEVELS_INPUT_WHITE] <= G_MAXUINT8 &&
+				  values[LEVELS_INPUT_BLACK] < values[LEVELS_INPUT_WHITE] && values[LEVELS_OUTPUT_BLACK] >= 0 &&
+				  values[LEVELS_OUTPUT_WHITE] <= G_MAXUINT8 && values[LEVELS_GAMMA] > 0))
 				return FALSE;
 		}
 	}
@@ -206,9 +214,9 @@ static gboolean supports_composition_layer(const Record *layer) {
 		return FALSE;
 	Record *restricted = get_record(descriptors, "brst");
 	if (restricted) {
-		if (restricted->type != RECORD_ARRAY || count_records(restricted) != 3)
+		if (restricted->type != RECORD_ARRAY || count_records(restricted) != RGB_CHANNELS)
 			return FALSE;
-		for (guint index = 0; index < 3; index++)
+		for (guint index = 0; index < RGB_CHANNELS; index++)
 			if (get_item(restricted, index)->type != RECORD_NUMBER || get_item(restricted, index)->value.number != 1)
 				return FALSE;
 	}
@@ -217,7 +225,7 @@ static gboolean supports_composition_layer(const Record *layer) {
 		return FALSE;
 	for (guint index = 0; index < BLEND_RANGE_VALUES; index++) {
 		Record *range = get_item(ranges, index);
-		if (!range || range->type != RECORD_NUMBER || !(range->value.number >= 0 && range->value.number <= 255))
+		if (!range || range->type != RECORD_NUMBER || !(range->value.number >= 0 && range->value.number <= G_MAXUINT8))
 			return FALSE;
 	}
 	double flags = get_number(layer, "NF");
@@ -230,13 +238,13 @@ static gboolean supports_composition_layer(const Record *layer) {
 	if (find_blend_mode(mode) < 0 && !(is_layer_group(layer) && !g_strcmp0(mode, "pass")))
 		return FALSE;
 	double opacity = get_number(layer, "nv");
-	double fill = has_record(descriptors, "iOpa") ? get_number(descriptors, "iOpa") : 255;
-	if (!isfinite(opacity) || opacity < 0 || opacity > 255 || !isfinite(fill) || fill < 0 || fill > 255)
+	double fill = has_record(descriptors, "iOpa") ? get_number(descriptors, "iOpa") : G_MAXUINT8;
+	if (!isfinite(opacity) || opacity < 0 || opacity > G_MAXUINT8 || !isfinite(fill) || fill < 0 || fill > G_MAXUINT8)
 		return FALSE;
 	Record *buffer = get_record(layer, "buffer");
 	RasterExtent extent = read_extent(get_record(layer, "V"));
-	return buffer && buffer->type == RECORD_BUFFER && buffer->value.buffer.depth == 8 &&
-		   (guint64)extent.width * extent.height * 4 <= buffer->value.buffer.length;
+	return buffer && buffer->type == RECORD_BUFFER && buffer->value.buffer.depth == BYTE_DEPTH &&
+		   (guint64)extent.width * extent.height * RGBA_CHANNELS <= buffer->value.buffer.length;
 }
 
 static void free_composition_buffer(CompositionBuffer *buffer) {
@@ -254,14 +262,14 @@ static Record *acquire_buffer(Composition *composition, RasterExtent *extent, gb
 			continue;
 		if (exact && (candidate->width != extent->width || candidate->height != extent->height))
 			continue;
-		if (!exact && area * 10 < candidate_area)
+		if (!exact && area * LARGEST_BUFFER_WASTE < candidate_area)
 			continue;
 		if (!best || candidate_area < (gint64)best->width * best->height)
 			best = candidate;
 	}
 	if (!best) {
 		Record *channels =
-			area >= 0 && (guint64)area <= DOCUMENT_MAX_PIXELS ? create_scratch_channels(area * 4, 8) : NULL;
+			area >= 0 && (guint64)area <= DOCUMENT_MAX_PIXELS ? create_scratch_channels(area * RGBA_CHANNELS, BYTE_DEPTH) : NULL;
 		if (!channels) {
 			if (!composition->failed)
 				g_set_error_literal(composition->error, G_IO_ERROR, G_IO_ERROR_NO_SPACE,
@@ -307,18 +315,18 @@ static void clear_rows(int first, int last, gpointer data) {
 	RasterExtent region = work->region, target = work->destination_extent;
 	for (int y = first; y < last; y++)
 		memset((guint8 *)work->destination->value.buffer.data +
-				   ((gsize)(y - target.y) * target.width + region.x - target.x) * 4,
-			   0, (gsize)region.width * 4);
+				   ((gsize)(y - target.y) * target.width + region.x - target.x) * RGBA_CHANNELS,
+			   0, (gsize)region.width * RGBA_CHANNELS);
 }
 
 static void copy_rows(int first, int last, gpointer data) {
 	const RegionWork *work = data;
 	RasterExtent region = work->region, source_extent = work->source_extent, target = work->destination_extent;
 	for (int y = first; y < last; y++) {
-		gsize from = ((gsize)(y - source_extent.y) * source_extent.width + region.x - source_extent.x) * 4;
-		gsize to = ((gsize)(y - target.y) * target.width + region.x - target.x) * 4;
+		gsize from = ((gsize)(y - source_extent.y) * source_extent.width + region.x - source_extent.x) * RGBA_CHANNELS;
+		gsize to = ((gsize)(y - target.y) * target.width + region.x - target.x) * RGBA_CHANNELS;
 		memmove((guint8 *)work->destination->value.buffer.data + to,
-				(const guint8 *)work->source->value.buffer.data + from, (gsize)region.width * 4);
+				(const guint8 *)work->source->value.buffer.data + from, (gsize)region.width * RGBA_CHANNELS);
 	}
 }
 
@@ -335,21 +343,24 @@ static void copy_region(const Record *source, RasterExtent source_extent, Record
 	run_rows_in_parallel(region.y, region.height, region.width, copy_rows, &work);
 }
 
+/* Divides by 255 exactly for products of two bytes, with shifts only */
 static guint divide_255(guint value) {
-	return (value + 1 + (value >> 8)) >> 8;
+	return (value + 1 + (value >> CHAR_BIT)) >> CHAR_BIT;
 }
 
 static void dissolve_rows(int first, int last, gpointer data) {
 	const RegionWork *work = data;
 	RasterExtent region = work->region, source_extent = work->source_extent, target = work->destination_extent;
-	gint32 threshold = (gint32)(work->opacity * 16777215) & 16777215, scale = (gint32)floor(work->opacity * 257 + .5);
+	/* Without a mask the low 24 bits of the hash are compared, and with one its low 16 bits */
+	gint32 threshold = (gint32)(work->opacity * DISSOLVE_MASK) & DISSOLVE_MASK;
+	gint32 scale = (gint32)floor(work->opacity * (G_MAXUINT16 / G_MAXUINT8) + .5);
 	for (int y = first; y < last; y++)
 		for (int x = region.x; x < region.x + region.width; x++) {
 			gsize from = (gsize)(y - source_extent.y) * source_extent.width + x - source_extent.x;
 			gsize to = (gsize)(y - target.y) * target.width + x - target.x;
 			gint32 hash = hash_whole_number(from);
-			gboolean kept = work->mask ? (hash & 65535) < (gint32)sample_mask(work->mask, x, y) * scale
-									   : (hash & 16777215) < threshold;
+			gboolean kept = work->mask ? (hash & G_MAXUINT16) < (gint32)sample_mask(work->mask, x, y) * scale
+									   : (hash & DISSOLVE_MASK) < threshold;
 			if (kept)
 				write_rgba_pixel(work->destination, to, read_rgba_pixel(work->source, from));
 		}
@@ -364,24 +375,24 @@ static void interpolate_rows(int first, int last, gpointer data) {
 		for (int x = region.x; x < region.x + region.width; x++) {
 			gsize from = (gsize)(y - source_extent.y) * source_extent.width + x - source_extent.x;
 			gsize to = (gsize)(y - target.y) * target.width + x - target.x;
-			guint factor = (guint)(work->opacity * 255) & 255;
+			guint factor = (guint)(work->opacity * G_MAXUINT8) & G_MAXUINT8;
 			if (work->mask) {
-				factor = (guint)(sample_mask(work->mask, x, y) * work->opacity) & 255;
+				factor = (guint)(sample_mask(work->mask, x, y) * work->opacity) & G_MAXUINT8;
 				if (!factor)
 					continue;
-				if (factor == 255) {
+				if (factor == G_MAXUINT8) {
 					write_rgba_pixel(destination, to, read_rgba_pixel(source, from));
 					continue;
 				}
 			}
 			guint32 foreground = read_rgba_pixel(source, from), background = read_rgba_pixel(destination, to);
-			guint alpha = divide_255(factor * (foreground >> WORD_ALPHA_SHIFT) + (255 - factor) * (background >> WORD_ALPHA_SHIFT));
+			guint alpha = divide_255(factor * (foreground >> WORD_ALPHA_SHIFT) + (G_MAXUINT8 - factor) * (background >> WORD_ALPHA_SHIFT));
 			guint upper = divide_255((foreground >> WORD_ALPHA_SHIFT) * factor);
-			guint lower = divide_255((background >> WORD_ALPHA_SHIFT) * (255 - factor));
+			guint lower = divide_255((background >> WORD_ALPHA_SHIFT) * (G_MAXUINT8 - factor));
 			guint32 pixel = alpha << WORD_ALPHA_SHIFT;
-			for (guint shift = 0; shift <= 16; shift += 8) {
-				guint sum = divide_255(upper * ((foreground >> shift) & 255) + lower * ((background >> shift) & 255));
-				guint channel = alpha ? (guint)floor(sum * 255.0 / alpha + .5) & 255 : 0;
+			for (guint shift = 0; shift <= WORD_RED_SHIFT; shift += CHAR_BIT) {
+				guint sum = divide_255(upper * ((foreground >> shift) & G_MAXUINT8) + lower * ((background >> shift) & G_MAXUINT8));
+				guint channel = alpha ? (guint)floor(sum * (double)G_MAXUINT8 / alpha + .5) & G_MAXUINT8 : 0;
 				pixel |= channel << shift;
 			}
 			write_rgba_pixel(destination, to, pixel);
@@ -415,7 +426,7 @@ static void read_layer_blend(const Record *layer, LayerBlend *blend) {
 	for (guint index = 0; index < BLEND_RANGE_VALUES; index++)
 		values[index] = get_item(ranges, index)->value.number;
 	blend->options =
-		(BlendOptions){has_record(descriptors, "iOpa") ? get_number(descriptors, "iOpa") / 255 : 1, NULL, FALSE, FALSE};
+		(BlendOptions){has_record(descriptors, "iOpa") ? get_number(descriptors, "iOpa") / G_MAXUINT8 : 1, NULL, FALSE, FALSE};
 	if (prepare_blend_ranges(values, blend->ranges))
 		blend->options.ranges = blend->ranges;
 }
@@ -425,12 +436,12 @@ static void copy_colors_rows(int first, int last, gpointer data) {
 	RasterExtent region = work->region, source_extent = work->source_extent, target = work->destination_extent;
 	for (int y = first; y < last; y++) {
 		const guint8 *from = (const guint8 *)work->source->value.buffer.data +
-							 ((gsize)(y - source_extent.y) * source_extent.width + region.x - source_extent.x) * 4;
+							 ((gsize)(y - source_extent.y) * source_extent.width + region.x - source_extent.x) * RGBA_CHANNELS;
 		guint8 *to = (guint8 *)work->destination->value.buffer.data +
-					 ((gsize)(y - target.y) * target.width + region.x - target.x) * 4;
-		for (int x = 0; x < region.width; x++, from += 4, to += 4)
-			if (from[3])
-				memcpy(to, from, 3);
+					 ((gsize)(y - target.y) * target.width + region.x - target.x) * RGBA_CHANNELS;
+		for (int x = 0; x < region.width; x++, from += RGBA_CHANNELS, to += RGBA_CHANNELS)
+			if (from[ALPHA_CHANNEL])
+				memcpy(to, from, RGB_CHANNELS);
 	}
 }
 
@@ -442,11 +453,11 @@ static void blend_rows(int first, int last, gpointer data) {
 		for (int x = region.x; x < region.x + region.width; x++) {
 			gsize from = (gsize)(y - source_extent.y) * source_extent.width + x - source_extent.x;
 			gsize to = (gsize)(y - target.y) * target.width + x - target.x;
-			const guint8 *top = (const guint8 *)work->source->value.buffer.data + from * 4;
-			if (work->plain && !top[3])
+			const guint8 *top = (const guint8 *)work->source->value.buffer.data + from * RGBA_CHANNELS;
+			if (work->plain && !top[ALPHA_CHANNEL])
 				continue;
-			if (work->plain && top[3] == 255) {
-				memcpy((guint8 *)work->destination->value.buffer.data + to * 4, top, 4);
+			if (work->plain && top[ALPHA_CHANNEL] == G_MAXUINT8) {
+				memcpy((guint8 *)work->destination->value.buffer.data + to * RGBA_CHANNELS, top, RGBA_CHANNELS);
 				continue;
 			}
 			write_rgba_pixel(work->destination, to,
@@ -481,11 +492,11 @@ static void apply_layer_mask(const guint8 *values, RasterExtent mask_extent, gui
 	area = intersect_region(area, shape_extent);
 	for (int y = area.y; y < area.y + area.height; y++)
 		for (int x = area.x; x < area.x + area.width; x++) {
-			gsize to = ((gsize)(y - shape_extent.y) * shape_extent.width + x - shape_extent.x) * 4 + 3;
+			gsize to = ((gsize)(y - shape_extent.y) * shape_extent.width + x - shape_extent.x) * RGBA_CHANNELS + ALPHA_CHANNEL;
 			gboolean inside =
 				x >= region.x && y >= region.y && x < region.x + region.width && y < region.y + region.height;
 			if (!inside) {
-				if (outside != 255)
+				if (outside != G_MAXUINT8)
 					write_channel(shape, to, 0);
 				continue;
 			}
@@ -502,12 +513,12 @@ static void fill_region(Record *buffer, RasterExtent extent, RasterExtent area, 
 	area = intersect_region(area, extent);
 	for (int y = area.y; y < area.y + area.height; y++) {
 		guint8 *row =
-			(guint8 *)buffer->value.buffer.data + ((gsize)(y - extent.y) * extent.width + area.x - extent.x) * 4;
+			(guint8 *)buffer->value.buffer.data + ((gsize)(y - extent.y) * extent.width + area.x - extent.x) * RGBA_CHANNELS;
 		if (!alpha_only)
-			memset(row, value, (gsize)area.width * 4);
+			memset(row, value, (gsize)area.width * RGBA_CHANNELS);
 		else
 			for (int x = 0; x < area.width; x++)
-				row[x * 4 + 3] = value;
+				row[x * RGBA_CHANNELS + ALPHA_CHANNEL] = value;
 	}
 }
 
@@ -567,8 +578,8 @@ static void adjust_rows(int first, int last, gpointer data) {
 	for (int y = first; y < last; y++)
 		apply_adjustment(work->adjustment, &cache,
 						 (guint8 *)work->destination->value.buffer.data +
-							 ((gsize)(y - target.y) * target.width + area.x - target.x) * 4,
-						 (gsize)area.width * 4);
+							 ((gsize)(y - target.y) * target.width + area.x - target.x) * RGBA_CHANNELS,
+						 (gsize)area.width * RGBA_CHANNELS);
 }
 
 /* The backdrop is copied into the buffer and adjusted, but only across the redrawn area, since curves change each
@@ -598,15 +609,15 @@ static void adjust_visible_rows(int first, int last, gpointer data) {
 	cache.owner = NULL;
 	for (int y = first; y < last; y++) {
 		guint8 *row = (guint8 *)work->destination->value.buffer.data +
-					  ((gsize)(y - target.y) * target.width + area.x - target.x) * 4;
+					  ((gsize)(y - target.y) * target.width + area.x - target.x) * RGBA_CHANNELS;
 		for (int x = 0; x < area.width;) {
-			while (x < area.width && !row[x * 4 + 3])
+			while (x < area.width && !row[x * RGBA_CHANNELS + ALPHA_CHANNEL])
 				x++;
 			int start = x;
-			while (x < area.width && row[x * 4 + 3])
+			while (x < area.width && row[x * RGBA_CHANNELS + ALPHA_CHANNEL])
 				x++;
 			if (x > start)
-				apply_adjustment(work->adjustment, &cache, row + start * 4, (gsize)(x - start) * 4);
+				apply_adjustment(work->adjustment, &cache, row + start * RGBA_CHANNELS, (gsize)(x - start) * RGBA_CHANNELS);
 		}
 	}
 }
@@ -676,7 +687,7 @@ static void compose_layer(Composition *composition, LayerTree *tree, Record *des
 	LayerBlend blend;
 	read_layer_blend(layer, &blend);
 	double fill = blend.options.fill;
-	double opacity = isolate_opacity ? 1 : get_number(layer, "nv") / 255;
+	double opacity = isolate_opacity ? 1 : get_number(layer, "nv") / G_MAXUINT8;
 	guint clipped_count = clipped ? clipped->len : 0;
 	gboolean masked = is_mask_active(layer), dissolve = !g_strcmp0(mode, "diss");
 	if ((group && pass && !blend.options.ranges && !clipped_count && fill == 1) || (!group && !clipped_count)) {
@@ -714,7 +725,7 @@ static void compose_layer(Composition *composition, LayerTree *tree, Record *des
 	RasterExtent work = get_boolean(composition->document->record, "zn") ? region : intersect_region(region, clip);
 	/* An adjustment's shape is opaque everywhere before its mask */
 	if (adjustment)
-		fill_region(shape, region, work, 255, FALSE);
+		fill_region(shape, region, work, G_MAXUINT8, FALSE);
 	else
 		copy_region(group ? group_pixels : get_record(layer, "buffer"), region, shape, region,
 					group ? intersect_region(region, clip) : work);
@@ -741,7 +752,7 @@ static void compose_layer(Composition *composition, LayerTree *tree, Record *des
 		copy_adjusted_backdrop(composition, layer, destination, extent, foreground, foreground_extent, clip);
 	else
 		copy_region(get_record(layer, "buffer"), region, foreground, foreground_extent, clip);
-	fill_region(foreground, foreground_extent, work, 255, TRUE);
+	fill_region(foreground, foreground_extent, work, G_MAXUINT8, TRUE);
 	for (guint index = 0; index < clipped_count; index++)
 		compose_tree(composition, g_ptr_array_index(clipped, index), foreground, foreground_extent, clip, NULL);
 	RasterExtent blended_extent = region;
@@ -784,7 +795,7 @@ static void compose_tree(Composition *composition, LayerTree *tree, Record *dest
 	if (!equal_region(extent, clip) && (region.y + region.height < clip.y || region.x > clip.x + clip.width ||
 										region.y > clip.y + clip.height || region.x + region.width < clip.x))
 		return;
-	gboolean isolate = get_number(tree->layer, "nv") != 255 && (tree->children || (clipped && clipped->len));
+	gboolean isolate = get_number(tree->layer, "nv") != G_MAXUINT8 && (tree->children || (clipped && clipped->len));
 	if (!isolate) {
 		compose_layer(composition, tree, destination, extent, clip, clipped, FALSE);
 		return;
@@ -795,7 +806,7 @@ static void compose_tree(Composition *composition, LayerTree *tree, Record *dest
 	copy_region(destination, extent, isolated, region, clip);
 	compose_layer(composition, tree, isolated, region, clip, clipped, TRUE);
 	if (!composition->failed)
-		interpolate_region(isolated, region, destination, extent, NULL, clip, get_number(tree->layer, "nv") / 255,
+		interpolate_region(isolated, region, destination, extent, NULL, clip, get_number(tree->layer, "nv") / G_MAXUINT8,
 						   !g_strcmp0(get_string(tree->layer, "qu"), "diss"));
 	release_buffer(composition, isolated);
 }
@@ -804,7 +815,7 @@ static void compose_tree(Composition *composition, LayerTree *tree, Record *dest
  * descriptors, when all their layers are supported */
 static gboolean can_compose_document(const Document *document, const Record *selection) {
 	Record *record = document->record, *layers = get_record(record, "Z"), *descriptors = get_record(record, "add");
-	if (!descriptors || descriptors->type != RECORD_OBJECT || get_number(record, "depth") != 8 || !document->root ||
+	if (!descriptors || descriptors->type != RECORD_OBJECT || get_number(record, "depth") != BYTE_DEPTH || !document->root ||
 		g_hash_table_size(descriptors->value.object) || count_records(get_record(record, "J8")) ||
 		count_records(get_record(record, "In")) || has_record(record, "vA"))
 		return FALSE;
@@ -824,7 +835,7 @@ Record *compose_layer_region(const Document *document, const Record *layers, Ras
 		g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED, TEXT_RENDER_UNAVAILABLE);
 		return NULL;
 	}
-	Record *buffer = create_channels((gsize)region.width * region.height * 4, 8);
+	Record *buffer = create_channels((gsize)region.width * region.height * RGBA_CHANNELS, BYTE_DEPTH);
 	Composition composition = {document, layers,
 							   g_ptr_array_new_with_free_func((GDestroyNotify)free_composition_buffer), error, FALSE};
 	compose_tree(&composition, document->root, buffer, region, region, NULL);
@@ -849,9 +860,9 @@ gboolean compose_raster_document(const Document *document, const Record *dirty, 
 	RasterExtent extent = {0, 0, width, height};
 	RasterExtent clip = get_boolean(record, "zn") ? extent : intersect_region(extent, read_extent(dirty));
 	Record *buffer = get_record(record, "buffer");
-	if (!buffer || buffer->type != RECORD_BUFFER || buffer->value.buffer.depth != 8 ||
-		buffer->value.buffer.length != (gsize)width * height * 4) {
-		buffer = create_channels((gsize)width * height * 4, 8);
+	if (!buffer || buffer->type != RECORD_BUFFER || buffer->value.buffer.depth != BYTE_DEPTH ||
+		buffer->value.buffer.length != (gsize)width * height * RGBA_CHANNELS) {
+		buffer = create_channels((gsize)width * height * RGBA_CHANNELS, BYTE_DEPTH);
 		if (!buffer) {
 			g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NO_SPACE, TEXT_CHANNEL_ALLOCATION_FAILED);
 			return FALSE;
