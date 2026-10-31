@@ -33,6 +33,13 @@ typedef enum {
 #define RGBA_CHANNELS 4
 #define ALPHA_CHANNEL 3
 
+/* A pixel word keeps alpha in its top byte and the colour in the three below, red highest */
+#define WORD_ALPHA_SHIFT 24
+#define WORD_RED_SHIFT 16
+#define WORD_GREEN_SHIFT 8
+#define WORD_COLOR_MASK 0x00ffffffu
+#define OPAQUE_WORD 0xff000000u
+
 /* Samples are bytes, sixteen bit numbers or floats */
 enum {
 	BYTE_DEPTH = 8,

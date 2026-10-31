@@ -43,7 +43,6 @@ static const double SHARPEN_KERNEL[KERNEL_SIZE * KERNEL_SIZE] = {
 	0, -1.0 / 12, 0, -1.0 / 12, 16.0 / 12, -1.0 / 12, 0, -1.0 / 12, 0};
 
 /* A sample word holds a pixel's four bytes in memory order, so red is the lowest byte and alpha the highest */
-#define WORD_ALPHA_SHIFT (ALPHA_CHANNEL * CHAR_BIT)
 
 static guint word_channel(guint32 word, int channel) {
 	return word >> channel * CHAR_BIT & G_MAXUINT8;

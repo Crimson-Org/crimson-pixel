@@ -271,25 +271,25 @@ static double measure_blend_ranges(const double *source, const double *destinati
 }
 
 static void read_color(uint32_t pixel, double *color) {
-	color[0] = ((pixel >> 16) & 255) * (1.0 / 255);
+	color[0] = ((pixel >> WORD_RED_SHIFT) & G_MAXUINT8) * (1.0 / 255);
 	color[1] = ((pixel >> 8) & 255) * (1.0 / 255);
 	color[2] = (pixel & 255) * (1.0 / 255);
 }
 
 uint32_t compose_normal_pixel(uint32_t source, uint32_t destination, double opacity) {
-	unsigned source_alpha = source >> 24;
+	unsigned source_alpha = source >> WORD_ALPHA_SHIFT;
 	if (!source_alpha)
 		return destination;
 	if (source_alpha == 255 && opacity == 1)
 		return source;
 	double source_weight = source_alpha * opacity * (1.0 / 255);
-	double destination_alpha = (destination >> 24) * (1.0 / 255);
+	double destination_alpha = (destination >> WORD_ALPHA_SHIFT) * (1.0 / 255);
 	double destination_weight = destination_alpha * (1 - source_weight);
 	double alpha = source_weight + destination_weight;
 	if (alpha == 0)
 		return 0;
 	double reciprocal = 1 / alpha;
-	uint32_t pixel = (uint32_t)(0.5 + alpha * 255) << 24;
+	uint32_t pixel = (uint32_t)(0.5 + alpha * 255) << WORD_ALPHA_SHIFT;
 	for (unsigned shift = 0; shift <= 16; shift += 8) {
 		double source_channel = (source >> shift) & 255;
 		double destination_channel = (destination >> shift) & 255;
@@ -303,11 +303,11 @@ uint32_t compose_normal_pixel(uint32_t source, uint32_t destination, double opac
 static uint32_t blend_normal_pixel(const BlendKernel *kernel, uint32_t source, uint32_t destination, uint32_t index) {
 	if (!kernel->options.preserve_alpha)
 		return compose_normal_pixel(source, destination, kernel->opacity);
-	if (!(source >> 24))
+	if (!(source >> WORD_ALPHA_SHIFT))
 		return destination;
-	double opacity = kernel->opacity, destination_alpha = (destination >> 24) * (1.0 / 255);
+	double opacity = kernel->opacity, destination_alpha = (destination >> WORD_ALPHA_SHIFT) * (1.0 / 255);
 	double below = 1 - opacity, reciprocal = 1 / (opacity + below);
-	uint32_t pixel = (uint32_t)round_to_int32(destination_alpha * 255) << 24;
+	uint32_t pixel = (uint32_t)round_to_int32(destination_alpha * 255) << WORD_ALPHA_SHIFT;
 	for (unsigned shift = 0; shift <= 16; shift += 8) {
 		double top = (source >> shift) & 255, bottom = (destination >> shift) & 255;
 		pixel |= ((uint32_t)round_to_int32((top * opacity + bottom * below) * reciprocal) & 255) << shift;
@@ -318,15 +318,15 @@ static uint32_t blend_normal_pixel(const BlendKernel *kernel, uint32_t source, u
 static uint32_t blend_dissolve_pixel(const BlendKernel *kernel, uint32_t source, uint32_t destination, uint32_t index) {
 	double preserve = kernel->options.preserve_alpha ? 1 : 0;
 	double scale = floor(kernel->opacity * (256.0 * 256 * 256 / 255) + .5);
-	double share = preserve * 255 + (1 - preserve) * (source >> 24);
+	double share = preserve * 255 + (1 - preserve) * (source >> WORD_ALPHA_SHIFT);
 	if ((hash_whole_number(index) & 16777215) >= share * scale)
 		return destination;
-	return (source & 16777215) | (uint32_t)wrap_int32(preserve * (destination >> 24) + (1 - preserve) * 255) << 24;
+	return (source & 16777215) | (uint32_t)wrap_int32(preserve * (destination >> WORD_ALPHA_SHIFT) + (1 - preserve) * 255) << WORD_ALPHA_SHIFT;
 }
 
 static uint32_t blend_separable_pixel(const BlendKernel *kernel, uint32_t source, uint32_t destination,
 									  uint32_t index) {
-	if (!(source >> 24))
+	if (!(source >> WORD_ALPHA_SHIFT))
 		return destination;
 	double preserve = kernel->options.preserve_alpha ? 1 : 0, fill = kernel->options.fill;
 	double top_alpha = kernel->opacity, bottom_alpha = 1;
@@ -334,8 +334,8 @@ static uint32_t blend_separable_pixel(const BlendKernel *kernel, uint32_t source
 	read_color(source, top);
 	read_color(destination, bottom);
 	if (!preserve) {
-		top_alpha = (source >> 24) * ((1.0 / 255) * kernel->opacity);
-		bottom_alpha = (destination >> 24) * (1.0 / 255);
+		top_alpha = (source >> WORD_ALPHA_SHIFT) * ((1.0 / 255) * kernel->opacity);
+		bottom_alpha = (destination >> WORD_ALPHA_SHIFT) * (1.0 / 255);
 	}
 	if (kernel->options.ranges)
 		top_alpha *= measure_blend_ranges(top, bottom, bottom_alpha, kernel->options.ranges);
@@ -350,8 +350,8 @@ static uint32_t blend_separable_pixel(const BlendKernel *kernel, uint32_t source
 		pixel |= ((uint32_t)round_to_int32(value) & 255) << (16 - channel * 8);
 	}
 	double alpha = top_alpha * fill + bottom_alpha * (1 - top_alpha * fill);
-	return pixel | (uint32_t)round_to_int32(preserve * (destination >> 24) + (1 - preserve) * round_to_int32(alpha * 255))
-					   << 24;
+	return pixel | (uint32_t)round_to_int32(preserve * (destination >> WORD_ALPHA_SHIFT) + (1 - preserve) * round_to_int32(alpha * 255))
+					   << WORD_ALPHA_SHIFT;
 }
 
 static uint32_t blend_color_pixel(const BlendKernel *kernel, uint32_t source, uint32_t destination, uint32_t index) {
@@ -361,8 +361,8 @@ static uint32_t blend_color_pixel(const BlendKernel *kernel, uint32_t source, ui
 	read_color(source, top);
 	read_color(destination, bottom);
 	if (!preserve) {
-		top_alpha = (source >> 24) * ((1.0 / 255) * kernel->opacity);
-		bottom_alpha = (destination >> 24) * (1.0 / 255);
+		top_alpha = (source >> WORD_ALPHA_SHIFT) * ((1.0 / 255) * kernel->opacity);
+		bottom_alpha = (destination >> WORD_ALPHA_SHIFT) * (1.0 / 255);
 	}
 	if (kernel->options.ranges)
 		top_alpha *= measure_blend_ranges(top, bottom, bottom_alpha, kernel->options.ranges);
@@ -375,8 +375,8 @@ static uint32_t blend_color_pixel(const BlendKernel *kernel, uint32_t source, ui
 					   scale;
 		pixel |= ((uint32_t)wrap_int32(value) & 255) << (16 - channel * 8);
 	}
-	double alpha = preserve * (destination >> 24) + (1 - preserve) * floor(total * 255 + .5);
-	return pixel | (uint32_t)wrap_int32(alpha) << 24;
+	double alpha = preserve * (destination >> WORD_ALPHA_SHIFT) + (1 - preserve) * floor(total * 255 + .5);
+	return pixel | (uint32_t)wrap_int32(alpha) << WORD_ALPHA_SHIFT;
 }
 
 BlendKernel prepare_blend_kernel(BlendMode mode, double opacity, BlendOptions options) {

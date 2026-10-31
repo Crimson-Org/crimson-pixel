@@ -375,10 +375,10 @@ static void interpolate_rows(int first, int last, gpointer data) {
 				}
 			}
 			guint32 foreground = read_rgba_pixel(source, from), background = read_rgba_pixel(destination, to);
-			guint alpha = divide_255(factor * (foreground >> 24) + (255 - factor) * (background >> 24));
-			guint upper = divide_255((foreground >> 24) * factor);
-			guint lower = divide_255((background >> 24) * (255 - factor));
-			guint32 pixel = alpha << 24;
+			guint alpha = divide_255(factor * (foreground >> WORD_ALPHA_SHIFT) + (255 - factor) * (background >> WORD_ALPHA_SHIFT));
+			guint upper = divide_255((foreground >> WORD_ALPHA_SHIFT) * factor);
+			guint lower = divide_255((background >> WORD_ALPHA_SHIFT) * (255 - factor));
+			guint32 pixel = alpha << WORD_ALPHA_SHIFT;
 			for (guint shift = 0; shift <= 16; shift += 8) {
 				guint sum = divide_255(upper * ((foreground >> shift) & 255) + lower * ((background >> shift) & 255));
 				guint channel = alpha ? (guint)floor(sum * 255.0 / alpha + .5) & 255 : 0;

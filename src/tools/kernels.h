@@ -26,20 +26,21 @@ double clamp_zoom_level(double zoom);
 
 /* Packed ARGB access to eight-bit RGBA channels, ignoring pixels outside the buffer */
 static inline guint32 read_rgba_pixel(const Record *channels, gsize pixel) {
-	if (!channels || channels->type != RECORD_BUFFER || channels->value.buffer.depth != 8 ||
-		pixel * 4 + 3 >= channels->value.buffer.length)
+	if (!channels || channels->type != RECORD_BUFFER || channels->value.buffer.depth != BYTE_DEPTH ||
+		pixel * RGBA_CHANNELS + ALPHA_CHANNEL >= channels->value.buffer.length)
 		return 0;
-	const guint8 *data = (const guint8 *)channels->value.buffer.data + pixel * 4;
-	return (guint32)data[3] << 24 | (guint32)data[0] << 16 | (guint32)data[1] << 8 | data[2];
+	const guint8 *data = (const guint8 *)channels->value.buffer.data + pixel * RGBA_CHANNELS;
+	return (guint32)data[ALPHA_CHANNEL] << WORD_ALPHA_SHIFT | (guint32)data[0] << WORD_RED_SHIFT |
+		   (guint32)data[1] << WORD_GREEN_SHIFT | data[2];
 }
 
 static inline void write_rgba_pixel(Record *channels, gsize pixel, guint32 color) {
-	if (!channels || channels->type != RECORD_BUFFER || channels->value.buffer.depth != 8 ||
-		pixel * 4 + 3 >= channels->value.buffer.length)
+	if (!channels || channels->type != RECORD_BUFFER || channels->value.buffer.depth != BYTE_DEPTH ||
+		pixel * RGBA_CHANNELS + ALPHA_CHANNEL >= channels->value.buffer.length)
 		return;
-	guint8 *data = (guint8 *)channels->value.buffer.data + pixel * 4;
-	data[0] = color >> 16;
-	data[1] = color >> 8;
+	guint8 *data = (guint8 *)channels->value.buffer.data + pixel * RGBA_CHANNELS;
+	data[0] = color >> WORD_RED_SHIFT;
+	data[1] = color >> WORD_GREEN_SHIFT;
 	data[2] = color;
-	data[3] = color >> 24;
+	data[ALPHA_CHANNEL] = color >> WORD_ALPHA_SHIFT;
 }

@@ -7,22 +7,22 @@
 #include "parallel.h"
 
 guint32 premultiply_pixel(guint32 pixel) {
-	guint alpha = pixel >> 24;
-	return (alpha << 24) | (((((pixel >> 16) & 255) * alpha + 127) / 255) << 16) |
+	guint alpha = pixel >> WORD_ALPHA_SHIFT;
+	return (alpha << WORD_ALPHA_SHIFT) | (((((pixel >> WORD_RED_SHIFT) & G_MAXUINT8) * alpha + 127) / 255) << 16) |
 		   (((((pixel >> 8) & 255) * alpha + 127) / 255) << 8) | (((pixel & 255) * alpha + 127) / 255);
 }
 
 guint32 unpremultiply_pixel(guint32 pixel) {
-	guint alpha = pixel >> 24;
+	guint alpha = pixel >> WORD_ALPHA_SHIFT;
 	if (!alpha)
 		return 0;
-	return (alpha << 24) | (MIN(255, (((pixel >> 16) & 255) * 255 + alpha / 2) / alpha) << 16) |
+	return (alpha << WORD_ALPHA_SHIFT) | (MIN(255, (((pixel >> WORD_RED_SHIFT) & G_MAXUINT8) * 255 + alpha / 2) / alpha) << 16) |
 		   (MIN(255, (((pixel >> 8) & 255) * 255 + alpha / 2) / alpha) << 8) |
 		   MIN(255, ((pixel & 255) * 255 + alpha / 2) / alpha);
 }
 
 static guint32 read_display_pixel(const Record *channels, gsize pixel) {
-	return (guint32)read_channel_byte(channels, pixel * 4 + 3) << 24 |
+	return (guint32)read_channel_byte(channels, pixel * 4 + 3) << WORD_ALPHA_SHIFT |
 		   (guint32)read_channel_byte(channels, pixel * 4) << 16 |
 		   (guint32)read_channel_byte(channels, pixel * 4 + 1) << 8 | read_channel_byte(channels, pixel * 4 + 2);
 }
@@ -48,7 +48,7 @@ static void convert_display_rows(int first, int last, gpointer data) {
 				continue;
 			}
 			const guint8 *source = (const guint8 *)buffer->value.buffer.data + index * 4;
-			guint32 pixel = (guint32)source[3] << 24 | (guint32)source[0] << 16 | (guint32)source[1] << 8 | source[2];
+			guint32 pixel = (guint32)source[3] << WORD_ALPHA_SHIFT | (guint32)source[0] << 16 | (guint32)source[1] << 8 | source[2];
 			row[x] = source[3] == 255 ? pixel : premultiply_pixel(pixel);
 		}
 	}
@@ -145,7 +145,7 @@ GdkPixbuf *create_document_pixbuf(Document *document, gboolean opaque, GError **
 		for (int x = 0; x < width; x++) {
 			guint32 pixel = read_display_pixel(buffer, (gsize)y * width + x);
 			guint8 *target = pixels + y * stride + x * channels;
-			guint alpha = pixel >> 24;
+			guint alpha = pixel >> WORD_ALPHA_SHIFT;
 			for (int channel = 0; channel < 3; channel++) {
 				guint value = pixel >> (16 - channel * 8) & 255;
 				/* Opaque formats show transparent areas over white */

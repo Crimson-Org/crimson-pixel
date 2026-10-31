@@ -125,17 +125,17 @@ static void blend_dab(Stroke *stroke, const Record *dab, RasterExtent dab_extent
 		gsize target_row = (gsize)(target_y + row) * stroke->extent.width + target_x;
 		for (int column = 0; column < clip.width; column++) {
 			guint32 pixel = source[source_row + column];
-			if (pixel >> 24 == 0)
+			if (pixel >> WORD_ALPHA_SHIFT == 0)
 				continue;
 			guint32 existing = target[target_row + column];
-			double alpha = (pixel >> 24) * opacity * (1.0 / 255), below = (existing >> 24) * (1.0 / 255);
+			double alpha = (pixel >> WORD_ALPHA_SHIFT) * opacity * (1.0 / 255), below = (existing >> WORD_ALPHA_SHIFT) * (1.0 / 255);
 			double remaining = below * (1 - alpha), combined = alpha + remaining;
 			dither >>= 8;
 			if ((column & 3) == 0)
 				dither = hash_whole_number((gint64)(target_row + column) + seed);
 			double reciprocal = combined == 0 ? 0 : 1 / combined;
 			guint32 result_alpha = ((guint32)floor(combined * (256 * 255)) + (dither & 255)) >> 8;
-			guint32 result = result_alpha << 24;
+			guint32 result = result_alpha << WORD_ALPHA_SHIFT;
 			for (int shift = 16; shift >= 0; shift -= 8) {
 				double channel = floor(
 					(((pixel >> shift) & 255) * alpha + ((existing >> shift) & 255) * remaining) * reciprocal + .5);
@@ -149,7 +149,7 @@ static void blend_dab(Stroke *stroke, const Record *dab, RasterExtent dab_extent
 static void color_dab(Record *dab, guint32 color) {
 	guint8 *bytes = dab->value.buffer.data;
 	for (gsize index = 0; index + 3 < dab->value.buffer.length; index += 4) {
-		bytes[index] = color >> 16 & 255;
+		bytes[index] = color >> WORD_RED_SHIFT & G_MAXUINT8;
 		bytes[index + 1] = color >> 8 & 255;
 		bytes[index + 2] = color & 255;
 	}
@@ -277,9 +277,9 @@ static RasterExtent sweep_capsule(Stroke *stroke, double x, double y) {
 	double opacity = MIN(1, stroke->flow), inner = MAX(0, radius - .5), outer = radius + .5;
 	double reciprocal_length = length_squared > 0 ? 1 / length_squared : 0;
 	/* Coverage pixels hold red, green and blue bytes in memory order, like the colored dabs */
-	guint32 color = (stroke->color >> 16 & 255) | (stroke->color & 0xff00) | (stroke->color & 255) << 16;
+	guint32 color = (stroke->color >> WORD_RED_SHIFT & G_MAXUINT8) | (stroke->color & 0xff00) | (stroke->color & 255) << 16;
 	guint32 *target = stroke->coverage->value.buffer.data;
-	guint32 solid = (guint32)(opacity * 255 + .5) << 24 | color;
+	guint32 solid = (guint32)(opacity * 255 + .5) << WORD_ALPHA_SHIFT | color;
 	RasterExtent changed = {0};
 	for (int row = clip.y; row < clip.y + clip.height; row++) {
 		double point_y = row + .5 - start_y, outer_low, outer_high, inner_low, inner_high;
@@ -322,17 +322,17 @@ static RasterExtent sweep_capsule(Stroke *stroke, double x, double y) {
 			guint32 existing = line[column];
 			if (opacity >= 1) {
 				guint32 strongest = (guint32)(alpha * 255 + .5);
-				if (strongest <= existing >> 24)
+				if (strongest <= existing >> WORD_ALPHA_SHIFT)
 					continue;
-				line[column] = strongest << 24 | color;
+				line[column] = strongest << WORD_ALPHA_SHIFT | color;
 				changed_low = MIN(changed_low, column);
 				changed_high = column;
 				continue;
 			}
-			double below = (existing >> 24) * (1.0 / 255), remaining = below * (1 - alpha),
+			double below = (existing >> WORD_ALPHA_SHIFT) * (1.0 / 255), remaining = below * (1 - alpha),
 				   combined = alpha + remaining;
 			double reciprocal = 1 / combined;
-			guint32 result = (guint32)(combined * 255 + .5) << 24;
+			guint32 result = (guint32)(combined * 255 + .5) << WORD_ALPHA_SHIFT;
 			for (int shift = 16; shift >= 0; shift -= 8)
 				result |= (guint32)((((color >> shift) & 255) * alpha + ((existing >> shift) & 255) * remaining) *
 										reciprocal +
@@ -413,7 +413,7 @@ static void plot_perfect_pixel(int x, int y, gpointer data) {
 	}
 	recent[stroke->recent_count++] = next;
 	if (inside)
-		write_rgba_pixel(stroke->coverage, index, 0xff000000u | stroke->color);
+		write_rgba_pixel(stroke->coverage, index, OPAQUE_WORD | stroke->color);
 	touch_pixel(stroke, x, y);
 }
 
@@ -422,7 +422,7 @@ static RasterExtent stamp_square(Stroke *stroke, int x, int y) {
 	int size = MAX(1, (int)lround(stroke->shape.diameter));
 	int left = x - (size - 1) / 2, top = y - (size - 1) / 2;
 	RasterExtent clip = intersect_region((RasterExtent){left, top, size, size}, stroke->extent);
-	guint32 color = 0xff000000u | (stroke->color >> 16 & 255) | (stroke->color & 0xff00) | (stroke->color & 255) << 16;
+	guint32 color = OPAQUE_WORD | (stroke->color >> WORD_RED_SHIFT & G_MAXUINT8) | (stroke->color & 0xff00) | (stroke->color & 255) << 16;
 	guint32 *target = stroke->coverage->value.buffer.data;
 	for (int row = clip.y; row < clip.y + clip.height; row++) {
 		guint32 *line = target + (gsize)(row - stroke->extent.y) * stroke->extent.width - stroke->extent.x;
@@ -481,7 +481,7 @@ static RasterExtent space_dabs(Stroke *stroke, double x, double y, double pressu
 	} else if (uses_pixel_lines(stroke) && paints_whole_pixels(stroke)) {
 		/* Native improvement: the pixel under the pointer is painted as soon as the pointer enters it */
 		draw_pixel_line(stroke->coverage, stroke->extent.width, stroke->extent.height, stroke->last_x, stroke->last_y,
-						x, y, 0xff000000u | stroke->color);
+						x, y, OPAQUE_WORD | stroke->color);
 		extent = union_region((RasterExtent){floor(stroke->last_x), floor(stroke->last_y), 1, 1},
 							  (RasterExtent){floor(x), floor(y), 1, 1});
 		mark_stroke_extent(stroke, extent);
@@ -489,7 +489,7 @@ static RasterExtent space_dabs(Stroke *stroke, double x, double y, double pressu
 	} else if (uses_pixel_lines(stroke)) {
 		if (distance > .99) {
 			draw_pixel_line(stroke->coverage, stroke->extent.width, stroke->extent.height, stroke->last_x,
-							stroke->last_y, x, y, 0xff000000u | stroke->color);
+							stroke->last_y, x, y, OPAQUE_WORD | stroke->color);
 			extent = union_region(extent, bound_segment(stroke->last_x, stroke->last_y, x, y));
 			mark_stroke_extent(stroke, extent);
 			walked = distance;
@@ -604,7 +604,7 @@ void move_stroke_to(Stroke *stroke, double x, double y, double pressure) {
 		record_stroke_extent(stroke, take_touched_pixels(stroke));
 	} else if (paints_whole_pixels(stroke)) {
 		draw_pixel_line(stroke->coverage, stroke->extent.width, stroke->extent.height, x, y, x, y,
-						0xff000000u | stroke->color);
+						OPAQUE_WORD | stroke->color);
 		record_stroke_extent(stroke, (RasterExtent){floor(x), floor(y), 1, 1});
 		mark_stroke_extent(stroke, (RasterExtent){floor(x), floor(y), 1, 1});
 	} else

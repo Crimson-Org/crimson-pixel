@@ -186,10 +186,10 @@ static Record *get_target_layer(PaintTool *tool) {
 }
 
 static guint32 erase_pixel(guint32 coverage, guint32 pixel, double opacity) {
-	guint keep = ~(guint)round_half_up((coverage >> 24) * opacity) & 255;
-	guint alpha = (pixel >> 24) * keep;
+	guint keep = ~(guint)round_half_up((coverage >> WORD_ALPHA_SHIFT) * opacity) & 255;
+	guint alpha = (pixel >> WORD_ALPHA_SHIFT) * keep;
 	alpha = (alpha + 1 + (alpha >> 8)) >> 8;
-	return (pixel & 0x00ffffffu) | alpha << 24;
+	return (pixel & WORD_COLOR_MASK) | alpha << WORD_ALPHA_SHIFT;
 }
 
 const GArray *get_paint_dirty_regions(PaintTool *tool) {
@@ -234,15 +234,15 @@ static void composite_coverage(PaintTool *tool, const Record *coverage_pixels, R
 			if (mask) {
 				guint value = (guint)read_channel(mask, (gsize)(overlap.y - mask_extent.y + row) * mask_extent.width +
 															overlap.x - mask_extent.x + column) *
-							  (covered >> 24);
-				covered = (covered & 0x00ffffffu) | ((value + 1 + (value >> 8)) >> 8) << 24;
+							  (covered >> WORD_ALPHA_SHIFT);
+				covered = (covered & WORD_COLOR_MASK) | ((value + 1 + (value >> 8)) >> 8) << WORD_ALPHA_SHIFT;
 			}
 			if (erasing) {
 				pixels[to] = erase_pixel(covered, below, tool->opacity);
 				continue;
 			}
 			guint32 result = compose_normal_pixel(covered, below, tool->opacity);
-			pixels[to] = alpha_locked ? (result & 0x00ffffffu) | (below & 0xff000000u) : result;
+			pixels[to] = alpha_locked ? (result & WORD_COLOR_MASK) | (below & OPAQUE_WORD) : result;
 		}
 	copy_pixels(region, dirty, get_record(layer, "buffer"), read_extent(get_record(layer, "V")));
 	free_record(region);
@@ -294,7 +294,7 @@ static void merge_coverage(PaintTool *tool, RasterExtent part) {
 					for (int column = 0; column < copies; column++) {
 						guint32 covered =
 							coverage[(gsize)(source_y + row * height) * stride + source_x + column * width];
-						if (covered >> 24 > strongest >> 24)
+						if (covered >> WORD_ALPHA_SHIFT > strongest >> WORD_ALPHA_SHIFT)
 							strongest = covered;
 					}
 			}
@@ -478,7 +478,7 @@ gboolean fill_paint_area(PaintTool *tool, Document *document, const FillOptions 
 		for (int column = 0; column < kept.width; column++) {
 			guint value = values[(gsize)(kept.y - extent.y + row) * extent.width + kept.x - extent.x + column];
 			pixels[(gsize)row * kept.width + column] =
-				(color >> 16 & 255) | (color & 0xff00) | (color & 255) << 16 | value << 24;
+				(color >> WORD_RED_SHIFT & G_MAXUINT8) | (color & 0xff00) | (color & 255) << 16 | value << WORD_ALPHA_SHIFT;
 		}
 	tool->opacity = options->opacity;
 	prepare_paint_target(tool, document, (RasterExtent){0});
@@ -505,18 +505,18 @@ gboolean fill_paint_region(PaintTool *tool, Document *document, const Record *se
 	RasterExtent layer_extent = read_extent(get_record(layer, "V"));
 	guint32 *pixels = get_record(layer, "buffer")->value.buffer.data;
 	const Record *mask = selection ? get_record(selection, "C") : NULL;
-	guint32 source = (color >> 16 & 255) | (color & 0xff00) | (color & 255) << 16 | (guint32)alpha << 24;
+	guint32 source = (color >> WORD_RED_SHIFT & G_MAXUINT8) | (color & 0xff00) | (color & 255) << 16 | (guint32)alpha << WORD_ALPHA_SHIFT;
 	for (int row = 0; row < region.height; row++)
 		for (int column = 0; column < region.width; column++) {
 			guint32 covered = source;
 			if (mask) {
 				guint value = (double)alpha * read_channel(mask, (gsize)row * region.width + column) * (1.0 / 255);
-				covered = (source & 0x00ffffffu) | value << 24;
+				covered = (source & WORD_COLOR_MASK) | value << WORD_ALPHA_SHIFT;
 			}
 			gsize at =
 				(gsize)(region.y - layer_extent.y + row) * layer_extent.width + region.x - layer_extent.x + column;
 			guint32 below = pixels[at], result = compose_normal_pixel(covered, below, 1);
-			pixels[at] = alpha_locked ? (result & 0x00ffffffu) | (below & 0xff000000u) : result;
+			pixels[at] = alpha_locked ? (result & WORD_COLOR_MASK) | (below & OPAQUE_WORD) : result;
 		}
 	invalidate_painted_region(document, layer, region);
 	clear_paint_dirty_regions(tool);
