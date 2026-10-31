@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <math.h>
 #include <string.h>
 
@@ -5,6 +6,17 @@
 
 #include "common/key-store.h"
 #include "color-spaces.h"
+
+/* ACO files list the colours once without names, then again with them, and ASE files have a signature, a version,
+ * a count of blocks, then group and colour blocks with a colour model of four characters */
+#define ACO_PLAIN_VERSION 1
+#define ACO_NAMED_VERSION 2
+#define ASE_SIGNATURE "ASEF"
+#define ASE_RGB "RGB "
+#define ASE_MODEL_BYTES 4
+#define ASE_COUNT_AT 8
+#define ASE_GROUP 0xc001
+#define ASE_COLOR 1
 #include "swatches.h"
 #include "tools/kernels.h"
 #include "lang/en.h"
@@ -24,19 +36,19 @@ static gboolean has_bytes(SwatchReader *reader, gsize count) {
 }
 
 static guint read_short(SwatchReader *reader) {
-	if (!has_bytes(reader, 2))
+	if (!has_bytes(reader, sizeof(guint16)))
 		return 0;
 	const guint8 *at = reader->bytes + reader->offset;
-	reader->offset += 2;
-	return at[0] << 8 | at[1];
+	reader->offset += sizeof(guint16);
+	return at[0] << CHAR_BIT | at[1];
 }
 
 static guint32 read_long(SwatchReader *reader) {
-	if (!has_bytes(reader, 4))
+	if (!has_bytes(reader, sizeof(guint32)))
 		return 0;
 	const guint8 *at = reader->bytes + reader->offset;
-	reader->offset += 4;
-	return (guint32)at[0] << 24 | at[1] << 16 | at[2] << 8 | at[3];
+	reader->offset += sizeof(guint32);
+	return (guint32)at[0] << 3 * CHAR_BIT | at[1] << 2 * CHAR_BIT | at[2] << CHAR_BIT | at[3];
 }
 
 static float read_float(SwatchReader *reader) {
@@ -47,7 +59,7 @@ static float read_float(SwatchReader *reader) {
 }
 
 static char *read_text(SwatchReader *reader, guint units) {
-	if (!has_bytes(reader, (gsize)units * 2))
+	if (!has_bytes(reader, (gsize)units * sizeof(gunichar2)))
 		return NULL;
 	gunichar2 *text = g_new(gunichar2, units + 1);
 	for (guint index = 0; index < units; index++)
@@ -89,10 +101,10 @@ static gboolean read_aco_block(SwatchReader *reader, GArray *swatches, GError **
 		Swatch swatch = {0};
 		if (!read_aco_color(reader, &swatch, error))
 			return FALSE;
-		if (version == 2) {
+		if (version == ACO_NAMED_VERSION) {
 			guint32 units = read_long(reader);
 			swatch.name = read_text(reader, units ? units - 1 : 0);
-			reader->offset += 2;
+			reader->offset += sizeof(gunichar2);
 		} else
 			swatch.name = g_strdup_printf("clr%u", index);
 		g_array_append_val(swatches, swatch);
@@ -101,7 +113,7 @@ static gboolean read_aco_block(SwatchReader *reader, GArray *swatches, GError **
 }
 
 static gboolean read_ase(SwatchReader *reader, GArray *swatches, GError **error) {
-	reader->offset = 8;
+	reader->offset = ASE_COUNT_AT;
 	guint32 count = read_long(reader);
 	g_autofree char *group = NULL;
 	for (guint32 index = 0; index < count && !reader->failed; index++) {
@@ -109,26 +121,27 @@ static gboolean read_ase(SwatchReader *reader, GArray *swatches, GError **error)
 		guint32 size = read_long(reader);
 		gsize end = reader->offset + size;
 		g_autofree char *name = NULL;
-		if (type == 0xc001 || type == 1) {
+		if (type == ASE_GROUP || type == ASE_COLOR) {
 			guint units = read_short(reader);
 			name = read_text(reader, units ? units - 1 : 0);
-			reader->offset += 2;
-			if (type == 0xc001) {
+			reader->offset += sizeof(gunichar2);
+			if (type == ASE_GROUP) {
 				g_free(group);
 				group = g_steal_pointer(&name);
 			}
 		}
-		if (type == 1) {
-			gboolean rgb = has_bytes(reader, 4) && !memcmp(reader->bytes + reader->offset, "RGB ", 4);
-			reader->offset += 4;
+		if (type == ASE_COLOR) {
+			gboolean rgb = has_bytes(reader, ASE_MODEL_BYTES) &&
+						   !memcmp(reader->bytes + reader->offset, ASE_RGB, ASE_MODEL_BYTES);
+			reader->offset += ASE_MODEL_BYTES;
 			if (!rgb) {
 				g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED, TEXT_SWATCH_SPACE_UNSUPPORTED);
 				return FALSE;
 			}
 			Swatch swatch = {group ? g_strconcat(group, " : ", name, NULL) : g_strdup(name), 0, 0, 0};
-			swatch.red = read_float(reader) * 255.0;
-			swatch.green = read_float(reader) * 255.0;
-			swatch.blue = read_float(reader) * 255.0;
+			swatch.red = unit_to_byte(read_float(reader));
+			swatch.green = unit_to_byte(read_float(reader));
+			swatch.blue = unit_to_byte(read_float(reader));
 			g_array_append_val(swatches, swatch);
 		}
 		reader->offset = end;
@@ -153,11 +166,12 @@ GArray *read_swatches(const guint8 *bytes, gsize length, GError **error) {
 	SwatchReader reader = {bytes, length, 0, FALSE};
 	GArray *swatches = create_swatch_list();
 	gboolean read;
-	if (length >= 4 && !memcmp(bytes, "ASEF", 4))
+	if (length >= ASE_MODEL_BYTES && !memcmp(bytes, ASE_SIGNATURE, ASE_MODEL_BYTES))
 		read = read_ase(&reader, swatches, error);
 	else {
 		read = read_aco_block(&reader, swatches, error);
-		if (read && !reader.failed && reader.offset + 3 < length) {
+		/* A second block after the first holds the same colours with their names */
+		if (read && !reader.failed && reader.offset + sizeof(guint32) <= length) {
 			g_array_set_size(swatches, 0);
 			read = read_aco_block(&reader, swatches, error);
 		}
@@ -170,34 +184,35 @@ GArray *read_swatches(const guint8 *bytes, gsize length, GError **error) {
 		g_array_unref(swatches);
 		return NULL;
 	}
-	if (reader.offset + 3 >= length)
+	if (reader.offset + sizeof(guint32) > length)
 		shorten_swatch_names(swatches);
 	return swatches;
 }
 
 static void append_short(GByteArray *bytes, guint value) {
-	guint8 pair[2] = {value >> 8 & G_MAXUINT8, value & G_MAXUINT8};
-	g_byte_array_append(bytes, pair, 2);
+	guint8 pair[] = {value >> CHAR_BIT & G_MAXUINT8, value & G_MAXUINT8};
+	g_byte_array_append(bytes, pair, sizeof pair);
 }
 
 GBytes *write_swatches(const GArray *swatches) {
 	GByteArray *bytes = g_byte_array_new();
-	for (guint version = 1; version < 3; version++) {
+	/* Both versions, so older readers find the colours and newer ones the names too */
+	for (guint version = ACO_PLAIN_VERSION; version <= ACO_NAMED_VERSION; version++) {
 		append_short(bytes, version);
 		append_short(bytes, swatches->len);
 		for (guint index = 0; index < swatches->len; index++) {
 			const Swatch *swatch = &g_array_index(swatches, Swatch, index);
+			append_short(bytes, SWATCH_RGB);
+			append_short(bytes, round_half_up(swatch->red * ((double)G_MAXUINT16 / G_MAXUINT8)));
+			append_short(bytes, round_half_up(swatch->green * ((double)G_MAXUINT16 / G_MAXUINT8)));
+			append_short(bytes, round_half_up(swatch->blue * ((double)G_MAXUINT16 / G_MAXUINT8)));
 			append_short(bytes, 0);
-			append_short(bytes, round_half_up(swatch->red * (65535.0 / G_MAXUINT8)));
-			append_short(bytes, round_half_up(swatch->green * (65535.0 / G_MAXUINT8)));
-			append_short(bytes, round_half_up(swatch->blue * (65535.0 / G_MAXUINT8)));
-			append_short(bytes, 0);
-			if (version == 1)
+			if (version == ACO_PLAIN_VERSION)
 				continue;
 			glong units = 0;
 			g_autofree gunichar2 *text = g_utf8_to_utf16(swatch->name, -1, NULL, &units, NULL);
-			append_short(bytes, (units + 1) >> 16);
-			append_short(bytes, (units + 1) & 0xffff);
+			append_short(bytes, (units + 1) >> 2 * CHAR_BIT);
+			append_short(bytes, (units + 1) & G_MAXUINT16);
 			for (glong unit = 0; unit < units; unit++)
 				append_short(bytes, text[unit]);
 			append_short(bytes, 0);
@@ -207,12 +222,13 @@ GBytes *write_swatches(const GArray *swatches) {
 }
 
 guint32 get_swatch_color(const Swatch *swatch) {
-	return (guint32)round_half_up(swatch->red) << 16 | (guint32)round_half_up(swatch->green) << 8 |
+	return (guint32)round_half_up(swatch->red) << WORD_RED_SHIFT | (guint32)round_half_up(swatch->green) << WORD_GREEN_SHIFT |
 		   (guint32)round_half_up(swatch->blue);
 }
 
 void add_swatch(GArray *swatches, const char *name, guint32 color) {
-	Swatch swatch = {g_strdup(name), color >> 16 & G_MAXUINT8, color >> 8 & G_MAXUINT8, color & G_MAXUINT8};
+	Swatch swatch = {g_strdup(name), color >> WORD_RED_SHIFT & G_MAXUINT8, color >> WORD_GREEN_SHIFT & G_MAXUINT8,
+					 color & G_MAXUINT8};
 	g_array_append_val(swatches, swatch);
 }
 

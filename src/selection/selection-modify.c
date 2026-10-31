@@ -5,6 +5,15 @@
 #include "selection-modify.h"
 #include "pixel-selection.h"
 
+/* Coverage above half counts as inside */
+#define HALF_COVERED 128
+#define MASK_ALIGNMENT 4
+#define BOX_PASSES 3
+/* Smooth blurs with a share of the radius over a reach of it, then sharpens the edge back */
+#define SMOOTH_RADIUS_SHARE .7
+#define SMOOTH_REACH 2.6
+#define SMOOTH_CONTRAST 2.5
+
 /* ============================== Arithmetic ============================== */
 
 static RasterExtent grow_extent(RasterExtent extent, int amount) {
@@ -48,7 +57,7 @@ static float *measure_edge_distances(const guint8 *mask, int width, int height) 
 		double source_row = -height - width, coverage = 0;
 		gint64 index = column;
 		for (gint64 row = 0; row < height; row++, index += width) {
-			if (mask[index] > 128) {
+			if (mask[index] > HALF_COVERED) {
 				source_row = row;
 				coverage = mask[index];
 			}
@@ -136,7 +145,7 @@ static void draw_distance_coverage(const Record *source, Record *target, RasterE
 
 static gsize pad_like_source(gsize count, unsigned depth) {
 	if (depth == BYTE_DEPTH)
-		return (count + 3) / 4 * 4;
+		return (count + MASK_ALIGNMENT - 1) / MASK_ALIGNMENT * MASK_ALIGNMENT;
 	return depth == WORD_DEPTH ? count + (count & 1) : count;
 }
 
@@ -152,14 +161,15 @@ static void write_source_array(Record *array, gint64 index, double value) {
 	write_channel(array, index, value);
 }
 
-static void get_box_sizes(double radius, int sizes[3]) {
+/* Three box blurs in a row come close to a Gaussian blur of the radius */
+static void get_box_sizes(double radius, int sizes[BOX_PASSES]) {
 	double ideal = sqrt(12 * radius * radius / 3 + 1);
 	int lower = floor(ideal);
 	if (lower % 2 == 0)
 		lower--;
 	double count = (12 * radius * radius - 3.0 * lower * lower - 4 * 3.0 * lower - 3 * 3.0) / (-4.0 * lower - 4);
 	int smaller = round_half_up(count);
-	for (int index = 0; index < 3; index++)
+	for (int index = 0; index < BOX_PASSES; index++)
 		sizes[index] = index < smaller ? lower : lower + 2;
 }
 
@@ -225,10 +235,10 @@ static void blur_columns(const Record *source, Record *target, gint64 width, gin
 }
 
 static void blur_mask(Record *values, RasterExtent extent, double radius) {
-	int sizes[3];
+	int sizes[BOX_PASSES];
 	get_box_sizes(radius, sizes);
 	Record *scratch = create_channels(values->value.buffer.length, values->value.buffer.depth);
-	for (int pass = 0; pass < 3; pass++) {
+	for (int pass = 0; pass < BOX_PASSES; pass++) {
 		blur_rows(values, scratch, extent.width, extent.height, (sizes[pass] - 1) >> 1);
 		blur_columns(scratch, values, extent.width, extent.height, (sizes[pass] - 1) >> 1);
 	}
@@ -238,9 +248,9 @@ static void blur_mask(Record *values, RasterExtent extent, double radius) {
 static Record *blur_selection(const Record *selection, double radius, gboolean smooth, RasterExtent canvas,
 							  gboolean at_canvas_bounds) {
 	if (smooth)
-		radius = round_half_up(radius * .7);
+		radius = round_half_up(radius * SMOOTH_RADIUS_SHARE);
 	RasterExtent from = read_extent(get_record(selection, "V"));
-	RasterExtent extent = grow_extent(from, ceil(2.6 * radius));
+	RasterExtent extent = grow_extent(from, ceil(SMOOTH_REACH * radius));
 	if (!at_canvas_bounds)
 		extent = intersect_region(extent, canvas);
 	if (empty_extent(extent))
@@ -254,7 +264,7 @@ static Record *blur_selection(const Record *selection, double radius, gboolean s
 	double full = channel_maximum(depth), half = full / 2;
 	for (gsize index = 0; smooth && index < values->value.buffer.length; index++)
 		write_channel(values, index,
-					  nan_max(0, nan_min(full, half + (read_channel(values, index) - half) * radius * 2.5)));
+					  nan_max(0, nan_min(full, half + (read_channel(values, index) - half) * radius * SMOOTH_CONTRAST)));
 	Record *mask = create_channels(count, depth);
 	memcpy(mask->value.buffer.data, values->value.buffer.data, count * (depth / CHAR_BIT));
 	free_record(values);
@@ -269,7 +279,7 @@ static Record *expand_selection(const Record *selection, int amount) {
 	unsigned depth = source->value.buffer.depth;
 	Record *copied = create_channels(count_extent(extent), depth);
 	copy_selection_mask(source, from, copied, extent);
-	Record *bytes = convert_mask_depth(copied, 8), *coverage = create_channels(count_extent(extent), BYTE_DEPTH);
+	Record *bytes = convert_mask_depth(copied, BYTE_DEPTH), *coverage = create_channels(count_extent(extent), BYTE_DEPTH);
 	draw_distance_coverage(bytes, coverage, extent, amount);
 	Record *mask = convert_mask_depth(coverage, depth);
 	free_record(copied);
@@ -289,7 +299,7 @@ static Record *contract_selection(const Record *selection, int amount, RasterExt
 	Record *copied = create_channels(count_extent(extent), depth);
 	copy_selection_mask(source, from, copied, extent);
 	invert_mask(copied);
-	Record *bytes = convert_mask_depth(copied, 8), *coverage = create_channels(count_extent(extent), BYTE_DEPTH);
+	Record *bytes = convert_mask_depth(copied, BYTE_DEPTH), *coverage = create_channels(count_extent(extent), BYTE_DEPTH);
 	draw_distance_coverage(bytes, coverage, extent, amount);
 	invert_mask(coverage);
 	Record *mask = convert_mask_depth(coverage, depth);
@@ -304,7 +314,7 @@ Record *create_selection_border(const Record *selection, double inner, double ou
 	RasterExtent extent = grow_extent(from, MAX(1, (int)ceil(outer)));
 	const Record *source = get_record(selection, "C");
 	gsize count = count_extent(extent);
-	Record *bytes = convert_mask_depth(source, 8), *area = create_channels(count, BYTE_DEPTH);
+	Record *bytes = convert_mask_depth(source, BYTE_DEPTH), *area = create_channels(count, BYTE_DEPTH);
 	Record *outside = create_channels(count, BYTE_DEPTH), *inside = create_channels(count, BYTE_DEPTH);
 	copy_selection_mask(bytes, from, area, extent);
 	if (outer != 0)

@@ -2,8 +2,24 @@
 #include <string.h>
 
 #include "stroke.h"
+#include "transform.h"
 
 #define PROFILE_SAMPLES 8000
+/* The profile spans 1.55 radii in half its samples */
+#define SAMPLES_PER_RADIUS (PROFILE_SAMPLES / 2 / 1.55)
+/* Tips under this diameter are hard, and tips of two and three pixels sample their edge more coarsely */
+#define SMALLEST_SOFT_TIP 4
+#define TWO_PIXEL_STEP 2
+#define THREE_PIXEL_STEP 1.6
+/* Soft tips grow by this share of their softness to fit their falloff, and their edge blurs over five samples */
+#define SOFT_MARGIN .55
+#define EDGE_BLUR .4
+#define BLUR_SAMPLES 5
+/* Smaller pyramid levels are used down to this many pixels, while the scale stays under this */
+#define SMALLEST_LEVEL_PIXELS 4
+#define LEVEL_SCALE_LIMIT .3
+/* Pixel centers move just under half a pixel, so a center on a pixel border rounds down */
+#define SAMPLE_CENTER_SHIFT .499999
 
 typedef struct {
 	double hardness;
@@ -109,29 +125,29 @@ static void set_symmetric_values(guint8 *tip, int size, int row, int column, gui
 }
 
 BrushLevel create_computed_tip(double diameter, double hardness, double scale) {
-	if (diameter < 4)
+	if (diameter < SMALLEST_SOFT_TIP)
 		hardness = 1;
-	double margin = 1 + .55 * (1 - hardness);
+	double margin = 1 + SOFT_MARGIN * (1 - hardness);
 	int size = (int)round_half_up(scale * diameter * margin) + 2;
 	BrushLevel level = {create_channels((gsize)size * size, BYTE_DEPTH), {0, 0, size, size}};
 	guint8 *tip = level.values->value.buffer.data;
 	double center = size / 2.0, step = margin / (center - 1);
 	if (diameter == 2)
-		step *= 2;
+		step *= TWO_PIXEL_STEP;
 	if (diameter == 3)
-		step *= 1.6;
+		step *= THREE_PIXEL_STEP;
 	const TipProfile *profile = get_tip_profile(hardness);
 	int border = (int)round_half_up(PROFILE_SAMPLES / center);
 	int solid = profile->last_solid - border, empty = profile->first_empty + border;
 	int half = MIN(size, (size + 1) >> 1);
-	double blur = step * .4 * (4000 / 1.55);
+	double blur = step * EDGE_BLUR * SAMPLES_PER_RADIUS;
 	g_autofree guint8 *falloff = g_malloc0(PROFILE_SAMPLES);
 	for (int index = 0; index < PROFILE_SAMPLES; index++) {
 		int far_before = MAX(0, index - blur - blur), before = MAX(0, index - blur);
 		int after = MIN(PROFILE_SAMPLES - 1, index + blur), far_after = MIN(PROFILE_SAMPLES - 1, index + blur + blur);
 		const double *values = profile->values;
 		int value =
-			(int)(.5 + G_MAXUINT8 * (1.0 / 5) *
+			(int)(.5 + G_MAXUINT8 * (1.0 / BLUR_SAMPLES) *
 						   (values[index] + values[far_before] + values[before] + values[after] + values[far_after]));
 		falloff[index] = value;
 		if (value == 0)
@@ -141,7 +157,7 @@ BrushLevel create_computed_tip(double diameter, double hardness, double scale) {
 		double vertical = step * (row - center + .5), vertical_squared = vertical * vertical;
 		for (int column = 0; column < half; column++) {
 			double horizontal = step * (column - center + .5);
-			int distance = (int)(sqrt(horizontal * horizontal + vertical_squared) * (4000 / 1.55));
+			int distance = (int)(sqrt(horizontal * horizontal + vertical_squared) * SAMPLES_PER_RADIUS);
 			if (empty < distance)
 				continue;
 			if (distance < solid) {
@@ -166,6 +182,7 @@ static BrushLevel halve_level(BrushLevel level) {
 	for (int row = 0; row < height; row++)
 		for (int column = 0; column < width; column++) {
 			int offset = (row << 1) * stride + (column << 1);
+			/* Adding two before shifting by two rounds the average of the four */
 			target[row * width + column] =
 				(2 + source[offset] + source[offset + 1] + source[offset + stride] + source[offset + stride + 1]) >> 2;
 		}
@@ -195,8 +212,8 @@ static double read_tip_value(const Record *values, int index) {
 }
 
 static double sample_bilinear(double x, double y, const Record *values, int width) {
-	x -= .499999;
-	y -= .499999;
+	x -= SAMPLE_CENTER_SHIFT;
+	y -= SAMPLE_CENTER_SHIFT;
 	int left = floor(x), top = floor(y);
 	double horizontal = x - left, vertical = y - top;
 	int offset = top * width + left, below = offset + width;
@@ -207,16 +224,10 @@ static double sample_bilinear(double x, double y, const Record *values, int widt
 }
 
 static RasterExtent bound_transformed_extent(RasterExtent extent, Affine transform) {
-	double corners[8] = {extent.x,
-						 extent.y,
-						 extent.x + extent.width,
-						 extent.y,
-						 extent.x + extent.width,
-						 extent.y + extent.height,
-						 extent.x,
-						 extent.y + extent.height};
-	double left = 99999999999, top = 99999999999, right = -99999999999, bottom = -99999999999;
-	for (int index = 0; index < 8; index += 2) {
+	double corners[QUAD_VALUES];
+	get_extent_quad(extent, corners);
+	double left = G_MAXDOUBLE, top = G_MAXDOUBLE, right = -G_MAXDOUBLE, bottom = -G_MAXDOUBLE;
+	for (int index = 0; index < QUAD_VALUES; index += 2) {
 		double x, y;
 		transform_affine_point(transform, corners[index], corners[index + 1], &x, &y);
 		left = MIN(left, x);
@@ -230,14 +241,15 @@ static RasterExtent bound_transformed_extent(RasterExtent extent, Affine transfo
 
 BrushLevel resample_brush(GArray *levels, Affine transform) {
 	build_brush_levels(levels);
-	guint level_index = 0;
-	while (level_index + 3 < levels->len * 2 &&
-		   g_array_index(levels, BrushLevel, (level_index + 2) / 2).extent.width *
-				   g_array_index(levels, BrushLevel, (level_index + 2) / 2).extent.height >=
-			   4 &&
-		   affine_scale(transform) * (1 << (level_index >> 1)) < .3)
-		level_index += 2;
-	BrushLevel base = g_array_index(levels, BrushLevel, 0), chosen = g_array_index(levels, BrushLevel, level_index / 2);
+	/* Each level halves the one before it, and a smaller one is used while the tip stays small enough on screen */
+	guint level = 0;
+	while (level + 1 < levels->len) {
+		RasterExtent next = g_array_index(levels, BrushLevel, level + 1).extent;
+		if (next.width * next.height < SMALLEST_LEVEL_PIXELS || affine_scale(transform) * (1 << level) >= LEVEL_SCALE_LIMIT)
+			break;
+		level++;
+	}
+	BrushLevel base = g_array_index(levels, BrushLevel, 0), chosen = g_array_index(levels, BrushLevel, level);
 	Affine level_transform = create_identity_affine();
 	translate_affine(&level_transform, -chosen.extent.x, -chosen.extent.y);
 	scale_affine(&level_transform, (double)base.extent.width / chosen.extent.width,
