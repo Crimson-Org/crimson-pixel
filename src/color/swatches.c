@@ -68,13 +68,13 @@ GArray *create_swatch_list(void) {
 }
 
 static gboolean read_aco_color(SwatchReader *reader, Swatch *swatch, GError **error) {
-	guint space = read_short(reader), values[4];
-	for (int index = 0; index < 4; index++)
+	guint space = read_short(reader), values[SWATCH_VALUES];
+	for (int index = 0; index < SWATCH_VALUES; index++)
 		values[index] = read_short(reader);
-	double channels[3];
+	double channels[RGB_CHANNELS];
 	if (!convert_swatch_color(space, values, channels)) {
 		g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
-							space == 2 ? TEXT_SWATCH_SPACE_UNSUPPORTED : TEXT_SWATCH_FILE_DAMAGED);
+							space == SWATCH_CMYK ? TEXT_SWATCH_SPACE_UNSUPPORTED : TEXT_SWATCH_FILE_DAMAGED);
 		return FALSE;
 	}
 	swatch->red = channels[0];

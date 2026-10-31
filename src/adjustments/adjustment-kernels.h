@@ -2,6 +2,7 @@
 
 #include "adjustments.h"
 #include "color-lookup.h"
+#include "color/color-spaces.h"
 
 typedef enum {
 	ADJUSTMENT_CURVES,
@@ -16,9 +17,6 @@ typedef enum {
 
 #define ADJUSTMENT_CURVE_LIMIT 1024
 
-/* Colour matrices are four by four: red, green, blue and a constant */
-#define MATRIX_SIDE 4
-#define MATRIX_VALUES (MATRIX_SIDE * MATRIX_SIDE)
 /* Hue map entries hold the hue, saturation and lightness change and an unused place */
 #define HUE_MAP_STRIDE 4
 enum { HUE_MAP_HUE, HUE_MAP_SATURATION, HUE_MAP_LIGHTNESS };

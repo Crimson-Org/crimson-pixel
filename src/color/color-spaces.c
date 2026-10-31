@@ -9,12 +9,16 @@
 /* The Lab curve turns from a straight line into a cube root at this point */
 #define LAB_EPSILON .008856
 #define LAB_KAPPA 903.3
+/* Swatch gray runs to these, and a sixteen bit value is a share of its largest */
+#define GRAY_RANGE 1e4
+#define GRAY_SHARE_RANGE 16384
+#define WORD_UNIT_EXACT (1.0 / G_MAXUINT16)
 
-const double XYZ_TO_RGB[16] = {3.1338561, -1.6168667, -.4906146, 0, -.9787684, 1.9161415, .033454, 0,
+const double XYZ_TO_RGB[MATRIX_VALUES] = {3.1338561, -1.6168667, -.4906146, 0, -.9787684, 1.9161415, .033454, 0,
 									  .0719453,	 -.2289914,	 1.4052427, 0, 0,		  0,		 0,		  1};
-const double D50_WHITE[3] = {.9642, 1, .8249};
+const double D50_WHITE[RGB_CHANNELS] = {.9642, 1, .8249};
 
-static double linear_table[COLOR_TABLE_SIZE], lab_table[COLOR_TABLE_SIZE], rgb_to_xyz[16];
+static double linear_table[COLOR_TABLE_SIZE], lab_table[COLOR_TABLE_SIZE], rgb_to_xyz[MATRIX_VALUES];
 
 /* ============================== Tables ========================================== */
 
@@ -49,41 +53,41 @@ double read_lab_table(double position) {
 
 /* ============================== Conversions ===================================== */
 
-void convert_hsb(double hue, double saturation, double brightness, double channels[3]) {
-	int sector = (int)floor(hue * 6);
-	double fraction = hue * 6 - sector, low = brightness * (1 - saturation);
+void convert_hsb(double hue, double saturation, double brightness, double channels[RGB_CHANNELS]) {
+	int sector = (int)floor(hue * HUE_SECTORS);
+	double fraction = hue * HUE_SECTORS - sector, low = brightness * (1 - saturation);
 	double falling = brightness * (1 - fraction * saturation);
 	double rising = brightness * (1 - (1 - fraction) * saturation);
-	const double table[6][3] = {{brightness, rising, low},	{falling, brightness, low}, {low, brightness, rising},
+	const double table[HUE_SECTORS][RGB_CHANNELS] = {{brightness, rising, low},	{falling, brightness, low}, {low, brightness, rising},
 								{low, falling, brightness}, {rising, low, brightness},	{brightness, low, falling}};
-	memcpy(channels, table[((sector % 6) + 6) % 6], sizeof table[0]);
+	memcpy(channels, table[((sector % HUE_SECTORS) + HUE_SECTORS) % HUE_SECTORS], sizeof table[0]);
 }
 
-gboolean convert_swatch_color(guint space, const guint values[4], double rgb[3]) {
+gboolean convert_swatch_color(guint space, const guint values[SWATCH_VALUES], double rgb[RGB_CHANNELS]) {
 	switch (space) {
-	case 0:
-		for (int channel = 0; channel < 3; channel++)
-			rgb[channel] = values[channel] * (255.0 / 65535);
+	case SWATCH_RGB:
+		for (int channel = 0; channel < RGB_CHANNELS; channel++)
+			rgb[channel] = values[channel] * (255.0 / G_MAXUINT16);
 		return TRUE;
-	case 1:
-		convert_hsb(values[0] * (1.0 / 65535), values[1] * (1.0 / 65535), values[2] * (1.0 / 65535), rgb);
-		for (int channel = 0; channel < 3; channel++)
-			rgb[channel] *= 255;
+	case SWATCH_HSB:
+		convert_hsb(values[0] * WORD_UNIT_EXACT, values[1] * WORD_UNIT_EXACT, values[2] * WORD_UNIT_EXACT, rgb);
+		for (int channel = 0; channel < RGB_CHANNELS; channel++)
+			rgb[channel] *= G_MAXUINT8;
 		return TRUE;
-	case 7:
+	case SWATCH_LAB:
 		/* Lab keeps its lightness unsigned and a and b signed, in hundredths */
-		convert_lab_to_rgb(values[0] / 100.0, (gint16)values[1] / 100.0, (gint16)values[2] / 100.0, rgb);
+		convert_lab_to_rgb(values[0] / PERCENT, (gint16)values[1] / PERCENT, (gint16)values[2] / PERCENT, rgb);
 		return TRUE;
-	case 8:
-		for (int channel = 0; channel < 3; channel++)
-			rgb[channel] = 255 - values[channel] * (255.0 / 1e4);
+	case SWATCH_GRAY:
+		for (int channel = 0; channel < RGB_CHANNELS; channel++)
+			rgb[channel] = G_MAXUINT8 - values[channel] * (255.0 / GRAY_RANGE);
 		return TRUE;
-	case 18:
-		for (int channel = 0; channel < 3; channel++)
-			rgb[channel] = 255.0 * values[0] / 16384;
+	case SWATCH_GRAY_SHARE:
+		for (int channel = 0; channel < RGB_CHANNELS; channel++)
+			rgb[channel] = 255.0 * values[0] / GRAY_SHARE_RANGE;
 		return TRUE;
-	case 65535:
-		rgb[0] = rgb[1] = rgb[2] = 255;
+	case SWATCH_EMPTY:
+		rgb[0] = rgb[1] = rgb[2] = G_MAXUINT8;
 		return TRUE;
 	default:
 		return FALSE;
@@ -98,7 +102,7 @@ double encode_srgb(double value) {
 	return value < .0031308 ? 12.92 * value : 1.055 * pow(value, 1 / 2.4) - .055;
 }
 
-void convert_lab_to_white_shares(double lightness, double a, double b, double shares[3]) {
+void convert_lab_to_white_shares(double lightness, double a, double b, double shares[RGB_CHANNELS]) {
 	double y = (lightness + 16) / 116, y_cube = y * y * y, z = y - b / 200, z_cube = z * z * z;
 	double x = a / 500 + y, x_cube = x * x * x;
 	shares[0] = x_cube > LAB_EPSILON ? x_cube : (116 * x - 16) / LAB_KAPPA;
@@ -106,12 +110,12 @@ void convert_lab_to_white_shares(double lightness, double a, double b, double sh
 	shares[2] = z_cube > LAB_EPSILON ? z_cube : (116 * z - 16) / LAB_KAPPA;
 }
 
-void convert_lab_to_rgb(double lightness, double a, double b, double rgb[3]) {
+void convert_lab_to_rgb(double lightness, double a, double b, double rgb[RGB_CHANNELS]) {
 	double shares[3];
 	convert_lab_to_white_shares(lightness, a, b, shares);
 	/* The D50 white point in percent */
 	const double xyz[4] = {shares[0] * 96.42 / PERCENT, shares[1] * PERCENT / PERCENT, shares[2] * 82.49 / PERCENT, 0};
-	for (int channel = 0; channel < 3; channel++) {
+	for (int channel = 0; channel < RGB_CHANNELS; channel++) {
 		const double *row = XYZ_TO_RGB + channel * 4;
 		double linear = row[0] * xyz[0] + row[1] * xyz[1] + row[2] * xyz[2] + row[3] * xyz[3];
 		double value = unit_to_byte(encode_srgb(linear));
@@ -119,7 +123,7 @@ void convert_lab_to_rgb(double lightness, double a, double b, double rgb[3]) {
 	}
 }
 
-void convert_xyz_to_lab(double x, double y, double z, double lab[3]) {
+void convert_xyz_to_lab(double x, double y, double z, double lab[RGB_CHANNELS]) {
 	fill_color_tables();
 	double fx = read_table(lab_table, x * COLOR_TABLE_SCALE), fy = read_table(lab_table, y * COLOR_TABLE_SCALE),
 		   fz = read_table(lab_table, z * COLOR_TABLE_SCALE);
@@ -128,7 +132,7 @@ void convert_xyz_to_lab(double x, double y, double z, double lab[3]) {
 	lab[2] = 200 * (fy - fz);
 }
 
-void convert_rgb_to_lab(double red, double green, double blue, double lab[3]) {
+void convert_rgb_to_lab(double red, double green, double blue, double lab[RGB_CHANNELS]) {
 	fill_color_tables();
 	const double scale = COLOR_TABLE_SCALE / 255;
 	red = read_table(linear_table, red * scale);
@@ -174,7 +178,7 @@ void invert_matrix(const double m[16], double inverse[16]) {
 	inverse[15] = m[0] * m[5] * m[10] - m[0] * m[9] * m[6] - m[1] * m[4] * m[10] + m[1] * m[8] * m[6] +
 				  m[2] * m[4] * m[9] - m[2] * m[8] * m[5];
 	double determinant = m[0] * inverse[0] + m[1] * inverse[4] + m[2] * inverse[8] + m[3] * inverse[12];
-	for (int index = 0; index < 16; index++)
+	for (int index = 0; index < MATRIX_VALUES; index++)
 		inverse[index] /= determinant;
 }
 
@@ -186,12 +190,12 @@ double get_rgb_hue(double red, double green, double blue) {
 		return 0;
 	double range = high - low;
 	if (high == red)
-		hue = (green - blue) / range + (green < blue ? 6 : 0);
+		hue = (green - blue) / range + (green < blue ? HUE_SECTORS : 0);
 	else if (high == green)
 		hue = (blue - red) / range + 2;
 	else
 		hue = (red - green) / range + 4;
-	return hue * (1 / 6.0);
+	return hue * (1.0 / HUE_SECTORS);
 }
 
 static double get_hsl_channel(double low, double high, double hue) {
@@ -208,7 +212,7 @@ static double get_hsl_channel(double low, double high, double hue) {
 	return low;
 }
 
-void convert_hsl_to_rgb(double hue, double saturation, double lightness, double rgb[3]) {
+void convert_hsl_to_rgb(double hue, double saturation, double lightness, double rgb[RGB_CHANNELS]) {
 	if (saturation == 0) {
 		rgb[0] = rgb[1] = rgb[2] = lightness;
 		return;
@@ -220,7 +224,7 @@ void convert_hsl_to_rgb(double hue, double saturation, double lightness, double 
 	rgb[2] = get_hsl_channel(low, high, hue - 1 / 3.0);
 }
 
-void convert_rgb_to_hsl(double red, double green, double blue, double hsl[3]) {
+void convert_rgb_to_hsl(double red, double green, double blue, double hsl[RGB_CHANNELS]) {
 	double high = MAX(red, MAX(green, blue)), low = MIN(red, MIN(green, blue));
 	hsl[0] = get_rgb_hue(red, green, blue);
 	hsl[1] = 0;
@@ -231,7 +235,7 @@ void convert_rgb_to_hsl(double red, double green, double blue, double hsl[3]) {
 	hsl[1] = hsl[2] > .5 ? range / (2 - (high + low)) : range / (high + low);
 }
 
-void convert_rgb_to_hsv(double red, double green, double blue, double hsv[3]) {
+void convert_rgb_to_hsv(double red, double green, double blue, double hsv[RGB_CHANNELS]) {
 	double high = MAX(red, MAX(green, blue)), low = MIN(red, MIN(green, blue));
 	hsv[0] = get_rgb_hue(red, green, blue);
 	hsv[1] = high == 0 ? 0 : (high - low) / high;
@@ -244,7 +248,7 @@ double weigh_hue_range(double hue, double center) {
 		distance -= 1;
 	else if (fabs(distance + 1) < size)
 		distance += 1;
-	distance *= 6;
+	distance *= HUE_SECTORS;
 	return MAX(0, MIN(1, distance < 0 ? 1 + distance : 1 - distance));
 }
 
@@ -257,20 +261,20 @@ static double read_color_number(const Record *color, const char *key) {
 	return value && value->type == RECORD_NUMBER ? value->value.number : NAN;
 }
 
-gboolean read_descriptor_color(const Record *color, double rgb[3]) {
+gboolean read_descriptor_color(const Record *color, double rgb[RGB_CHANNELS]) {
 	const char *kind = get_string(color, "classID");
 	if (!g_strcmp0(kind, "RGBC")) {
 		gboolean whole = has_record(color, "Rd");
 		const char *keys[2][3] = {{"redFloat", "greenFloat", "blueFloat"}, {"Rd", "Grn", "Bl"}};
-		for (int channel = 0; channel < 3; channel++)
-			rgb[channel] = MAX(read_color_number(color, keys[whole][channel]) * (whole ? 1 : 255), 0);
+		for (int channel = 0; channel < RGB_CHANNELS; channel++)
+			rgb[channel] = MAX(read_color_number(color, keys[whole][channel]) * (whole ? 1 : G_MAXUINT8), 0);
 	} else if (!g_strcmp0(kind, "HSBC")) {
-		convert_hsb(read_color_number(color, "H") / 360, read_color_number(color, "Strt") / 100,
-					read_color_number(color, "Brgh") / 100, rgb);
-		for (int channel = 0; channel < 3; channel++)
-			rgb[channel] *= 255;
+		convert_hsb(read_color_number(color, "H") / DEGREES_PER_TURN, from_percent(read_color_number(color, "Strt")),
+					from_percent(read_color_number(color, "Brgh")), rgb);
+		for (int channel = 0; channel < RGB_CHANNELS; channel++)
+			rgb[channel] *= G_MAXUINT8;
 	} else if (!g_strcmp0(kind, "Grsc"))
-		rgb[0] = rgb[1] = rgb[2] = 255 - read_color_number(color, "Gry");
+		rgb[0] = rgb[1] = rgb[2] = G_MAXUINT8 - read_color_number(color, "Gry");
 	else if (!g_strcmp0(kind, "LbCl"))
 		convert_lab_to_rgb(read_color_number(color, LAB_KEYS[0]), read_color_number(color, LAB_KEYS[1]),
 						   read_color_number(color, LAB_KEYS[2]), rgb);
@@ -283,10 +287,10 @@ gboolean read_descriptor_color(const Record *color, double rgb[3]) {
 	return TRUE;
 }
 
-static Record *create_color_object(const char *kind, const char *const keys[3], const double values[3]) {
+static Record *create_color_object(const char *kind, const char *const keys[3], const double values[RGB_CHANNELS]) {
 	Record *color = create_object(RECORD_PLAIN);
 	set_string(color, "classID", kind);
-	for (int channel = 0; channel < 3; channel++)
+	for (int channel = 0; channel < RGB_CHANNELS; channel++)
 		set_record(color, keys[channel], create_typed_value("doub", create_number(values[channel])));
 	return color;
 }
