@@ -5,6 +5,27 @@
 
 #define PSD_MAX_DECODED_BYTES (1024ULL * 1024 * 1024)
 
+/* Photoshop files are big endian, their blocks are named by four character keys such as 8BIM, and a rectangle is
+ * four four byte numbers: top, left, bottom and right */
+#define PSD_KEY_LENGTH 4
+#define PSD_RECTANGLE_BYTES 16
+#define PSD_RGB_MODE 3
+
+/* How the samples of one channel are stored */
+enum {
+	PSD_RAW = 0,
+	PSD_RLE = 1,
+	PSD_ZIP = 2,
+	PSD_ZIP_PREDICTED = 3,
+};
+
+/* Channel ids besides the colour channels 0 to 2 */
+enum {
+	PSD_TRANSPARENCY_CHANNEL = -1,
+	PSD_USER_MASK_CHANNEL = -2,
+	PSD_REAL_MASK_CHANNEL = -3,
+};
+
 /* Reading state for one in-memory Photoshop file */
 typedef struct {
 	const guint8 *data;

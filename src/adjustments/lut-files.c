@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <math.h>
 #include <string.h>
 
@@ -11,7 +12,6 @@ static const guint8 LINK_PROFILE_HEADER[] = {
 static const char LINK_PROFILE_NAME[] = "ICC by CrimsonPix";
 
 /* The ICC layout: big endian four byte numbers and signatures, and twelve byte tag entries of signature, offset, size */
-#define BITS_PER_BYTE 8
 #define ICC_NUMBER_BYTES 4
 #define ICC_SIGNATURE_BYTES 4
 #define ICC_TAG_ENTRY_SIZE 12
@@ -241,13 +241,13 @@ static double *read_look_file(const char *text, int *size) {
 
 static void put_u32(guint8 *data, gsize offset, guint32 value) {
 	for (int index = 0; index < ICC_NUMBER_BYTES; index++)
-		data[offset + index] = value >> ((ICC_NUMBER_BYTES - 1 - index) * BITS_PER_BYTE) & G_MAXUINT8;
+		data[offset + index] = value >> ((ICC_NUMBER_BYTES - 1 - index) * CHAR_BIT) & G_MAXUINT8;
 }
 
 static guint32 read_u32(const guint8 *data) {
 	guint32 value = 0;
 	for (int index = 0; index < ICC_NUMBER_BYTES; index++)
-		value = value << BITS_PER_BYTE | data[index];
+		value = value << CHAR_BIT | data[index];
 	return value;
 }
 
@@ -295,7 +295,7 @@ static GBytes *write_link_profile(int size, const double *values, const char *na
 	for (gsize index = 0; index < entries; index++) {
 		double scaled = floor(values[index] * G_MAXUINT16 + .5);
 		guint value = isnan(scaled) ? 0 : (guint)MAX(0, MIN(G_MAXUINT16, scaled));
-		data[table + CLUT_HEADER_SIZE + index * LUT_VALUE_BYTES] = value >> BITS_PER_BYTE & G_MAXUINT8;
+		data[table + CLUT_HEADER_SIZE + index * LUT_VALUE_BYTES] = value >> CHAR_BIT & G_MAXUINT8;
 		data[table + CLUT_HEADER_SIZE + index * LUT_VALUE_BYTES + 1] = value & G_MAXUINT8;
 	}
 	return g_bytes_new_take(data, total);

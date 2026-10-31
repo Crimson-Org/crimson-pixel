@@ -28,6 +28,18 @@ typedef enum {
 	RECORD_HISTORY
 } RecordClass;
 
+/* Pixels are red, green, blue and alpha samples in that order */
+#define RGB_CHANNELS 3
+#define RGBA_CHANNELS 4
+#define ALPHA_CHANNEL 3
+
+/* Samples are bytes, sixteen bit numbers or floats */
+enum {
+	BYTE_DEPTH = 8,
+	WORD_DEPTH = 16,
+	FLOAT_DEPTH = 32,
+};
+
 typedef struct {
 	unsigned depth;
 	gsize length;
