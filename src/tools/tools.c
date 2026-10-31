@@ -220,7 +220,7 @@ guint32 read_color_button(GtkWidget *button) {
 }
 
 void write_color_button(GtkWidget *button, guint32 color) {
-	GdkRGBA rgba = {(color >> 16 & 255) / 255.0, (color >> 8 & 255) / 255.0, (color & 255) / 255.0, 1};
+	GdkRGBA rgba = color_to_rgba(color, 1);
 	gtk_color_dialog_button_set_rgba(GTK_COLOR_DIALOG_BUTTON(button), &rgba);
 }
 

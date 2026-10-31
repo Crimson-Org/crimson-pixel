@@ -277,7 +277,7 @@ static RasterExtent sweep_capsule(Stroke *stroke, double x, double y) {
 	double opacity = MIN(1, stroke->flow), inner = MAX(0, radius - .5), outer = radius + .5;
 	double reciprocal_length = length_squared > 0 ? 1 / length_squared : 0;
 	/* Coverage pixels hold red, green and blue bytes in memory order, like the colored dabs */
-	guint32 color = (stroke->color >> WORD_RED_SHIFT & G_MAXUINT8) | (stroke->color & 0xff00) | (stroke->color & 255) << 16;
+	guint32 color = swap_red_and_blue(stroke->color);
 	guint32 *target = stroke->coverage->value.buffer.data;
 	guint32 solid = (guint32)(opacity * 255 + .5) << WORD_ALPHA_SHIFT | color;
 	RasterExtent changed = {0};
@@ -422,7 +422,7 @@ static RasterExtent stamp_square(Stroke *stroke, int x, int y) {
 	int size = MAX(1, (int)lround(stroke->shape.diameter));
 	int left = x - (size - 1) / 2, top = y - (size - 1) / 2;
 	RasterExtent clip = intersect_region((RasterExtent){left, top, size, size}, stroke->extent);
-	guint32 color = OPAQUE_WORD | (stroke->color >> WORD_RED_SHIFT & G_MAXUINT8) | (stroke->color & 0xff00) | (stroke->color & 255) << 16;
+	guint32 color = OPAQUE_WORD | swap_red_and_blue(stroke->color);
 	guint32 *target = stroke->coverage->value.buffer.data;
 	for (int row = clip.y; row < clip.y + clip.height; row++) {
 		guint32 *line = target + (gsize)(row - stroke->extent.y) * stroke->extent.width - stroke->extent.x;

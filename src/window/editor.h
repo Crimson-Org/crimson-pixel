@@ -256,6 +256,8 @@ guint32 get_background_color(Editor *editor);
 guint32 read_color_button(GtkWidget *button);
 void write_color_button(GtkWidget *button, guint32 color);
 void add_dialog_input(GtkWidget *grid, const char *name, GtkWidget *input, int row);
+/* A colour with red in its high byte, as GTK draws it */
+GdkRGBA color_to_rgba(guint32 color, double alpha);
 void show_modify_dialog(Editor *editor, int modification);
 void show_fill_dialog(Editor *editor);
 void show_stroke_dialog(Editor *editor);

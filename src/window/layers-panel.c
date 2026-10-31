@@ -11,6 +11,9 @@
 #include "lang/en.h"
 #include "common/spacing.h"
 
+/* A label colour bar leaves this much room above and below it */
+#define COLOR_BAR_INSET 2
+
 static void press_layer_list(GtkGestureClick *gesture, int presses, double x, double y, Editor *editor);
 static void press_eye(GtkGestureDrag *gesture, double x, double y, Editor *editor);
 static void drag_over_eyes(GtkGestureDrag *gesture, double offset_x, double offset_y, Editor *editor);
@@ -532,9 +535,8 @@ static int get_label_color(Document *document, int layer_index) {
 
 static void draw_color_bar(GtkWidget *widget, GtkSnapshot *snapshot, int width, int height, gpointer data) {
 	guint32 color = LABEL_COLORS[GPOINTER_TO_INT(data)];
-	gtk_snapshot_append_color(
-		snapshot, &(GdkRGBA){(color >> 16 & 255) / 255.0, (color >> 8 & 255) / 255.0, (color & 255) / 255.0, 1},
-		&GRAPHENE_RECT_INIT(0, 2, width, height - 4));
+	GdkRGBA fill = color_to_rgba(color, 1);
+	gtk_snapshot_append_color(snapshot, &fill, &GRAPHENE_RECT_INIT(0, COLOR_BAR_INSET, width, height - 2 * COLOR_BAR_INSET));
 }
 
 /* A thin bar at the row start shows the label color, and rows without one keep the space empty */

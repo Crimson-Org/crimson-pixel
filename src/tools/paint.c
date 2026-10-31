@@ -478,7 +478,7 @@ gboolean fill_paint_area(PaintTool *tool, Document *document, const FillOptions 
 		for (int column = 0; column < kept.width; column++) {
 			guint value = values[(gsize)(kept.y - extent.y + row) * extent.width + kept.x - extent.x + column];
 			pixels[(gsize)row * kept.width + column] =
-				(color >> WORD_RED_SHIFT & G_MAXUINT8) | (color & 0xff00) | (color & 255) << 16 | value << WORD_ALPHA_SHIFT;
+				swap_red_and_blue(color) | value << WORD_ALPHA_SHIFT;
 		}
 	tool->opacity = options->opacity;
 	prepare_paint_target(tool, document, (RasterExtent){0});
@@ -505,7 +505,7 @@ gboolean fill_paint_region(PaintTool *tool, Document *document, const Record *se
 	RasterExtent layer_extent = read_extent(get_record(layer, "V"));
 	guint32 *pixels = get_record(layer, "buffer")->value.buffer.data;
 	const Record *mask = selection ? get_record(selection, "C") : NULL;
-	guint32 source = (color >> WORD_RED_SHIFT & G_MAXUINT8) | (color & 0xff00) | (color & 255) << 16 | (guint32)alpha << WORD_ALPHA_SHIFT;
+	guint32 source = swap_red_and_blue(color) | (guint32)alpha << WORD_ALPHA_SHIFT;
 	for (int row = 0; row < region.height; row++)
 		for (int column = 0; column < region.width; column++) {
 			guint32 covered = source;

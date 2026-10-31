@@ -24,6 +24,13 @@ gboolean equal_region(RasterExtent first, RasterExtent second);
 double step_zoom_level(double zoom, gboolean in);
 double clamp_zoom_level(double zoom);
 
+/* Colours keep red in their high byte, while stored pixel words keep it in the low one, and this turns one order into
+ * the other, without alpha */
+static inline guint32 swap_red_and_blue(guint32 color) {
+	return (color >> WORD_RED_SHIFT & G_MAXUINT8) | (color & G_MAXUINT8 << WORD_GREEN_SHIFT) |
+		   (color & G_MAXUINT8) << WORD_RED_SHIFT;
+}
+
 /* Packed ARGB access to eight-bit RGBA channels, ignoring pixels outside the buffer */
 static inline guint32 read_rgba_pixel(const Record *channels, gsize pixel) {
 	if (!channels || channels->type != RECORD_BUFFER || channels->value.buffer.depth != BYTE_DEPTH ||

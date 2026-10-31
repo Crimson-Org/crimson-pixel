@@ -58,9 +58,8 @@ static void draw_swatch_grid(GtkWidget *widget, GtkSnapshot *snapshot, int width
 		graphene_rect_t box =
 			GRAPHENE_RECT_INIT((index % columns) * (SWATCH_SIZE + SWATCH_GAP),
 							   (index / columns) * (SWATCH_SIZE + SWATCH_GAP), SWATCH_SIZE, SWATCH_SIZE);
-		gtk_snapshot_append_color(
-			snapshot, &(GdkRGBA){(color >> 16 & 255) / 255.0, (color >> 8 & 255) / 255.0, (color & 255) / 255.0, 1},
-			&box);
+		GdkRGBA fill = color_to_rgba(color, 1);
+		gtk_snapshot_append_color(snapshot, &fill, &box);
 		append_outline(snapshot, box, 1, border);
 		if ((int)index == hovered - 1 || color == foreground) {
 			append_outline(snapshot, box, 2, dark);

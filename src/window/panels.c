@@ -3,6 +3,7 @@
 #include <libpanel.h>
 
 #include "editor.h"
+#include "color/color-spaces.h"
 #include "canvas/snapshot-area.h"
 #include "lang/en.h"
 #include "common/spacing.h"
@@ -99,20 +100,18 @@ static guint32 hsv_to_color(double hue, double saturation, double value) {
 
 /* Grey colors keep the previous hue so the square does not jump to red */
 static void color_to_hsv(guint32 color, ColorPanel *panel) {
-	double red = (color >> 16 & 255) / 255.0, green = (color >> 8 & 255) / 255.0, blue = (color & 255) / 255.0;
-	double maximum = MAX(red, MAX(green, blue)), minimum = MIN(red, MIN(green, blue)), range = maximum - minimum;
-	panel->value = maximum;
-	panel->saturation = maximum > 0 ? range / maximum : 0;
-	if (range <= 0)
-		return;
-	double hue = maximum == red		? (green - blue) / range
-				 : maximum == green ? 2 + (blue - red) / range
-									: 4 + (red - green) / range;
-	panel->hue = fmod(hue / 6 + 1, 1);
+	GdkRGBA rgba = color_to_rgba(color, 1);
+	double hsv[RGB_CHANNELS];
+	convert_rgb_to_hsv(rgba.red, rgba.green, rgba.blue, hsv);
+	panel->value = hsv[2];
+	panel->saturation = hsv[1];
+	if (hsv[1] > 0)
+		panel->hue = hsv[0];
 }
 
-static GdkRGBA color_to_rgba(guint32 color, double alpha) {
-	return (GdkRGBA){(color >> 16 & 255) / 255.0, (color >> 8 & 255) / 255.0, (color & 255) / 255.0, alpha};
+GdkRGBA color_to_rgba(guint32 color, double alpha) {
+	return (GdkRGBA){(color >> WORD_RED_SHIFT & G_MAXUINT8) / 255.0, (color >> WORD_GREEN_SHIFT & G_MAXUINT8) / 255.0,
+					 (color & G_MAXUINT8) / 255.0, alpha};
 }
 
 static void draw_ring(GtkSnapshot *snapshot, double x, double y, double radius) {
