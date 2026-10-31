@@ -5,12 +5,15 @@
 #include "document/history.h"
 #include "selection/pixel-selection.h"
 
+/* A matrix this close to the identity changes nothing */
+#define IDENTITY_TOLERANCE 1e-12
+
 static const char *CROP_OPERATION = "crop";
 static const CropOptions FREE_CROP = {CROP_FREE, 0, 0, 0, FALSE};
 
 /* ============================== Box geometry ============================== */
 
-RasterExtent get_crop_rectangle(const double quad[8], double *angle) {
+RasterExtent get_crop_rectangle(const double quad[QUAD_VALUES], double *angle) {
 	double across_x = quad[2] - quad[0], across_y = quad[3] - quad[1];
 	double down_x = quad[6] - quad[0], down_y = quad[7] - quad[1];
 	*angle = atan2(across_y, across_x);
@@ -59,7 +62,7 @@ static void fit_turned_canvas(double angle, int width, int height, double *box_w
 }
 
 void get_straighten_box(int width, int height, double start_x, double start_y, double end_x, double end_y,
-						double quad[8]) {
+						double quad[QUAD_VALUES]) {
 	double across = end_x - start_x, down = end_y - start_y;
 	if (fabs(across) < fabs(down)) {
 		end_x = start_x - down;
@@ -74,16 +77,16 @@ void get_straighten_box(int width, int height, double start_x, double start_y, d
 	}
 	double angle = atan2(-(end_y - start_y), end_x - start_x), box_width, box_height;
 	fit_turned_canvas(angle, width, height, &box_width, &box_height);
-	const double corners[8] = {0, 0, box_width, 0, box_width, box_height, 0, box_height};
+	const double corners[QUAD_VALUES] = {0, 0, box_width, 0, box_width, box_height, 0, box_height};
 	double cosine = cos(angle), sine = sin(angle);
-	for (int point = 0; point < 4; point++) {
+	for (int point = 0; point < QUAD_CORNERS; point++) {
 		double x = corners[point * 2] - box_width / 2, y = corners[point * 2 + 1] - box_height / 2;
 		quad[point * 2] = x * cosine + y * sine + width / 2.0;
 		quad[point * 2 + 1] = -x * sine + y * cosine + height / 2.0;
 	}
 }
 
-static RasterExtent bound_quad(const double quad[8]) {
+static RasterExtent bound_quad(const double quad[QUAD_VALUES]) {
 	double left = quad[0], top = quad[1], right = quad[0], bottom = quad[1];
 	for (int point = 1; point < 4; point++) {
 		left = MIN(left, quad[point * 2]);
@@ -95,7 +98,7 @@ static RasterExtent bound_quad(const double quad[8]) {
 	return (RasterExtent){x, y, (int)ceil(right) - x, (int)ceil(bottom) - y};
 }
 
-gboolean plan_crop(const double quad[8], int width, int height, const CropOptions *options, CropPlan *plan) {
+gboolean plan_crop(const double quad[QUAD_VALUES], int width, int height, const CropOptions *options, CropPlan *plan) {
 	double angle;
 	RasterExtent rectangle = get_crop_rectangle(quad, &angle);
 	gboolean resized = FALSE;
@@ -128,9 +131,9 @@ static gboolean is_pixel_layer(Record *layer) {
 }
 
 static gboolean is_identity(Projective matrix) {
-	const double identity[8] = {1, 0, 0, 0, 1, 0, 0, 0};
-	for (int index = 0; index < 8; index++)
-		if (fabs(matrix.m[index] - identity[index]) > 1e-12)
+	Projective identity = IDENTITY_PROJECTIVE;
+	for (int index = 0; index < PROJECTIVE_VALUES; index++)
+		if (fabs(matrix.m[index] - identity.m[index]) > IDENTITY_TOLERANCE)
 			return FALSE;
 	return TRUE;
 }
@@ -234,7 +237,7 @@ static gboolean apply_crop_plan(Document *document, const CropPlan *plan_pointer
 	return TRUE;
 }
 
-gboolean crop_document(Document *document, const double quad[8], const CropOptions *options, gboolean clear_selection,
+gboolean crop_document(Document *document, const double quad[QUAD_VALUES], const CropOptions *options, gboolean clear_selection,
 					   gboolean extended_history) {
 	CropPlan plan;
 	if (!options)

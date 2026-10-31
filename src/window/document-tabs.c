@@ -15,9 +15,8 @@ void free_presented_document(PresentedDocument *presented) {
 		cairo_surface_destroy(presented->surface);
 	free_tiled_image(presented->tiles);
 	g_clear_pointer(&presented->selection_edges, g_array_unref);
-	for (int part = 0; part < 3; part++)
-		free_tiled_image(presented->move_preview[part]);
-	g_free(presented->transform);
+	clear_move_preview(&presented->move_preview);
+	free_transform_session(presented->transform);
 	g_clear_object(&presented->file);
 	g_free(presented);
 }

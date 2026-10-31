@@ -9,18 +9,50 @@
 #include "crop.h"
 #include "lang/en.h"
 
-enum { HANDLE_REFERENCE = 9, HANDLE_MOVE = 10, HANDLE_ROTATE = 11 };
+/* Past the grid handles come the reference point, the inside of the box and the band around it */
+enum { HANDLE_REFERENCE = HANDLE_GRID_COUNT, HANDLE_MOVE, HANDLE_ROTATE };
+#define NO_HANDLE (-1)
+/* Handles answer within this many pixels, and the rotation band is this many handle sizes wide */
+#define HANDLE_RADIUS 8
+#define ROTATION_BAND 3
+/* Handles are squares this many pixels from the middle to a side, and the reference point a bit larger circle */
+#define HANDLE_SIZE 4
+#define REFERENCE_SIZE 5
+/* Rotating with Shift turns in steps of fifteen degrees */
+#define ROTATION_STEP (G_PI / 12)
+/* Pressing inside the box twice this quickly applies the transform */
+#define DOUBLE_PRESS_MICROSECONDS (G_USEC_PER_SEC / 4)
+/* A crop box smaller than this on both sides is dropped when released */
+#define SMALLEST_CROP 2
+/* Resize cursors come in eight directions, counted from the right */
+#define CURSOR_DIRECTIONS 8
+/* The rotation cursor: an arc with an arrow head and a white outline, turned in eighths */
+#define ROTATION_CURSOR_SIZE 32
+#define ROTATION_CURSOR_RADIUS 9
+#define ROTATION_CURSOR_START 20
+#define ROTATION_CURSOR_END 290
+#define ROTATION_CURSOR_HEAD_LENGTH 6
+#define ROTATION_CURSOR_HEAD_HALF_WIDTH 4.5
+#define ROTATION_CURSOR_LINE 2.2
+#define ROTATION_CURSOR_OUTLINE 2.6
+#define DEGREES_PER_TURN 360
+#define CURSOR_TURN_STEP (DEGREES_PER_TURN / CURSOR_DIRECTIONS)
+/* The box and handle outline colour, and the shade outside a crop box */
+static const GdkRGBA BOX_COLOR = {0.1, 0.4, 0.9, 1};
+static const GdkRGBA CROP_SHADE = {0, 0, 0, .5};
+/* The straighten line is a white line over a darker wider one */
+#define STRAIGHTEN_OUTLINE_WIDTH 3
+static const GdkRGBA STRAIGHTEN_OUTLINE = {0, 0, 0, .6};
 
 struct TransformSession {
 	DocumentView *view;
 	TransformMode mode;
 	RasterExtent bounds;
-	double quad[8], start[8], press_x, press_y, handle_x, handle_y, reference_x, reference_y;
+	double quad[QUAD_VALUES], start[QUAD_VALUES], press_x, press_y, handle_x, handle_y, reference_x, reference_y;
 	gboolean custom_reference;
 	int handle;
-	TiledImage *parts[3];
-	RasterExtent below_extent, moving_extent;
-	gboolean whole, crop, replaceable;
+	MovePreview preview;
+	gboolean crop, replaceable;
 	gboolean keeps_ratio;
 	gint64 last_press;
 };
@@ -32,33 +64,29 @@ TransformSession *get_transform(DocumentView *view) {
 
 /* ============================== Geometry ============================== */
 
-static Projective get_quad_matrix(const double quad[8]) {
-	Projective matrix = {{1, 0, 0, 0, 1, 0, 0, 0}};
-	projective_from_rectangle(quad, 0, 0, 1, 1, &matrix);
-	return matrix;
-}
-
-static void get_grid(const double quad[8], double points[9][2]) {
+static void get_grid(const double quad[QUAD_VALUES], double points[HANDLE_GRID_COUNT][2]) {
 	Projective matrix = get_quad_matrix(quad);
-	for (int row = 0; row < 3; row++)
-		for (int column = 0; column < 3; column++)
-			apply_projective(matrix, column / 2.0, row / 2.0, &points[row * 3 + column][0],
-							 &points[row * 3 + column][1]);
+	double last = HANDLE_GRID_SIZE - 1;
+	for (int row = 0; row < HANDLE_GRID_SIZE; row++)
+		for (int column = 0; column < HANDLE_GRID_SIZE; column++) {
+			double *point = points[row * HANDLE_GRID_SIZE + column];
+			apply_projective(matrix, column / last, row / last, &point[0], &point[1]);
+		}
 }
 
-static void get_reference(TransformSession *session, const double quad[8], double *x, double *y) {
+static void get_reference(TransformSession *session, const double quad[QUAD_VALUES], double *x, double *y) {
 	if (session->custom_reference) {
 		*x = session->reference_x;
 		*y = session->reference_y;
 		return;
 	}
-	double points[9][2];
+	double points[HANDLE_GRID_COUNT][2];
 	get_grid(quad, points);
-	*x = points[4][0];
-	*y = points[4][1];
+	*x = points[HANDLE_CENTER][0];
+	*y = points[HANDLE_CENTER][1];
 }
 
-static void to_unit(const double quad[8], double x, double y, double *u, double *v) {
+static void to_unit(const double quad[QUAD_VALUES], double x, double y, double *u, double *v) {
 	apply_projective(invert_projective(get_quad_matrix(quad)), x, y, u, v);
 }
 
@@ -71,14 +99,16 @@ static void to_screen(DocumentView *view, double x, double y, double *screen_x, 
 
 static int find_handle(TransformSession *session, double x, double y) {
 	DocumentView *view = session->view;
-	double radius = 8, points[9][2], reference_x, reference_y, screen_x, screen_y;
+	double radius = HANDLE_RADIUS, points[HANDLE_GRID_COUNT][2], reference_x, reference_y, screen_x, screen_y;
 	get_grid(session->quad, points);
 	get_reference(session, session->quad, &reference_x, &reference_y);
 	to_screen(view, reference_x, reference_y, &screen_x, &screen_y);
 	if (hypot(screen_x - x, screen_y - y) < radius)
 		return HANDLE_REFERENCE;
-	const int handles[8] = {0, 2, 6, 8, 1, 3, 5, 7};
-	for (int index = 0; index < 8; index++) {
+	/* Corners win over edges where they are close */
+	const int handles[] = {HANDLE_TOP_LEFT, HANDLE_TOP_RIGHT, HANDLE_BOTTOM_LEFT, HANDLE_BOTTOM_RIGHT,
+						   HANDLE_TOP,		HANDLE_LEFT,	  HANDLE_RIGHT,		  HANDLE_BOTTOM};
+	for (guint index = 0; index < G_N_ELEMENTS(handles); index++) {
 		to_screen(view, points[handles[index]][0], points[handles[index]][1], &screen_x, &screen_y);
 		if (hypot(screen_x - x, screen_y - y) < radius)
 			return handles[index];
@@ -86,43 +116,52 @@ static int find_handle(TransformSession *session, double x, double y) {
 	double origin_x, origin_y, u, v;
 	get_view_origin(view, &origin_x, &origin_y);
 	to_unit(session->quad, (x - origin_x) / view->zoom, (y - origin_y) / view->zoom, &u, &v);
-	double width = hypot(points[2][0] - points[0][0], points[2][1] - points[0][1]) * view->zoom;
-	double height = hypot(points[6][0] - points[0][0], points[6][1] - points[0][1]) * view->zoom;
+	const double *top_left = points[HANDLE_TOP_LEFT], *top_right = points[HANDLE_TOP_RIGHT];
+	const double *bottom_left = points[HANDLE_BOTTOM_LEFT];
+	double width = hypot(top_right[0] - top_left[0], top_right[1] - top_left[1]) * view->zoom;
+	double height = hypot(bottom_left[0] - top_left[0], bottom_left[1] - top_left[1]) * view->zoom;
 	double across = u * width, down = v * height;
 	gboolean near = across > -radius && across < width + radius && down > -radius && down < height + radius;
 	if (near) {
 		if (fabs(down) < radius)
-			return 1;
+			return HANDLE_TOP;
 		if (fabs(across) < radius)
-			return 3;
+			return HANDLE_LEFT;
 		if (fabs(down - height) < radius)
-			return 7;
+			return HANDLE_BOTTOM;
 		if (fabs(across - width) < radius)
-			return 5;
+			return HANDLE_RIGHT;
 	}
 	if (u >= 0 && u <= 1 && v >= 0 && v <= 1)
 		return HANDLE_MOVE;
-	double band = 3 * radius;
+	double band = ROTATION_BAND * radius;
 	gboolean turn = across > -band && across < width + band && down > -band && down < height + band;
 	return turn ? HANDLE_ROTATE : HANDLE_MOVE;
 }
 
+static double to_radians(double degrees) {
+	return degrees * G_PI / (DEGREES_PER_TURN / 2);
+}
+
 /* A circular arrow with a white outline, turned in eighths, with the hotspot in the middle */
 static GdkCursor *create_rotation_cursor(int direction) {
-	const int size = 32;
-	const double radius = 9, start = 20 * G_PI / 180, end = 290 * G_PI / 180, head_length = 6, head_half_width = 4.5;
+	const int size = ROTATION_CURSOR_SIZE;
+	const double radius = ROTATION_CURSOR_RADIUS, start = to_radians(ROTATION_CURSOR_START);
+	const double end = to_radians(ROTATION_CURSOR_END), head_length = ROTATION_CURSOR_HEAD_LENGTH;
+	const double head_half_width = ROTATION_CURSOR_HEAD_HALF_WIDTH;
 	cairo_surface_t *target = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, size, size);
 	cairo_t *context = cairo_create(target);
 	cairo_translate(context, size / 2.0, size / 2.0);
-	cairo_rotate(context, (-45 - direction * 45) * G_PI / 180);
+	cairo_rotate(context, to_radians(-CURSOR_TURN_STEP - direction * CURSOR_TURN_STEP));
 	cairo_set_line_cap(context, CAIRO_LINE_CAP_ROUND);
 	cairo_set_line_join(context, CAIRO_LINE_JOIN_ROUND);
 	double tip_x = radius * cos(end) - sin(end) * head_length, tip_y = radius * sin(end) + cos(end) * head_length;
+	/* The white outline first, then the black arrow over it */
 	for (int pass = 0; pass < 2; pass++) {
-		double outline = pass ? 0 : 2.6;
+		double outline = pass ? 0 : ROTATION_CURSOR_OUTLINE;
 		cairo_new_path(context);
 		cairo_arc(context, 0, 0, radius, start, end);
-		cairo_set_line_width(context, 2.2 + outline);
+		cairo_set_line_width(context, ROTATION_CURSOR_LINE + outline);
 		cairo_set_source_rgba(context, pass, pass, pass, 1);
 		cairo_stroke(context);
 		cairo_move_to(context, tip_x, tip_y);
@@ -146,14 +185,15 @@ static GdkCursor *create_rotation_cursor(int direction) {
 }
 
 static GdkCursor *get_rotation_cursor(TransformSession *session) {
-	static GdkCursor *cursors[8];
+	static GdkCursor *cursors[CURSOR_DIRECTIONS];
 	double reference_x, reference_y, origin_x, origin_y;
 	DocumentView *view = session->view;
 	get_reference(session, session->quad, &reference_x, &reference_y);
 	get_view_origin(view, &origin_x, &origin_y);
 	double angle = atan2(reference_y - (view->pointer_y - origin_y) / view->zoom,
 						 reference_x - (view->pointer_x - origin_x) / view->zoom);
-	int direction = (((int)lround(8 * (90 - angle * 180 / G_PI) / 360)) % 8 + 8) % 8;
+	double degrees = DEGREES_PER_TURN / 4 - angle * (DEGREES_PER_TURN / 2) / G_PI;
+	int direction = ((int)lround(degrees / CURSOR_TURN_STEP) % CURSOR_DIRECTIONS + CURSOR_DIRECTIONS) % CURSOR_DIRECTIONS;
 	if (!cursors[direction])
 		cursors[direction] = create_rotation_cursor(direction);
 	return g_object_ref(cursors[direction]);
@@ -166,12 +206,14 @@ static const char *get_handle_cursor(TransformSession *session, int handle) {
 		return "default";
 	if (handle == HANDLE_ROTATE)
 		return NULL;
-	double points[9][2];
+	double points[HANDLE_GRID_COUNT][2];
 	get_grid(session->quad, points);
-	double angle = atan2(points[handle][1] - points[4][1], points[handle][0] - points[4][0]);
-	const char *names[8] = {"e-resize", "se-resize", "s-resize", "sw-resize",
-							"w-resize", "nw-resize", "n-resize", "ne-resize"};
-	int sector = ((int)lround(angle / (G_PI / 4)) % 8 + 8) % 8;
+	const double *center = points[HANDLE_CENTER];
+	double angle = atan2(points[handle][1] - center[1], points[handle][0] - center[0]);
+	const char *names[CURSOR_DIRECTIONS] = {"e-resize", "se-resize", "s-resize", "sw-resize",
+											"w-resize", "nw-resize", "n-resize", "ne-resize"};
+	int sector = ((int)lround(angle / to_radians(CURSOR_TURN_STEP)) % CURSOR_DIRECTIONS + CURSOR_DIRECTIONS) %
+				 CURSOR_DIRECTIONS;
 	return names[sector];
 }
 
@@ -184,10 +226,10 @@ static void snap_dragged_point(gpointer view, double *x, double *y) {
 static void drag_handle(TransformSession *session, double x, double y, GdkModifierType modifiers) {
 	gboolean shift = modifiers & GDK_SHIFT_MASK, alt = modifiers & GDK_ALT_MASK, control = modifiers & GDK_CONTROL_MASK;
 	const double *start = session->start;
-	double next[8];
+	double next[QUAD_VALUES];
 	memcpy(next, start, sizeof next);
 	int handle = session->handle;
-	gboolean corner = handle == 0 || handle == 2 || handle == 6 || handle == 8;
+	gboolean corner = is_corner_handle(handle);
 	if (handle == HANDLE_REFERENCE) {
 		session->custom_reference = TRUE;
 		session->reference_x = x;
@@ -196,13 +238,11 @@ static void drag_handle(TransformSession *session, double x, double y, GdkModifi
 	}
 	if (handle == HANDLE_MOVE) {
 		double moved_x = x - session->press_x, moved_y = y - session->press_y;
-		gboolean aligned = (fabs(start[1] - start[3]) < 1e-6 && fabs(start[2] - start[4]) < 1e-6) ||
-						   (fabs(start[0] - start[2]) < 1e-6 && fabs(start[3] - start[5]) < 1e-6);
-		if (aligned) {
+		if (is_axis_aligned_quad(start)) {
 			moved_x = round(moved_x);
 			moved_y = round(moved_y);
 		}
-		for (int point = 0; point < 4; point++) {
+		for (int point = 0; point < QUAD_CORNERS; point++) {
 			next[point * 2] += moved_x;
 			next[point * 2 + 1] += moved_y;
 		}
@@ -212,20 +252,20 @@ static void drag_handle(TransformSession *session, double x, double y, GdkModifi
 		double angle =
 			atan2(y - center_y, x - center_x) - atan2(session->press_y - center_y, session->press_x - center_x);
 		if (shift)
-			angle = round(angle / (G_PI / 12)) * (G_PI / 12);
+			angle = round(angle / ROTATION_STEP) * ROTATION_STEP;
 		double cosine = cos(angle), sine = sin(angle);
-		for (int point = 0; point < 4; point++) {
+		for (int point = 0; point < QUAD_CORNERS; point++) {
 			double px = start[point * 2] - center_x, py = start[point * 2 + 1] - center_y;
 			next[point * 2] = center_x + px * cosine - py * sine;
 			next[point * 2 + 1] = center_y + px * sine + py * cosine;
 		}
 	} else if (corner && control && !session->crop) {
 		/* A free corner distorts the box, and Alt mirrors the opposite corner */
-		int point = (const int[9]){0, 0, 1, 0, 0, 0, 3, 0, 2}[handle];
+		int point = get_handle_corner(handle);
 		next[point * 2] = x;
 		next[point * 2 + 1] = y;
 		if (alt) {
-			int opposite = (point + 2) % 4;
+			int opposite = (point + QUAD_CORNERS / 2) % QUAD_CORNERS;
 			double middle_x = (start[point * 2] + start[opposite * 2]) / 2;
 			double middle_y = (start[point * 2 + 1] + start[opposite * 2 + 1]) / 2;
 			next[opposite * 2] = 2 * middle_x - x;
@@ -250,9 +290,11 @@ static void drag_handle(TransformSession *session, double x, double y, GdkModifi
 
 /* ============================== Session ============================== */
 
-static void free_parts(TransformSession *session) {
-	for (int part = 0; part < 3; part++)
-		g_clear_pointer(&session->parts[part], free_tiled_image);
+void free_transform_session(TransformSession *session) {
+	if (!session)
+		return;
+	clear_move_preview(&session->preview);
+	g_free(session);
 }
 
 static void refresh_views(Editor *editor) {
@@ -283,16 +325,8 @@ void start_transform(Editor *editor, gboolean selection_only) {
 	session->view = get_page_view(page, "primary");
 	session->mode = mode;
 	session->bounds = bounds;
-	const double quad[8] = {bounds.x,
-							bounds.y,
-							bounds.x + bounds.width,
-							bounds.y,
-							bounds.x + bounds.width,
-							bounds.y + bounds.height,
-							bounds.x,
-							bounds.y + bounds.height};
-	memcpy(session->quad, quad, sizeof quad);
-	session->handle = -1;
+	get_extent_quad(bounds, session->quad);
+	session->handle = NO_HANDLE;
 	if (mode != TRANSFORM_SELECTION) {
 		g_autoptr(GArray) layers = collect_selected_subtrees(document);
 		Record *floating = NULL;
@@ -302,16 +336,7 @@ void start_transform(Editor *editor, gboolean selection_only) {
 			g_array_set_size(layers, 0);
 			g_array_append_val(layers, index);
 		}
-		cairo_surface_t *parts[3];
-		if (render_move_preview(document, layers, floating, &parts[0], &parts[1], &parts[2], &session->below_extent,
-								&session->moving_extent)) {
-			session->whole = !parts[1];
-			for (int part = 0; part < 3; part++) {
-				session->parts[part] = parts[part] ? create_tiled_image(parts[part]) : NULL;
-				if (parts[part])
-					cairo_surface_destroy(parts[part]);
-			}
-		}
+		fill_move_preview(&session->preview, document, layers, floating);
 		if (floating)
 			free_record(floating);
 	}
@@ -319,7 +344,7 @@ void start_transform(Editor *editor, gboolean selection_only) {
 	refresh_views(editor);
 }
 
-static void start_crop_box(Editor *editor, const double quad[8], gboolean keeps_ratio) {
+static void start_crop_box(Editor *editor, const double quad[QUAD_VALUES], gboolean keeps_ratio) {
 	GtkWidget *page = get_current_page(editor);
 	PresentedDocument *presented = get_page_document(page);
 	if (!presented || presented->transform)
@@ -329,7 +354,7 @@ static void start_crop_box(Editor *editor, const double quad[8], gboolean keeps_
 	session->crop = TRUE;
 	session->keeps_ratio = keeps_ratio;
 	memcpy(session->quad, quad, sizeof session->quad);
-	session->handle = -1;
+	session->handle = NO_HANDLE;
 	presented->transform = session;
 	refresh_views(editor);
 }
@@ -337,14 +362,8 @@ static void start_crop_box(Editor *editor, const double quad[8], gboolean keeps_
 void start_crop(Editor *editor, RasterExtent rectangle) {
 	if (empty_extent(rectangle))
 		return;
-	const double quad[8] = {rectangle.x,
-							rectangle.y,
-							rectangle.x + rectangle.width,
-							rectangle.y,
-							rectangle.x + rectangle.width,
-							rectangle.y + rectangle.height,
-							rectangle.x,
-							rectangle.y + rectangle.height};
+	double quad[QUAD_VALUES];
+	get_extent_quad(rectangle, quad);
 	start_crop_box(editor, quad, editor->crop_options.mode != CROP_FREE);
 }
 
@@ -373,7 +392,7 @@ void configure_crop(Editor *editor) {
 	if (empty_extent(box))
 		return;
 	presented->transform = NULL;
-	g_free(session);
+	free_transform_session(session);
 	start_crop(editor, box);
 }
 
@@ -415,7 +434,7 @@ void finish_crop_drag(DocumentView *view) {
 	}
 	editor->straightening = FALSE;
 	Document *document = view->presented->document;
-	double quad[8];
+	double quad[QUAD_VALUES];
 	get_straighten_box(document_width(document), document_height(document), view->select_x, view->select_y,
 					   view->crop_end_x, view->crop_end_y, quad);
 	start_crop_box(editor, quad, FALSE);
@@ -438,7 +457,7 @@ gboolean press_replaces_crop(DocumentView *view, double x, double y) {
 	if (find_handle(session, x, y) != HANDLE_MOVE || !outside)
 		return FALSE;
 	view->presented->transform = NULL;
-	g_free(session);
+	free_transform_session(session);
 	return TRUE;
 }
 
@@ -449,14 +468,8 @@ void crop_to_selection(Editor *editor) {
 		return;
 	finish_transform(editor, FALSE);
 	RasterExtent rectangle = get_selection_extent(presented->document);
-	const double quad[8] = {rectangle.x,
-							rectangle.y,
-							rectangle.x + rectangle.width,
-							rectangle.y,
-							rectangle.x + rectangle.width,
-							rectangle.y + rectangle.height,
-							rectangle.x,
-							rectangle.y + rectangle.height};
+	double quad[QUAD_VALUES];
+	get_extent_quad(rectangle, quad);
 	if (!crop_document(presented->document, quad, NULL, FALSE, FALSE))
 		return;
 	refresh_selection_display(get_page_view(page, "primary"));
@@ -480,18 +493,12 @@ void finish_transform(Editor *editor, gboolean apply) {
 			refresh_document_page(editor, page, TRUE);
 			fit_document_view(get_page_view(page, "primary"));
 		}
-		g_free(session);
+		free_transform_session(session);
 		refresh_views(editor);
 		return;
 	}
-	double unchanged[8] = {session->bounds.x,
-						   session->bounds.y,
-						   session->bounds.x + session->bounds.width,
-						   session->bounds.y,
-						   session->bounds.x + session->bounds.width,
-						   session->bounds.y + session->bounds.height,
-						   session->bounds.x,
-						   session->bounds.y + session->bounds.height};
+	double unchanged[QUAD_VALUES];
+	get_extent_quad(session->bounds, unchanged);
 	gboolean moved = memcmp(unchanged, session->quad, sizeof unchanged);
 	if (apply && moved) {
 		g_autoptr(GError) error = NULL;
@@ -507,24 +514,22 @@ void finish_transform(Editor *editor, gboolean apply) {
 		refresh_selection_display(get_page_view(page, "secondary"));
 		refresh_document_page(editor, page, empty_extent(region) && session->mode != TRANSFORM_SELECTION);
 	}
-	free_parts(session);
-	g_free(session);
+	free_transform_session(session);
 	refresh_views(editor);
 }
 
 /* ============================== Drawing ============================== */
 
 static void draw_handle(GtkSnapshot *snapshot, double x, double y, gboolean round_marker) {
-	double size = round_marker ? 5 : 4;
+	double size = round_marker ? REFERENCE_SIZE : HANDLE_SIZE;
 	GskRoundedRect outline;
 	gsk_rounded_rect_init_from_rect(&outline, &GRAPHENE_RECT_INIT(x - size, y - size, size * 2, size * 2),
 									round_marker ? size : 0);
 	gtk_snapshot_push_rounded_clip(snapshot, &outline);
 	gtk_snapshot_append_color(snapshot, &(GdkRGBA){1, 1, 1, 1}, &outline.bounds);
 	gtk_snapshot_pop(snapshot);
-	const GdkRGBA border = {0.1, 0.4, 0.9, 1};
-	gtk_snapshot_append_border(snapshot, &outline, (const float[4]){1, 1, 1, 1},
-							   (const GdkRGBA[4]){border, border, border, border});
+	gtk_snapshot_append_border(snapshot, &outline, (const float[]){1, 1, 1, 1},
+							   (const GdkRGBA[]){BOX_COLOR, BOX_COLOR, BOX_COLOR, BOX_COLOR});
 }
 
 /* The moving part is drawn by the GPU through the box's perspective, between the parts below and above it */
@@ -538,7 +543,7 @@ void draw_transform(DocumentView *view, GtkSnapshot *snapshot, double x, double 
 		g_autoptr(GskPathBuilder) builder = gsk_path_builder_new();
 		gsk_path_builder_add_rect(builder, visible);
 		double screen_x, screen_y;
-		for (int point = 0; point < 4; point++) {
+		for (int point = 0; point < QUAD_CORNERS; point++) {
 			to_screen(view, session->quad[point * 2], session->quad[point * 2 + 1], &screen_x, &screen_y);
 			if (point)
 				gsk_path_builder_line_to(builder, screen_x, screen_y);
@@ -548,29 +553,24 @@ void draw_transform(DocumentView *view, GtkSnapshot *snapshot, double x, double 
 		gsk_path_builder_close(builder);
 		g_autoptr(GskPath) path = gsk_path_builder_to_path(builder);
 		gtk_snapshot_push_fill(snapshot, path, GSK_FILL_RULE_EVEN_ODD);
-		gtk_snapshot_append_color(snapshot, &(GdkRGBA){0, 0, 0, .5}, visible);
+		gtk_snapshot_append_color(snapshot, &CROP_SHADE, visible);
 		gtk_snapshot_pop(snapshot);
 		return;
 	}
 	if (session->mode == TRANSFORM_SELECTION)
 		snapshot_tiled_image(presented->tiles, snapshot, image, visible, view->zoom, is_view_smoothed(view), FALSE);
 	else {
-		snapshot_patched_image(presented->tiles, session->parts[0], session->below_extent,
+		const MovePreview *preview = &session->preview;
+		snapshot_patched_image(presented->tiles, preview->parts[MOVE_PART_BELOW], preview->below_extent,
 							   document_width(presented->document), document_height(presented->document), snapshot,
 							   image, visible, view->zoom, is_view_smoothed(view));
 		Projective matrix;
 		RasterExtent bounds = session->bounds;
-		TiledImage *moving = session->whole ? presented->tiles : session->parts[1];
-		const double unchanged[8] = {bounds.x,
-									 bounds.y,
-									 bounds.x + bounds.width,
-									 bounds.y,
-									 bounds.x + bounds.width,
-									 bounds.y + bounds.height,
-									 bounds.x,
-									 bounds.y + bounds.height};
+		TiledImage *moving = preview->whole ? presented->tiles : preview->parts[MOVE_PART_MOVING];
+		double unchanged[QUAD_VALUES];
+		get_extent_quad(bounds, unchanged);
 		/* An untouched box draws the moving part exactly like the rest, so shared edges line up to the pixel */
-		RasterExtent extent = session->moving_extent;
+		RasterExtent extent = preview->moving_extent;
 		if (!memcmp(unchanged, session->quad, sizeof unchanged))
 			snapshot_tiled_image(moving, snapshot,
 								 &GRAPHENE_RECT_INIT(image->origin.x + extent.x * view->zoom,
@@ -590,27 +590,28 @@ void draw_transform(DocumentView *view, GtkSnapshot *snapshot, double x, double 
 			snapshot_tiled_image(moving, snapshot, &whole, &whole, view->zoom, is_view_smoothed(view), TRUE);
 			gtk_snapshot_restore(snapshot);
 		}
-		snapshot_tiled_image(session->parts[2], snapshot, image, visible, view->zoom, is_view_smoothed(view), FALSE);
+		snapshot_tiled_image(preview->parts[MOVE_PART_ABOVE], snapshot, image, visible, view->zoom, is_view_smoothed(view), FALSE);
 	}
 }
 
 /* The box outline, its eight handles and the reference point stay on top of the grid */
 void draw_transform_box(DocumentView *view, GtkSnapshot *snapshot) {
 	TransformSession *session = get_transform(view);
-	double points[9][2], screen[9][2], reference_x, reference_y;
+	double points[HANDLE_GRID_COUNT][2], screen[HANDLE_GRID_COUNT][2], reference_x, reference_y;
 	get_grid(session->quad, points);
-	for (int index = 0; index < 9; index++)
+	for (int index = 0; index < HANDLE_GRID_COUNT; index++)
 		to_screen(view, points[index][0], points[index][1], &screen[index][0], &screen[index][1]);
 	g_autoptr(GskPathBuilder) builder = gsk_path_builder_new();
-	const int corners[4] = {0, 2, 8, 6};
-	gsk_path_builder_move_to(builder, screen[0][0], screen[0][1]);
-	for (int index = 1; index <= 4; index++)
-		gsk_path_builder_line_to(builder, screen[corners[index % 4]][0], screen[corners[index % 4]][1]);
+	const int corners[] = {HANDLE_TOP_LEFT, HANDLE_TOP_RIGHT, HANDLE_BOTTOM_RIGHT, HANDLE_BOTTOM_LEFT};
+	gsk_path_builder_move_to(builder, screen[HANDLE_TOP_LEFT][0], screen[HANDLE_TOP_LEFT][1]);
+	for (int index = 1; index <= QUAD_CORNERS; index++)
+		gsk_path_builder_line_to(builder, screen[corners[index % QUAD_CORNERS]][0],
+								 screen[corners[index % QUAD_CORNERS]][1]);
 	g_autoptr(GskPath) path = gsk_path_builder_to_path(builder);
 	g_autoptr(GskStroke) stroke = gsk_stroke_new(1);
-	gtk_snapshot_append_stroke(snapshot, path, stroke, &(GdkRGBA){0.1, 0.4, 0.9, 1});
-	for (int index = 0; index < 9; index++)
-		if (index != 4)
+	gtk_snapshot_append_stroke(snapshot, path, stroke, &BOX_COLOR);
+	for (int index = 0; index < HANDLE_GRID_COUNT; index++)
+		if (index != HANDLE_CENTER)
 			draw_handle(snapshot, screen[index][0], screen[index][1], FALSE);
 	get_reference(session, session->quad, &reference_x, &reference_y);
 	double screen_x, screen_y;
@@ -625,8 +626,8 @@ void press_transform(DocumentView *view, double x, double y) {
 	session->view = view;
 	gint64 now = g_get_monotonic_time();
 	session->handle = find_handle(session, x, y);
-	if (session->handle == HANDLE_MOVE && now - session->last_press < 250000) {
-		session->handle = -1;
+	if (session->handle == HANDLE_MOVE && now - session->last_press < DOUBLE_PRESS_MICROSECONDS) {
+		session->handle = NO_HANDLE;
 		finish_transform(view->editor, TRUE);
 		return;
 	}
@@ -637,8 +638,8 @@ void press_transform(DocumentView *view, double x, double y) {
 	session->press_x = (x - origin_x) / view->zoom;
 	session->press_y = (y - origin_y) / view->zoom;
 	memcpy(session->start, session->quad, sizeof session->start);
-	if (session->handle >= 0 && session->handle <= 8) {
-		double points[9][2];
+	if (session->handle >= 0 && session->handle < HANDLE_GRID_COUNT) {
+		double points[HANDLE_GRID_COUNT][2];
 		get_grid(session->quad, points);
 		session->handle_x = points[session->handle][0];
 		session->handle_y = points[session->handle][1];
@@ -652,13 +653,13 @@ void drag_transform(DocumentView *view, double x, double y, GdkModifierType modi
 	double origin_x, origin_y;
 	get_view_origin(view, &origin_x, &origin_y);
 	double document_x = (x - origin_x) / view->zoom, document_y = (y - origin_y) / view->zoom;
-	if (session->handle <= 8) {
+	if (session->handle < HANDLE_GRID_COUNT) {
 		document_x += session->handle_x - session->press_x;
 		document_y += session->handle_y - session->press_y;
 		snap_view_point(view, &document_x, &document_y);
 	} else if (session->handle == HANDLE_MOVE) {
 		double left = G_MAXDOUBLE, top = G_MAXDOUBLE, right = -G_MAXDOUBLE, bottom = -G_MAXDOUBLE;
-		for (int point = 0; point < 4; point++) {
+		for (int point = 0; point < QUAD_CORNERS; point++) {
 			left = MIN(left, session->start[point * 2]);
 			right = MAX(right, session->start[point * 2]);
 			top = MIN(top, session->start[point * 2 + 1]);
@@ -679,12 +680,12 @@ void release_transform(DocumentView *view) {
 	clear_view_snap(view);
 	if (!session)
 		return;
-	session->handle = -1;
+	session->handle = NO_HANDLE;
 	const double *quad = session->quad;
-	if (!session->crop || fabs(quad[0] - quad[4]) >= 2 || fabs(quad[1] - quad[5]) >= 2)
+	if (!session->crop || fabs(quad[0] - quad[4]) >= SMALLEST_CROP || fabs(quad[1] - quad[5]) >= SMALLEST_CROP)
 		return;
 	view->presented->transform = NULL;
-	g_free(session);
+	free_transform_session(session);
 	refresh_views(view->editor);
 }
 
@@ -699,8 +700,8 @@ void draw_crop_line(DocumentView *view, GtkSnapshot *snapshot) {
 	gsk_path_builder_move_to(builder, start_x, start_y);
 	gsk_path_builder_line_to(builder, end_x, end_y);
 	g_autoptr(GskPath) path = gsk_path_builder_to_path(builder);
-	g_autoptr(GskStroke) outline = gsk_stroke_new(3), line = gsk_stroke_new(1);
-	gtk_snapshot_append_stroke(snapshot, path, outline, &(GdkRGBA){0, 0, 0, .6});
+	g_autoptr(GskStroke) outline = gsk_stroke_new(STRAIGHTEN_OUTLINE_WIDTH), line = gsk_stroke_new(1);
+	gtk_snapshot_append_stroke(snapshot, path, outline, &STRAIGHTEN_OUTLINE);
 	gtk_snapshot_append_stroke(snapshot, path, line, &(GdkRGBA){1, 1, 1, 1});
 }
 

@@ -14,6 +14,7 @@
 
 typedef struct TransformSession TransformSession;
 #include "document/tiled-image.h"
+#include "canvas/move-preview.h"
 
 /* A file request carries a decoded model and its derived presentation together */
 typedef struct {
@@ -25,12 +26,8 @@ typedef struct {
 	TiledImage *tiles;
 	/* The selection outline as edge runs in mask coordinates, rebuilt when the mask changes */
 	GArray *selection_edges;
-	/* Below, moving and above parts drawn by the GPU while layers move */
-	TiledImage *move_preview[3];
-	/* Where the below and moving parts sit in the document; outside the below part the current display shows */
-	RasterExtent below_extent, move_extent;
+	MovePreview move_preview;
 	TransformSession *transform;
-	gboolean move_whole;
 	gconstpointer selection_mask;
 	/* Where the crash recovery copy of this document is kept, once it has needed one */
 	char *recovery_path;
@@ -246,6 +243,7 @@ void finish_crop_drag(DocumentView *view);
 void draw_crop_line(DocumentView *view, GtkSnapshot *snapshot);
 GtkWidget *create_crop_options(Editor *editor);
 void finish_transform(Editor *editor, gboolean apply);
+void free_transform_session(TransformSession *session);
 void draw_transform(DocumentView *view, GtkSnapshot *snapshot, double x, double y, const graphene_rect_t *image,
 					const graphene_rect_t *visible);
 void draw_transform_box(DocumentView *view, GtkSnapshot *snapshot);

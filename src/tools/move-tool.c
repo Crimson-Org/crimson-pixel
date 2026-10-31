@@ -332,14 +332,14 @@ gboolean begin_move(MoveDrag *drag, Document *document, gboolean inside_selectio
 		}
 	}
 	Record *selected = get_record(document->record, "j");
-	drag->mode = 0;
+	drag->mode = MOVE_LAYERS;
 	if (!inside_selection || count_records(selected) != 1 || get_number(document->record, "depth") != 8)
 		return TRUE;
 	int index = get_item(selected, 0)->value.number;
 	Record *layer = get_item(layers, index);
 	if (!is_pixel_layer(layer) || get_number(layer, "A8") > 0)
 		return TRUE;
-	drag->mode = 1;
+	drag->mode = MOVE_PIXELS;
 	Record *latest = get_latest_move(document, 1);
 	if (latest && get_number(latest, "z") == index && !copy) {
 		drag->floating = reference_record(latest);
@@ -368,7 +368,7 @@ void update_move(MoveDrag *drag, Document *document, int x, int y) {
 		return;
 	drag->moved_x = x;
 	drag->moved_y = y;
-	if (drag->mode == 1) {
+	if (drag->mode == MOVE_PIXELS) {
 		Record *offset = read_offset(drag->floating);
 		set_number(offset, "x", get_number(offset, "x") + change_x);
 		set_number(offset, "y", get_number(offset, "y") + change_y);
@@ -391,9 +391,9 @@ gboolean finish_move(MoveDrag *drag, Document *document, gboolean extended_histo
 	if (!drag->layers)
 		return FALSE;
 	gboolean moved = drag->moved_x || drag->moved_y;
-	if (drag->mode == 1 && drag->deferred && moved)
+	if (drag->mode == MOVE_PIXELS && drag->deferred && moved)
 		compose_floating(document, drag->floating, &drag->composed);
-	if (drag->mode == 0 && moved) {
+	if (drag->mode == MOVE_LAYERS && moved) {
 		Record *latest = get_latest_move(document, 0);
 		g_autoptr(GArray) previous = latest ? read_indices(get_record(latest, "j")) : NULL;
 		gboolean same = previous && previous->len == drag->layers->len &&
@@ -420,6 +420,6 @@ void clear_move(MoveDrag *drag) {
 	g_clear_pointer(&drag->layers, g_array_unref);
 	g_clear_pointer(&drag->floating, free_record);
 	drag->moved_x = drag->moved_y = 0;
-	drag->mode = 0;
+	drag->mode = MOVE_LAYERS;
 	drag->deferred = FALSE;
 }

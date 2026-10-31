@@ -257,16 +257,18 @@ static void draw_document(GtkWidget *widget, GtkSnapshot *snapshot, int width, i
 		draw_snap_lines(snapshot, view, left, top);
 		return;
 	}
-	if (presented->move_preview[1] || presented->move_whole) {
+	const MovePreview *preview = &presented->move_preview;
+	if (has_move_preview(preview)) {
 		/* During a move the moving part is offset by the drag while the rest stays put */
-		snapshot_patched_image(presented->tiles, presented->move_preview[0], presented->below_extent,
+		snapshot_patched_image(presented->tiles, preview->parts[MOVE_PART_BELOW], preview->below_extent,
 							   document_width(presented->document), document_height(presented->document), snapshot,
 							   &image, &visible, view->zoom, is_view_smoothed(view));
-		for (int part = 1; part < 3; part++) {
-			TiledImage *tiles = part == 1 && presented->move_whole ? presented->tiles : presented->move_preview[part];
+		for (int part = MOVE_PART_MOVING; part < MOVE_PARTS; part++) {
+			gboolean moving = part == MOVE_PART_MOVING;
+			TiledImage *tiles = moving && preview->whole ? presented->tiles : preview->parts[part];
 			graphene_rect_t bounds = image;
-			if (part == 1) {
-				RasterExtent extent = presented->move_extent;
+			if (moving) {
+				RasterExtent extent = preview->moving_extent;
 				bounds = GRAPHENE_RECT_INIT(image.origin.x + round((extent.x + view->move.moved_x) * view->zoom),
 											image.origin.y + round((extent.y + view->move.moved_y) * view->zoom),
 											extent.width * view->zoom, extent.height * view->zoom);

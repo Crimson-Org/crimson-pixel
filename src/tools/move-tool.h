@@ -2,8 +2,11 @@
 
 #include "document/history.h"
 
+/* A move carries whole layers, or pixels lifted out of a selection */
+typedef enum { MOVE_LAYERS, MOVE_PIXELS } MoveMode;
+
 typedef struct {
-	int mode;
+	MoveMode mode;
 	GArray *layers;
 	int moved_x, moved_y;
 	Record *floating;

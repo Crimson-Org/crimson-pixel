@@ -11,22 +11,10 @@
 
 /* Renders the parts below, moving and above once, so the drag itself only moves a GPU texture */
 static void start_move_preview(DocumentView *view) {
-	PresentedDocument *presented = view->presented;
-	Document *document = presented->document;
-	cairo_surface_t *parts[3];
-	if (!render_move_preview(document, view->move.layers, view->move.mode == 1 ? view->move.floating : NULL, &parts[0],
-							 &parts[1], &parts[2], &presented->below_extent, &presented->move_extent)) {
-		for (int part = 0; part < 3; part++)
-			if (parts[part])
-				cairo_surface_destroy(parts[part]);
+	Document *document = view->presented->document;
+	Record *floating = view->move.mode == MOVE_PIXELS ? view->move.floating : NULL;
+	if (!fill_move_preview(&view->presented->move_preview, document, view->move.layers, floating))
 		return;
-	}
-	presented->move_whole = !parts[1];
-	for (int part = 0; part < 3; part++) {
-		presented->move_preview[part] = parts[part] ? create_tiled_image(parts[part]) : NULL;
-		if (parts[part])
-			cairo_surface_destroy(parts[part]);
-	}
 	view->move.deferred = TRUE;
 	document->changed = (RasterExtent){0};
 }
@@ -35,10 +23,8 @@ static void start_move_preview(DocumentView *view) {
 static void stop_move_preview(DocumentView *view) {
 	PresentedDocument *presented = view->presented;
 	Document *document = presented->document;
-	gboolean previewing = presented->move_preview[1] != NULL || presented->move_whole;
-	presented->move_whole = FALSE;
-	for (int part = 0; part < 3; part++)
-		g_clear_pointer(&presented->move_preview[part], free_tiled_image);
+	gboolean previewing = has_move_preview(&presented->move_preview);
+	clear_move_preview(&presented->move_preview);
 	if (previewing && !empty_extent(document->changed))
 		update_document_region(view->editor, presented, document->changed);
 	document->changed = (RasterExtent){0};
@@ -79,7 +65,7 @@ void begin_move_drag(DocumentView *view, double x, double y, GdkModifierType mod
 		return;
 	}
 	view->moving = TRUE;
-	view->move_box = get_transform_bounds(document, view->move.mode == 1 ? TRANSFORM_PIXELS : TRANSFORM_LAYERS);
+	view->move_box = get_transform_bounds(document, view->move.mode == MOVE_PIXELS ? TRANSFORM_PIXELS : TRANSFORM_LAYERS);
 	if (!empty_extent(document->changed))
 		update_document_region(editor, view->presented, document->changed);
 	document->changed = (RasterExtent){0};
@@ -113,7 +99,7 @@ void update_move_drag(DocumentView *view, double x, double y, GdkModifierType mo
 				  (modifiers & GDK_SHIFT_MASK) ? view->move_axis : 0);
 	across = box_x - view->move_box.x;
 	down = box_y - view->move_box.y;
-	gboolean previewing = view->presented->move_preview[1] || view->presented->move_whole;
+	gboolean previewing = has_move_preview(&view->presented->move_preview);
 	if (!previewing)
 		document->changed = (RasterExtent){0};
 	update_move(&view->move, document, (int)round(across), (int)round(down));
@@ -125,7 +111,7 @@ void update_move_drag(DocumentView *view, double x, double y, GdkModifierType mo
 			update_document_region(view->editor, view->presented, document->changed);
 		document->changed = (RasterExtent){0};
 	}
-	if (view->move.mode == 1)
+	if (view->move.mode == MOVE_PIXELS)
 		refresh_selection_display(view);
 }
 

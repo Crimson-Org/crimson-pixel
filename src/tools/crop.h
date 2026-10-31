@@ -23,14 +23,14 @@ typedef enum { TRIM_TOP_LEFT, TRIM_BOTTOM_RIGHT, TRIM_TRANSPARENT } TrimColor;
 
 enum { TRIM_TOP, TRIM_LEFT, TRIM_BOTTOM, TRIM_RIGHT };
 
-RasterExtent get_crop_rectangle(const double quad[8], double *angle);
+RasterExtent get_crop_rectangle(const double quad[QUAD_VALUES], double *angle);
 RasterExtent constrain_crop_drag(double start_x, double start_y, double end_x, double end_y, const CropOptions *options,
 								 gboolean square, gboolean centered);
 RasterExtent get_crop_start_box(int width, int height, const CropOptions *options);
 void get_straighten_box(int width, int height, double start_x, double start_y, double end_x, double end_y,
-						double quad[8]);
-gboolean plan_crop(const double quad[8], int width, int height, const CropOptions *options, CropPlan *plan);
-gboolean crop_document(Document *document, const double quad[8], const CropOptions *options, gboolean clear_selection,
+						double quad[QUAD_VALUES]);
+gboolean plan_crop(const double quad[QUAD_VALUES], int width, int height, const CropOptions *options, CropPlan *plan);
+gboolean crop_document(Document *document, const double quad[QUAD_VALUES], const CropOptions *options, gboolean clear_selection,
 					   gboolean extended_history);
 gboolean resize_image(Document *document, int width, int height, double resolution, ResampleMode mode,
 					  gboolean extended_history);
