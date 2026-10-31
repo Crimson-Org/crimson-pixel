@@ -427,7 +427,7 @@ Document *read_psd_document(const guint8 *data, gsize length, const char *name, 
 	Record *record = document->record;
 	int mode = get_number(record, "Ia"), depth = get_number(record, "g_");
 	double width = get_number(record, "s"), height = get_number(record, "T");
-	if (!reader.failed && (mode < 1 || mode > 3 || (depth != 8 && depth != 16 && depth != 32))) {
+	if (!reader.failed && (mode < 1 || mode > 3 || (depth != BYTE_DEPTH && depth != WORD_DEPTH && depth != FLOAT_DEPTH))) {
 		g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED, TEXT_PSD_COLOR_MODE);
 		reader.failed = TRUE;
 	}

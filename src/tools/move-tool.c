@@ -150,7 +150,7 @@ void compose_floating(Document *document, Record *data, const RasterExtent *prev
 	int moved_x = get_number(offset, "x"), moved_y = get_number(offset, "y");
 	RasterExtent base_extent = read_extent(get_record(data, "DM")), floating = get_floating_placement(data);
 	RasterExtent extent = empty_extent(base_extent) ? floating : union_region(base_extent, floating);
-	Record *pixels = create_channels((gsize)extent.width * extent.height * 4, 8);
+	Record *pixels = create_channels((gsize)extent.width * extent.height * 4, BYTE_DEPTH);
 	guint32 *target = pixels->value.buffer.data;
 	const guint32 *base = get_record(data, "Q6")->value.buffer.data,
 				  *lifted = get_record(data, "Sl")->value.buffer.data;
@@ -220,8 +220,8 @@ Record *lift_pixels(Document *document, Record *layer, gboolean copy, GError **e
 		return NULL;
 	}
 	RasterExtent extent = {overlap.x + left, overlap.y + top, right - left + 1, bottom - top + 1};
-	Record *lifted = create_channels((gsize)extent.width * extent.height * 4, 8);
-	Record *lifted_mask = create_channels((gsize)extent.width * extent.height, 8);
+	Record *lifted = create_channels((gsize)extent.width * extent.height * 4, BYTE_DEPTH);
+	Record *lifted_mask = create_channels((gsize)extent.width * extent.height, BYTE_DEPTH);
 	for (int y = 0; y < extent.height; y++)
 		for (int x = 0; x < extent.width; x++) {
 			gsize from =

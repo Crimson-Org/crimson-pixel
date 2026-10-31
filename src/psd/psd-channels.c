@@ -68,7 +68,7 @@ static GByteArray *inflate_raw(PsdReader *reader, gsize offset, gsize length) {
 }
 
 static void undo_prediction(guint8 *bytes, gsize length, gsize width, gsize height, unsigned depth) {
-	if (depth == 8) {
+	if (depth == BYTE_DEPTH) {
 		for (gsize row = 0; row < height; row++) {
 			gsize start = row * width + 1, end = start + width - 1;
 			if (start - 1 >= length)
@@ -79,7 +79,7 @@ static void undo_prediction(guint8 *bytes, gsize length, gsize width, gsize heig
 				bytes[index] = value & G_MAXUINT8;
 			}
 		}
-	} else if (depth == 16) {
+	} else if (depth == WORD_DEPTH) {
 		for (gsize row = 0; row < height; row++) {
 			guint value = 0;
 			for (gsize index = row * width; index < row * width + width; index++) {
@@ -114,7 +114,7 @@ static void undo_prediction(guint8 *bytes, gsize length, gsize width, gsize heig
 
 /* Typed array reinterpretation keeps the host little endian byte view */
 static Record *reinterpret_channels(Record *bytes, unsigned depth) {
-	if (depth == 8)
+	if (depth == BYTE_DEPTH)
 		return bytes;
 	gsize count = bytes->value.buffer.length / (depth / 8);
 	Record *typed = create_channels(count, depth);
@@ -146,14 +146,14 @@ Record *decode_psd_channel(PsdReader *reader, unsigned depth, gsize width, gsize
 		return create_channels(padded, depth);
 	Record *bytes = NULL;
 	if (compression == PSD_RAW) {
-		bytes = create_channels(sample_bytes, 8);
+		bytes = create_channels(sample_bytes, BYTE_DEPTH);
 		gsize available = offset < reader->length ? MIN(sample_bytes, reader->length - offset) : 0;
 		if (bytes && available)
 			memcpy(bytes->value.buffer.data, reader->data + offset, available);
 		if (bytes)
 			swap_sample_bytes(bytes->value.buffer.data, sample_bytes, depth);
 	} else if (compression == PSD_RLE) {
-		bytes = create_channels(sample_bytes, 8);
+		bytes = create_channels(sample_bytes, BYTE_DEPTH);
 		gsize count_size = reader->large ? 4 : 2;
 		if (bytes)
 			unpack_bits_rows(reader, bytes, width, height, offset, offset + count_size * height, count_size);
@@ -165,11 +165,11 @@ Record *decode_psd_channel(PsdReader *reader, unsigned depth, gsize width, gsize
 		}
 		if (compression == PSD_ZIP_PREDICTED)
 			undo_prediction(inflated->data, inflated->len, width, height, depth);
-		bytes = create_channels(padded, 8);
+		bytes = create_channels(padded, BYTE_DEPTH);
 		if (bytes)
 			memcpy(bytes->value.buffer.data, inflated->data, MIN(inflated->len, bytes->value.buffer.length));
 	} else
-		bytes = create_channels(padded, 8);
+		bytes = create_channels(padded, BYTE_DEPTH);
 	if (!bytes) {
 		fail_psd(reader, TEXT_IMAGE_ALLOCATION_FAILED);
 		return NULL;
@@ -211,7 +211,7 @@ gsize read_psd_merged_image(PsdReader *reader, gsize offset, unsigned file_depth
 	set_record(record, "buffer", buffer);
 	double maximum = channel_maximum(depth);
 	for (gsize index = 0; index < area; index++)
-		write_channel(buffer, index * 4 + 3, depth == 32 ? 1 : maximum);
+		write_channel(buffer, index * 4 + 3, depth == FLOAT_DEPTH ? 1 : maximum);
 	gsize counts = offset, count_size = reader->large ? 4 : 2, sample_bytes = file_depth >> 3;
 	for (int channel = 0; channel < channels && !reader->failed; channel++) {
 		Record *samples = NULL;
@@ -219,7 +219,7 @@ gsize read_psd_merged_image(PsdReader *reader, gsize offset, unsigned file_depth
 			samples = decode_psd_channel(reader, file_depth, width, height, offset, 0, 1);
 			offset += area * sample_bytes;
 		} else if (compression == PSD_RLE) {
-			Record *bytes = create_channels(area * sample_bytes, 8);
+			Record *bytes = create_channels(area * sample_bytes, BYTE_DEPTH);
 			if (!bytes)
 				break;
 			if (channel == 0)

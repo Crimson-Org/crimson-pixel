@@ -19,7 +19,7 @@ static GArray *build_selection_edges(const Document *document, const Record *sel
 	double half = channel_maximum(get_number(document->record, "depth")) / 2;
 	int width = extent.width, height = extent.height, stride = width + 2;
 	g_autofree guint8 *inside = g_malloc0((gsize)stride * (height + 2));
-	gboolean bytes = mask->value.buffer.depth == 8 && mask->value.buffer.length >= (gsize)width * height;
+	gboolean bytes = mask->value.buffer.depth == BYTE_DEPTH && mask->value.buffer.length >= (gsize)width * height;
 	const guint8 *values = mask->value.buffer.data;
 	for (int y = 0; y < height; y++)
 		for (int x = 0; x < width; x++)

@@ -54,7 +54,7 @@ void clear_selected_area(Editor *editor) {
 
 static Record *read_texture_pixels(GdkTexture *texture) {
 	int width = gdk_texture_get_width(texture), height = gdk_texture_get_height(texture);
-	Record *pixels = create_channels((gsize)width * height * 4, 8);
+	Record *pixels = create_channels((gsize)width * height * 4, BYTE_DEPTH);
 	g_autoptr(GdkTextureDownloader) downloader = gdk_texture_downloader_new(texture);
 	gdk_texture_downloader_set_format(downloader, GDK_MEMORY_R8G8B8A8);
 	gdk_texture_downloader_download_into(downloader, pixels->value.buffer.data, (gsize)width * 4);

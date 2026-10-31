@@ -147,7 +147,7 @@ gboolean flatten_image(Document *document, gboolean extended_history, GError **e
 	if (!compose_raster_document(document, everything, NULL, error))
 		return FALSE;
 	Record *background = create_document_layer(document, FALSE),
-		   *pixels = create_channels((gsize)width * height * 4, 8);
+		   *pixels = create_channels((gsize)width * height * 4, BYTE_DEPTH);
 	const guint32 *composite = get_record(record, "buffer")->value.buffer.data;
 	guint32 *target = pixels->value.buffer.data;
 	for (gsize index = 0; index < (gsize)width * height; index++)

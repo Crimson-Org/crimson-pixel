@@ -18,8 +18,8 @@ static Record *create_layer_cache(void) {
 	Record *cache = create_object(RECORD_LAYER_CACHE);
 	set_boolean(cache, "Hg", TRUE);
 	set_boolean(cache, "n3", TRUE);
-	set_record(cache, "qI", create_channels(0, 8));
-	set_record(cache, "aPY", create_channels(0, 8));
+	set_record(cache, "qI", create_channels(0, BYTE_DEPTH));
+	set_record(cache, "aPY", create_channels(0, BYTE_DEPTH));
 	set_record(cache, "pz", create_object(RECORD_PLAIN));
 	set_null_fields(cache, "ey aJI aKj K7 Bw dM");
 	set_boolean(cache, "nW", FALSE);

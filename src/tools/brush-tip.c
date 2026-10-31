@@ -113,7 +113,7 @@ BrushLevel create_computed_tip(double diameter, double hardness, double scale) {
 		hardness = 1;
 	double margin = 1 + .55 * (1 - hardness);
 	int size = (int)round_half_up(scale * diameter * margin) + 2;
-	BrushLevel level = {create_channels((gsize)size * size, 8), {0, 0, size, size}};
+	BrushLevel level = {create_channels((gsize)size * size, BYTE_DEPTH), {0, 0, size, size}};
 	guint8 *tip = level.values->value.buffer.data;
 	double center = size / 2.0, step = margin / (center - 1);
 	if (diameter == 2)
@@ -159,7 +159,7 @@ BrushLevel create_computed_tip(double diameter, double hardness, double scale) {
 
 static BrushLevel halve_level(BrushLevel level) {
 	int width = level.extent.width >> 1, height = level.extent.height >> 1;
-	BrushLevel half = {create_channels((gsize)width * height, 8), {level.extent.x, level.extent.y, width, height}};
+	BrushLevel half = {create_channels((gsize)width * height, BYTE_DEPTH), {level.extent.x, level.extent.y, width, height}};
 	const guint8 *source = level.values->value.buffer.data;
 	guint8 *target = half.values->value.buffer.data;
 	int stride = level.extent.width;
@@ -246,7 +246,7 @@ BrushLevel resample_brush(GArray *levels, Affine transform) {
 	concatenate_affine(&level_transform, transform);
 	int width = chosen.extent.width, height = chosen.extent.height;
 	RasterExtent extent = bound_transformed_extent(chosen.extent, level_transform);
-	BrushLevel result = {create_channels((gsize)MAX(0, extent.width) * MAX(0, extent.height), 8), extent};
+	BrushLevel result = {create_channels((gsize)MAX(0, extent.width) * MAX(0, extent.height), BYTE_DEPTH), extent};
 	Affine inverse = invert_affine(level_transform);
 	double origin_x, origin_y, next_x, next_y;
 	transform_affine_point(inverse, 0, 0, &origin_x, &origin_y);

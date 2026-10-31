@@ -82,7 +82,7 @@ static void fill_matching(const guint8 *pixels, RasterExtent extent, RasterExten
 
 Record *create_wand_mask(const guint8 *pixels, RasterExtent pixels_extent, RasterExtent area, double x, double y,
 						 WandSettings settings) {
-	Record *channels = create_channels((gsize)area.width * area.height, 8);
+	Record *channels = create_channels((gsize)area.width * area.height, BYTE_DEPTH);
 	guint8 *mask = channels->value.buffer.data;
 	int start_x = CLAMP((int)round_half_up(x - .5 - area.x), 0, area.width - 1);
 	int start_y = CLAMP((int)round_half_up(y - .5 - area.y), 0, area.height - 1);
@@ -114,13 +114,13 @@ Record *create_similar_area(Document *document, double x, double y, WandSettings
 		pixels = get_record(layer, "buffer");
 		pixels_extent = read_extent(get_record(layer, "V"));
 	}
-	if (!pixels || pixels->type != RECORD_BUFFER || pixels->value.buffer.depth != 8) {
+	if (!pixels || pixels->type != RECORD_BUFFER || pixels->value.buffer.depth != BYTE_DEPTH) {
 		g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED, TEXT_WAND_DEPTH);
 		return NULL;
 	}
 	g_autoptr(Record) mask = create_wand_mask(pixels->value.buffer.data, pixels_extent, area, x, y, settings);
 	*bounds = find_mask_bounds(mask, area);
-	Record *cropped = create_channels((gsize)bounds->width * bounds->height, 8);
+	Record *cropped = create_channels((gsize)bounds->width * bounds->height, BYTE_DEPTH);
 	for (int row = 0; row < bounds->height; row++)
 		memcpy((guint8 *)cropped->value.buffer.data + (gsize)row * bounds->width,
 			   (guint8 *)mask->value.buffer.data + (gsize)(bounds->y + row) * area.width + bounds->x, bounds->width);

@@ -181,12 +181,12 @@ static void accumulate_line_row(float *row, int width, const PathLine *line, int
 }
 
 static double widen_alpha(int alpha, unsigned depth) {
-	return depth == 16 ? alpha * 257 : depth == 32 ? alpha / 255.0 : alpha;
+	return depth == WORD_DEPTH ? alpha * 257 : depth == FLOAT_DEPTH ? alpha / 255.0 : alpha;
 }
 
 static double round_alpha(double value, unsigned depth) {
-	double full = depth == 16 ? 65535 : depth == 32 ? 1 : G_MAXUINT8;
-	double half = depth == 32 ? 0.5 : floor(full / 2);
+	double full = depth == WORD_DEPTH ? G_MAXUINT16 : depth == FLOAT_DEPTH ? 1 : G_MAXUINT8;
+	double half = depth == FLOAT_DEPTH ? 0.5 : floor(full / 2);
 	return value < half ? 0 : full;
 }
 

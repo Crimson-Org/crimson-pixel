@@ -25,7 +25,7 @@ static Document *convert_pixels(GdkPixbuf *pixels, GCancellable *cancellable, GE
 	Record *layer = create_document_layer(document, FALSE);
 	name_layer(layer, TEXT_IMAGE_MODE);
 	set_record(layer, "V", create_extent(0, 0, width, height));
-	Record *buffer = create_channels((gsize)width * height * 4, 8);
+	Record *buffer = create_channels((gsize)width * height * 4, BYTE_DEPTH);
 	if (!buffer) {
 		free_record(layer);
 		free_document(document);

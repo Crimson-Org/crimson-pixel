@@ -32,7 +32,7 @@ static void copy_pixels(const Record *source, RasterExtent source_extent, Record
 }
 
 static Record *create_region_pixels(RasterExtent extent) {
-	return create_channels((gsize)MAX(0, extent.width) * MAX(0, extent.height) * 4, 8);
+	return create_channels((gsize)MAX(0, extent.width) * MAX(0, extent.height) * 4, BYTE_DEPTH);
 }
 
 static void extend_layer(Record *layer, RasterExtent extent) {
@@ -568,7 +568,7 @@ guint32 sample_document_color(Document *document, double x, double y, int size, 
 			for (int channel = 0; channel < 3; channel++)
 				sums[channel] += read_channel(pixels, 4 * ((gsize)sample_y * extent.width + sample_x) + channel);
 	double scale = G_MAXUINT8 / (channel_maximum(pixels->value.buffer.depth) * count);
-	if (pixels->value.buffer.depth == 32)
+	if (pixels->value.buffer.depth == FLOAT_DEPTH)
 		scale = G_MAXUINT8 / count;
 	guint32 color = 0;
 	for (int channel = 0; channel < 3; channel++) {

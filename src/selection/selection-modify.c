@@ -135,9 +135,9 @@ static void draw_distance_coverage(const Record *source, Record *target, RasterE
 /* ============================== Box blur ============================== */
 
 static gsize pad_like_source(gsize count, unsigned depth) {
-	if (depth == 8)
+	if (depth == BYTE_DEPTH)
 		return (count + 3) / 4 * 4;
-	return depth == 16 ? count + (count & 1) : count;
+	return depth == WORD_DEPTH ? count + (count & 1) : count;
 }
 
 static double read_source_array(const Record *array, gint64 index) {
@@ -269,7 +269,7 @@ static Record *expand_selection(const Record *selection, int amount) {
 	unsigned depth = source->value.buffer.depth;
 	Record *copied = create_channels(count_extent(extent), depth);
 	copy_selection_mask(source, from, copied, extent);
-	Record *bytes = convert_mask_depth(copied, 8), *coverage = create_channels(count_extent(extent), 8);
+	Record *bytes = convert_mask_depth(copied, 8), *coverage = create_channels(count_extent(extent), BYTE_DEPTH);
 	draw_distance_coverage(bytes, coverage, extent, amount);
 	Record *mask = convert_mask_depth(coverage, depth);
 	free_record(copied);
@@ -289,7 +289,7 @@ static Record *contract_selection(const Record *selection, int amount, RasterExt
 	Record *copied = create_channels(count_extent(extent), depth);
 	copy_selection_mask(source, from, copied, extent);
 	invert_mask(copied);
-	Record *bytes = convert_mask_depth(copied, 8), *coverage = create_channels(count_extent(extent), 8);
+	Record *bytes = convert_mask_depth(copied, 8), *coverage = create_channels(count_extent(extent), BYTE_DEPTH);
 	draw_distance_coverage(bytes, coverage, extent, amount);
 	invert_mask(coverage);
 	Record *mask = convert_mask_depth(coverage, depth);
@@ -304,8 +304,8 @@ Record *create_selection_border(const Record *selection, double inner, double ou
 	RasterExtent extent = grow_extent(from, MAX(1, (int)ceil(outer)));
 	const Record *source = get_record(selection, "C");
 	gsize count = count_extent(extent);
-	Record *bytes = convert_mask_depth(source, 8), *area = create_channels(count, 8);
-	Record *outside = create_channels(count, 8), *inside = create_channels(count, 8);
+	Record *bytes = convert_mask_depth(source, 8), *area = create_channels(count, BYTE_DEPTH);
+	Record *outside = create_channels(count, BYTE_DEPTH), *inside = create_channels(count, BYTE_DEPTH);
 	copy_selection_mask(bytes, from, area, extent);
 	if (outer != 0)
 		draw_distance_coverage(area, outside, extent, outer);

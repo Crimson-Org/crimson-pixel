@@ -38,7 +38,7 @@ typedef struct {
 static void convert_display_rows(int first, int last, gpointer data) {
 	const DisplayWork *work = data;
 	const Record *buffer = work->buffer;
-	gboolean direct = buffer && buffer->type == RECORD_BUFFER && buffer->value.buffer.depth == 8;
+	gboolean direct = buffer && buffer->type == RECORD_BUFFER && buffer->value.buffer.depth == BYTE_DEPTH;
 	for (int y = first; y < last; y++) {
 		guint32 *row = work->pixels + (gsize)(y - work->origin_y) * work->stride - work->origin_x;
 		for (int x = work->extent.x; x < work->extent.x + work->extent.width; x++) {
@@ -274,7 +274,7 @@ gboolean render_move_preview(Document *document, const GArray *moving, Record *f
 		from.y += get_number(offset, "y");
 		RasterExtent to = intersect_region(from, (RasterExtent){0, 0, width, height});
 		*moving_extent = to;
-		Record *lifted = create_channels((gsize)MAX(0, to.width) * MAX(0, to.height) * 4, 8);
+		Record *lifted = create_channels((gsize)MAX(0, to.width) * MAX(0, to.height) * 4, BYTE_DEPTH);
 		const guint32 *source = get_record(floating, "Sl")->value.buffer.data;
 		guint32 *target = lifted->value.buffer.data;
 		for (int y = to.y; y < to.y + to.height; y++)

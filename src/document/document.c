@@ -125,7 +125,7 @@ double next_layer_id(Document *document) {
 	Record *resources = get_record(document->record, "Pz");
 	Record *counter = get_record(resources, "r1044");
 	if (!counter || counter->type == RECORD_NULL) {
-		counter = create_channels(4, 8);
+		counter = create_channels(4, BYTE_DEPTH);
 		set_record(resources, "r1044", counter);
 		double maximum = 0;
 		Record *layers = get_record(document->record, "Z");
@@ -303,8 +303,8 @@ gboolean replace_document_layers(Document *document, Record *layers, GError **er
 			continue;
 		Record *cache = get_record(layer, "CS");
 		set_record(cache, "pz", create_object(RECORD_PLAIN));
-		set_record(cache, "qI", create_channels(0, 8));
-		set_record(cache, "aPY", create_channels(0, 8));
+		set_record(cache, "qI", create_channels(0, BYTE_DEPTH));
+		set_record(cache, "aPY", create_channels(0, BYTE_DEPTH));
 		set_record(cache, "Bw", create_null());
 		set_record(cache, "dM", create_null());
 		Record *dirty = get_record(cache, "ey");
@@ -350,7 +350,7 @@ int document_height(const Document *document) {
 Document *create_transparent_document(int width, int height, unsigned depth, DocumentMode mode, const char *name,
 									  GError **error) {
 	if (width <= 0 || height <= 0 || width > 32768 || height > 32768 || (guint64)width * height > DOCUMENT_MAX_PIXELS ||
-		(guint64)width * height * (depth / 2 + 4) > DOCUMENT_MAX_BYTES || (depth != 8 && depth != 16 && depth != 32)) {
+		(guint64)width * height * (depth / 2 + 4) > DOCUMENT_MAX_BYTES || (depth != BYTE_DEPTH && depth != WORD_DEPTH && depth != FLOAT_DEPTH)) {
 		g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, TEXT_INVALID_SIZE_DEPTH);
 		return NULL;
 	}

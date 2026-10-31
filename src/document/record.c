@@ -75,8 +75,8 @@ Record *create_bytes(const guint8 *bytes, gsize length) {
 }
 
 static Record *allocate_channels(gsize length, unsigned depth, gboolean cleared) {
-	g_return_val_if_fail(depth == 8 || depth == 16 || depth == 32, NULL);
-	gsize padding = depth == 8 ? (4 - length % 4) % 4 : depth == 16 ? length & 1 : 0;
+	g_return_val_if_fail(depth == BYTE_DEPTH || depth == WORD_DEPTH || depth == FLOAT_DEPTH, NULL);
+	gsize padding = depth == BYTE_DEPTH ? (4 - length % 4) % 4 : depth == WORD_DEPTH ? length & 1 : 0;
 	if (length > G_MAXSIZE - padding || length + padding > G_MAXSIZE / (depth / 8))
 		return NULL;
 	Record *record = allocate_record(RECORD_BUFFER);
@@ -223,22 +223,22 @@ void set_string(Record *object, const char *key, const char *value) {
 }
 
 double channel_maximum(unsigned depth) {
-	return depth == 8 ? G_MAXUINT8 : depth == 16 ? 65535 : 1;
+	return depth == BYTE_DEPTH ? G_MAXUINT8 : depth == WORD_DEPTH ? G_MAXUINT16 : 1;
 }
 
 double read_channel_slow(const Record *buffer, gsize index) {
 	if (!buffer || buffer->type != RECORD_BUFFER || index >= buffer->value.buffer.length)
 		return 0;
 	ChannelBuffer channels = buffer->value.buffer;
-	return channels.depth == 8	  ? ((guint8 *)channels.data)[index]
-		   : channels.depth == 16 ? ((guint16 *)channels.data)[index]
+	return channels.depth == BYTE_DEPTH	  ? ((guint8 *)channels.data)[index]
+		   : channels.depth == WORD_DEPTH ? ((guint16 *)channels.data)[index]
 								  : ((float *)channels.data)[index];
 }
 
 void write_channel_slow(Record *buffer, gsize index, double value) {
 	g_return_if_fail(buffer && buffer->type == RECORD_BUFFER && index < buffer->value.buffer.length);
 	ChannelBuffer channels = buffer->value.buffer;
-	if (channels.depth == 32) {
+	if (channels.depth == FLOAT_DEPTH) {
 		/* Binary32 values above its maximum still round finite below the overflow midpoint */
 		const double overflow_midpoint = 0x1.ffffffp127;
 		if (fabs(value) >= overflow_midpoint)
@@ -253,7 +253,7 @@ void write_channel_slow(Record *buffer, gsize index, double value) {
 	double wrapped = isfinite(value) ? fmod(trunc(value), channel_maximum(channels.depth) + 1) : 0;
 	if (wrapped < 0)
 		wrapped += channel_maximum(channels.depth) + 1;
-	if (channels.depth == 8)
+	if (channels.depth == BYTE_DEPTH)
 		((guint8 *)channels.data)[index] = wrapped;
 	else
 		((guint16 *)channels.data)[index] = wrapped;
@@ -300,7 +300,7 @@ static Record *copy_value(const Record *record, gboolean json) {
 			return copy;
 		}
 		/* Typed array slices keep their exact length, including unpadded byte arrays */
-		if (record->value.buffer.depth == 8)
+		if (record->value.buffer.depth == BYTE_DEPTH)
 			return create_bytes(record->value.buffer.data, record->value.buffer.length);
 		copy = create_channels(record->value.buffer.length, record->value.buffer.depth);
 		if (copy && record->value.buffer.length)
@@ -480,14 +480,14 @@ double convert_channel_depth(double value, unsigned from, unsigned to) {
 	if (to == 16 && from == 8)
 		return (guint32)value << 8 | (guint32)value;
 	if (to == 16)
-		return MIN(65535, 65535 * value);
-	return value * (1.0 / (from == 8 ? G_MAXUINT8 : 65535));
+		return MIN(G_MAXUINT16, G_MAXUINT16 * value);
+	return value * (1.0 / (from == BYTE_DEPTH ? G_MAXUINT8 : G_MAXUINT16));
 }
 
 /* The channel value stored as a byte, wrapping and truncating */
 guint8 read_channel_byte(const Record *buffer, gsize index) {
 	double value = read_channel(buffer, index);
-	if (buffer->value.buffer.depth == 8)
+	if (buffer->value.buffer.depth == BYTE_DEPTH)
 		return value;
 	value = convert_channel_depth(value, buffer->value.buffer.depth, 8);
 	return isfinite(value) ? (guint8)((gint64)value & G_MAXUINT8) : 0;

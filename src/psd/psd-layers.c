@@ -319,7 +319,7 @@ static gsize read_layer_channels(PsdReader *reader, Record *layer, gsize offset)
 		fail_psd(reader, TEXT_IMAGE_ALLOCATION_FAILED);
 		return offset;
 	}
-	double maximum = layer_depth == 32 ? 1 : channel_maximum(layer_depth);
+	double maximum = layer_depth == FLOAT_DEPTH ? 1 : channel_maximum(layer_depth);
 	gsize pixels = buffer->value.buffer.length / 4;
 	for (int slot = 0; slot < 4; slot++) {
 		if (color[slot])
