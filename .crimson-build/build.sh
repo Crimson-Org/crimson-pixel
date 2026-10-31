@@ -32,18 +32,15 @@ crimson_pkg() {
 crimson_each() {
 	crimson_rules=$(mktemp) || return 1
 	crimson_make=$(mktemp) || return 1
+	crimson_mine=$(mktemp) || return 1
 	crimson_dir=$(dirname "${2%%\{id\}*}x")
-	crimson_list="$crimson_dir/.crimson-each-$(printf '%s|%s' "$1" "$2" | cksum | cut -d' ' -f1)"
+	crimson_list="$crimson_dir/.crimson-each-$(printf '%s' "$2" | cksum | cut -d' ' -f1)"
+	crimson_stamp="$crimson_dir/.crimson-each-$(printf '%s|%s' "$1" "$2" | cksum | cut -d' ' -f1).run"
 	crimson_settings=$(printf '%s\n' "$3"
 		for crimson_name in $(printf '%s' "$3" | grep -o '\${\{0,1\}[A-Za-z_][A-Za-z0-9_]*' | tr -d '${' | sort -u); do
 			crimson_value=$(eval "printf '%s' \"\${$crimson_name}\"")
 			printf '%s=%s\n' "$crimson_name" "$crimson_value"
 		done)
-	mkdir -p "$crimson_dir"
-	if [ "$(cat "$crimson_list.run" 2>/dev/null)" != "$crimson_settings" ]; then
-		[ -f "$crimson_list" ] && while IFS= read -r crimson_old; do rm -f "$crimson_old"; done < "$crimson_list"
-		printf '%s' "$crimson_settings" > "$crimson_list.run"
-	fi
 	crimson_extra=
 	for crimson_glob in $4; do
 		for crimson_file in $crimson_glob; do
@@ -52,6 +49,7 @@ crimson_each() {
 	done
 	crimson_all=
 	crimson_sep=$(printf '\037')
+	crimson_tab=$(printf '\t')
 	for crimson_from in $1; do
 		[ -e "$crimson_from" ] || continue
 		crimson_id=$(printf '%s' "${crimson_from%.*}" | tr '/.' '__')
@@ -59,18 +57,32 @@ crimson_each() {
 		crimson_to=$(printf '%s' "$2" | sed -e "s${crimson_sep}{id}${crimson_sep}$crimson_id${crimson_sep}g" -e "s${crimson_sep}{name}${crimson_sep}$crimson_name${crimson_sep}g")
 		crimson_command=$(printf '%s' "$3" | sed -e 's/\$/$$/g' -e "s${crimson_sep}{from}${crimson_sep}$crimson_from${crimson_sep}g" -e "s${crimson_sep}{to}${crimson_sep}$crimson_to${crimson_sep}g")
 		crimson_all="$crimson_all $crimson_to"
+		printf '%s\t%s\n' "$crimson_from" "$crimson_to" >> "$crimson_mine"
 		printf '%s: %s%s\n\t@mkdir -p "$(dir $@)"\n\t@echo "==> %s"\n\t%s\n\n' "$crimson_to" "$crimson_from" "$crimson_extra" "$crimson_from" "$crimson_command" >> "$crimson_rules"
 	done
+	mkdir -p "$crimson_dir"
+	# A changed command or variable makes every result of this step stale
+	if [ "$(cat "$crimson_stamp" 2>/dev/null)" != "$crimson_settings" ]; then
+		while IFS="$crimson_tab" read -r crimson_from crimson_to; do
+			rm -f "$crimson_to"
+		done < "$crimson_mine"
+		printf '%s' "$crimson_settings" > "$crimson_stamp"
+	fi
+	# Steps writing to the same place share one list, and the result of a source that is gone would still be picked up
 	if [ -f "$crimson_list" ]; then
-		while IFS= read -r crimson_old; do
-			case " $crimson_all " in *" $crimson_old "*) ;; *) rm -f "$crimson_old" ;; esac
+		while IFS="$crimson_tab" read -r crimson_from crimson_to; do
+			if [ ! -e "$crimson_from" ]; then
+				rm -f "$crimson_to"
+			elif ! cut -f1 "$crimson_mine" | grep -qxF "$crimson_from"; then
+				printf '%s\t%s\n' "$crimson_from" "$crimson_to" >> "$crimson_mine"
+			fi
 		done < "$crimson_list"
 	fi
-	printf '%s\n' $crimson_all > "$crimson_list"
+	sort "$crimson_mine" > "$crimson_list"
 	{ printf 'all:%s\n\n' "$crimson_all"; cat "$crimson_rules"; } > "$crimson_make"
 	crimson_status=0
 	make -s -f "$crimson_make" -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" all || crimson_status=$?
-	rm -f "$crimson_make" "$crimson_rules"
+	rm -f "$crimson_make" "$crimson_rules" "$crimson_mine"
 	return "$crimson_status"
 }
 

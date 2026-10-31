@@ -123,24 +123,18 @@ function Get-FullPath([string] $path) {
 	return [IO.Path]::Combine($root, $path)
 }
 
+function Get-Key([string] $text) {
+	$hash = [Security.Cryptography.MD5]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($text))
+	return [BitConverter]::ToString($hash, 0, 4).Replace('-', '')
+}
+
 $template = $env:CRIMSON_EACH_TO
+$settings = $env:CRIMSON_EACH_RUN
 $folder = Split-Path -Parent ($template.Substring(0, $template.IndexOf('{id}')) + 'x')
 if (-not $folder) { $folder = '.' }
-$md5 = [Security.Cryptography.MD5]::Create()
-$hash = $md5.ComputeHash([Text.Encoding]::UTF8.GetBytes("$env:CRIMSON_EACH_FROM|$template"))
-$list = Get-FullPath "$folder/.crimson-each-$([BitConverter]::ToString($hash, 0, 4).Replace('-', ''))"
+$list = Get-FullPath "$folder/.crimson-each-$(Get-Key $template)"
+$stamp = Get-FullPath "$folder/.crimson-each-$(Get-Key "$env:CRIMSON_EACH_FROM|$template").run"
 [void][IO.Directory]::CreateDirectory((Get-FullPath $folder))
-$previous = @()
-if (Test-Path -LiteralPath $list) { $previous = @([IO.File]::ReadAllLines($list)) }
-
-# A changed command or variable makes every earlier result stale
-$settings = $env:CRIMSON_EACH_RUN
-$oldSettings = $null
-if (Test-Path -LiteralPath "$list.run") { $oldSettings = [IO.File]::ReadAllText("$list.run") }
-if ($oldSettings -ne $settings) {
-	foreach ($old in $previous) { Remove-Item -LiteralPath (Get-FullPath $old) -Force -ErrorAction SilentlyContinue }
-	[IO.File]::WriteAllText("$list.run", $settings)
-}
 
 $newestExtra = [DateTime]::MinValue
 foreach ($extra in Get-Matches $env:CRIMSON_EACH_ALSO) {
@@ -148,13 +142,39 @@ foreach ($extra in Get-Matches $env:CRIMSON_EACH_ALSO) {
 	if ($time -gt $newestExtra) { $newestExtra = $time }
 }
 
-$outputs = @()
-$work = @()
+$mine = [ordered]@{}
 foreach ($source in @(Get-Matches $env:CRIMSON_EACH_FROM | Sort-Object -Unique)) {
 	$base = $source
 	if ($source.LastIndexOf('.') -ge 0) { $base = $source.Substring(0, $source.LastIndexOf('.')) }
-	$to = $template.Replace('{id}', $base.Replace('/', '_').Replace('.', '_')).Replace('{name}', (Split-Path -Leaf $base))
-	$outputs += $to
+	$mine[$source] = $template.Replace('{id}', $base.Replace('/', '_').Replace('.', '_')).Replace('{name}', (Split-Path -Leaf $base))
+}
+
+# A changed command or variable makes every result of this step stale
+$oldSettings = $null
+if (Test-Path -LiteralPath $stamp) { $oldSettings = [IO.File]::ReadAllText($stamp) }
+if ($oldSettings -ne $settings) {
+	foreach ($to in $mine.Values) { Remove-Item -LiteralPath (Get-FullPath $to) -Force -ErrorAction SilentlyContinue }
+	[IO.File]::WriteAllText($stamp, $settings)
+}
+
+# Steps writing to the same place share one list, and the result of a source that is gone would still be picked up
+$entries = @()
+if (Test-Path -LiteralPath $list) {
+	foreach ($line in [IO.File]::ReadAllLines($list)) {
+		$source, $to = $line.Split("`t")
+		if (-not (Test-Path -LiteralPath (Get-FullPath $source))) {
+			Remove-Item -LiteralPath (Get-FullPath $to) -Force -ErrorAction SilentlyContinue
+		} elseif (-not $mine.Contains($source)) {
+			$entries += $line
+		}
+	}
+}
+foreach ($source in $mine.Keys) { $entries += "$source`t$($mine[$source])" }
+[IO.File]::WriteAllLines($list, [string[]]($entries | Sort-Object))
+
+$work = @()
+foreach ($source in $mine.Keys) {
+	$to = $mine[$source]
 	$newest = [IO.File]::GetLastWriteTimeUtc((Get-FullPath $source))
 	if ($newestExtra -gt $newest) { $newest = $newestExtra }
 	$target = Get-FullPath $to
@@ -162,12 +182,6 @@ foreach ($source in @(Get-Matches $env:CRIMSON_EACH_FROM | Sort-Object -Unique))
 	$command = $settings.Replace('{from}', $source.Replace('/', '\')).Replace('{to}', $to.Replace('/', '\'))
 	$work += [pscustomobject]@{ From = $source; To = $to; Command = $command }
 }
-
-# Results of files that are gone would still be picked up by the steps after this one
-foreach ($old in $previous) {
-	if ($outputs -notcontains $old) { Remove-Item -LiteralPath (Get-FullPath $old) -Force -ErrorAction SilentlyContinue }
-}
-[IO.File]::WriteAllLines($list, [string[]]$outputs)
 
 # Runs as many commands at once as there are processors, and starts no new one after a failure
 $running = New-Object 'Collections.Generic.List[Diagnostics.Process]'
