@@ -138,10 +138,6 @@ static int find_handle(TransformSession *session, double x, double y) {
 	return turn ? HANDLE_ROTATE : HANDLE_MOVE;
 }
 
-static double to_radians(double degrees) {
-	return degrees * G_PI / (DEGREES_PER_TURN / 2);
-}
-
 /* A circular arrow with a white outline, turned in eighths, with the hotspot in the middle */
 static GdkCursor *create_rotation_cursor(int direction) {
 	const int size = ROTATION_CURSOR_SIZE;

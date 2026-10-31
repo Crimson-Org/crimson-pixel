@@ -4,26 +4,54 @@
 
 #include "stroke.h"
 
+/* Tips under this diameter are drawn this much larger and scaled down, which keeps them round */
+#define SMALL_TIP_DIAMETER 100
+#define SMALL_TIP_SCALE 1.4
+/* Pen pressure is kept between these */
+#define LIGHTEST_PRESSURE .05
+#define HEAVIEST_PRESSURE 5
+/* Each dab dithers its alpha from a hash of its position, seeded once per dab from this range */
+#define DITHER_SEED_RANGE 16777215
+/* Hard tips this small or smaller are plain squares */
+#define LARGEST_HARD_SQUARE 3
+/* Dabs flattened past this scale are left out */
+#define SMALLEST_DAB_SCALE 1e-4
+/* Roundness never goes below this percent */
+#define SMALLEST_ROUNDNESS 5
+/* Half hard tips and harder keep their scallops small, and no step is shorter than half a pixel */
+#define SMOOTH_HARDNESS 50
+#define SHORTEST_STEP .5
+/* Pixel lines only move once the pointer has moved almost a pixel */
+#define PIXEL_LINE_DISTANCE .99
+/* Curves bend toward their neighbours by a share between these, growing with the angle between them, and are drawn
+ * in this many steps */
+#define SMALLEST_HANDLE_SHARE .1
+#define LARGEST_HANDLE_SHARE .35
+#define CURVE_STEPS 10
+/* Points are kept as x and y pairs */
+#define POINT_VALUES 2
+
 double get_default_random(gpointer data) {
 	return g_random_double();
 }
 
 static void interleave_alpha(const Record *alpha, Record *rgba) {
-	gsize count = MIN(rgba->value.buffer.length / 4, alpha->value.buffer.length);
+	gsize count = MIN(rgba->value.buffer.length / RGBA_CHANNELS, alpha->value.buffer.length);
 	guint8 *target = rgba->value.buffer.data;
 	const guint8 *source = alpha->value.buffer.data;
 	for (gsize index = 0; index < count; index++)
-		target[index * 4 + 3] = source[index];
+		target[index * RGBA_CHANNELS + ALPHA_CHANNEL] = source[index];
 }
 
 static void prepare_stroke_tip(Stroke *stroke) {
-	stroke->tip_scale = stroke->shape.diameter < 100 ? 1.4 : 1;
+	stroke->tip_scale = stroke->shape.diameter < SMALL_TIP_DIAMETER ? SMALL_TIP_SCALE : 1;
 	stroke->tip_ratio = 1;
-	BrushLevel tip = create_computed_tip(stroke->shape.diameter, stroke->shape.hardness / 100, stroke->tip_scale);
+	BrushLevel tip =
+		create_computed_tip(stroke->shape.diameter, from_percent(stroke->shape.hardness), stroke->tip_scale);
 	stroke->tip_levels = g_array_new(FALSE, FALSE, sizeof(BrushLevel));
 	g_array_append_val(stroke->tip_levels, tip);
 	gsize area = (gsize)tip.extent.width * tip.extent.height;
-	stroke->tip_rgba = create_channels(area * 4, 8);
+	stroke->tip_rgba = create_channels(area * RGBA_CHANNELS, BYTE_DEPTH);
 	interleave_alpha(tip.values, stroke->tip_rgba);
 }
 
@@ -40,7 +68,7 @@ Stroke *create_stroke(BrushShape shape, gboolean hard, double flow, double smoot
 	stroke->random_data = random_data;
 	stroke->random(stroke->random_data);
 	stroke->random(stroke->random_data);
-	stroke->coverage = create_channels((gsize)extent.width * extent.height * 4, 8);
+	stroke->coverage = create_channels((gsize)extent.width * extent.height * RGBA_CHANNELS, BYTE_DEPTH);
 	stroke->pending_low = g_new(int, MAX(1, extent.height));
 	stroke->pending_high = g_new(int, MAX(1, extent.height));
 	for (int row = 0; row < extent.height; row++)
@@ -104,12 +132,24 @@ static void mark_stroke_extent(Stroke *stroke, RasterExtent extent) {
 static double clamp_pressure(double pressure) {
 	if (isnan(pressure))
 		pressure = 1;
-	return MAX(.05, MIN(5, pressure));
+	return MAX(LIGHTEST_PRESSURE, MIN(HEAVIEST_PRESSURE, pressure));
 }
 
 static gboolean touches_region(RasterExtent first, RasterExtent second) {
 	return !(second.y + second.height < first.y || second.x > first.x + first.width ||
 			 second.y > first.y + first.height || second.x + second.width < first.x);
+}
+
+/* The colour bytes of two words mixed by their weights over their combined weight, each byte rounded */
+static guint32 mix_colors(guint32 top, double top_weight, guint32 bottom, double bottom_weight, double reciprocal) {
+	guint32 mixed = 0;
+	for (int shift = WORD_RED_SHIFT; shift >= 0; shift -= CHAR_BIT) {
+		double channel = floor(
+			(((top >> shift) & G_MAXUINT8) * top_weight + ((bottom >> shift) & G_MAXUINT8) * bottom_weight) * reciprocal +
+			.5);
+		mixed |= ((guint32)channel & G_MAXUINT8) << shift;
+	}
+	return mixed;
 }
 
 static void blend_dab(Stroke *stroke, const Record *dab, RasterExtent dab_extent, double opacity) {
@@ -118,7 +158,7 @@ static void blend_dab(Stroke *stroke, const Record *dab, RasterExtent dab_extent
 	int dab_y = MAX(0, clip.y - dab_extent.y), target_y = MAX(0, clip.y - stroke->extent.y);
 	const guint32 *source = dab->value.buffer.data;
 	guint32 *target = stroke->coverage->value.buffer.data;
-	gint32 seed = floor(stroke->random(stroke->random_data) * 16777215);
+	gint32 seed = floor(stroke->random(stroke->random_data) * DITHER_SEED_RANGE);
 	guint32 dither = 0;
 	for (int row = 0; row < clip.height; row++) {
 		gsize source_row = (gsize)(dab_y + row) * dab_extent.width + dab_x;
@@ -128,46 +168,45 @@ static void blend_dab(Stroke *stroke, const Record *dab, RasterExtent dab_extent
 			if (pixel >> WORD_ALPHA_SHIFT == 0)
 				continue;
 			guint32 existing = target[target_row + column];
-			double alpha = (pixel >> WORD_ALPHA_SHIFT) * opacity * (1.0 / 255), below = (existing >> WORD_ALPHA_SHIFT) * (1.0 / 255);
+			double alpha = (pixel >> WORD_ALPHA_SHIFT) * opacity * BYTE_UNIT;
+			double below = (existing >> WORD_ALPHA_SHIFT) * BYTE_UNIT;
 			double remaining = below * (1 - alpha), combined = alpha + remaining;
-			dither >>= 8;
-			if ((column & 3) == 0)
+			/* One hash gives the dither bytes of four pixels */
+			dither >>= CHAR_BIT;
+			if (column % sizeof(guint32) == 0)
 				dither = hash_whole_number((gint64)(target_row + column) + seed);
 			double reciprocal = combined == 0 ? 0 : 1 / combined;
-			guint32 result_alpha = ((guint32)floor(combined * (256 * 255)) + (dither & 255)) >> 8;
-			guint32 result = result_alpha << WORD_ALPHA_SHIFT;
-			for (int shift = 16; shift >= 0; shift -= 8) {
-				double channel = floor(
-					(((pixel >> shift) & 255) * alpha + ((existing >> shift) & 255) * remaining) * reciprocal + .5);
-				result |= ((guint32)channel & 255) << shift;
-			}
-			target[target_row + column] = result;
+			/* The alpha in 256ths of a level, with the dither deciding the rounding */
+			guint32 result_alpha =
+				((guint32)floor(combined * ((G_MAXUINT8 + 1) * G_MAXUINT8)) + (dither & G_MAXUINT8)) >> CHAR_BIT;
+			target[target_row + column] =
+				result_alpha << WORD_ALPHA_SHIFT | mix_colors(pixel, alpha, existing, remaining, reciprocal);
 		}
 	}
 }
 
 static void color_dab(Record *dab, guint32 color) {
 	guint8 *bytes = dab->value.buffer.data;
-	for (gsize index = 0; index + 3 < dab->value.buffer.length; index += 4) {
+	for (gsize index = 0; index + ALPHA_CHANNEL < dab->value.buffer.length; index += RGBA_CHANNELS) {
 		bytes[index] = color >> WORD_RED_SHIFT & G_MAXUINT8;
-		bytes[index + 1] = color >> 8 & 255;
-		bytes[index + 2] = color & 255;
+		bytes[index + 1] = color >> WORD_GREEN_SHIFT & G_MAXUINT8;
+		bytes[index + 2] = color & G_MAXUINT8;
 	}
 }
 
 static void threshold_tip(Record *values) {
 	guint8 *bytes = values->value.buffer.data;
 	for (gsize index = 0; index < values->value.buffer.length; index++)
-		bytes[index] = bytes[index] < 127 ? 0 : 255;
+		bytes[index] = bytes[index] < G_MAXUINT8 / 2 ? 0 : G_MAXUINT8;
 }
 
 static BrushLevel shape_dab(Stroke *stroke, Affine transform, double x, double y, Record **rgba) {
 	int size = round_half_up(stroke->shape.diameter);
 	BrushLevel dab = {0};
 	gboolean shared = FALSE;
-	if (stroke->hard && size <= 3) {
-		dab.values = create_channels((gsize)size * size, 8);
-		memset(dab.values->value.buffer.data, 255, dab.values->value.buffer.length);
+	if (stroke->hard && size <= LARGEST_HARD_SQUARE) {
+		dab.values = create_channels((gsize)size * size, BYTE_DEPTH);
+		memset(dab.values->value.buffer.data, G_MAXUINT8, dab.values->value.buffer.length);
 		dab.extent = (RasterExtent){round_half_up(x - size / 2.0), round_half_up(y - size / 2.0), size, size};
 	} else if (is_translation_affine(transform)) {
 		BrushLevel tip = g_array_index(stroke->tip_levels, BrushLevel, 0);
@@ -175,10 +214,10 @@ static BrushLevel shape_dab(Stroke *stroke, Affine transform, double x, double y
 		dab.extent = (RasterExtent){round_half_up(transform.e), round_half_up(transform.f), tip.extent.width,
 									tip.extent.height};
 		shared = TRUE;
-	} else if (sqrt(fabs(transform.a * transform.d - transform.b * transform.c)) > 1e-4)
+	} else if (sqrt(fabs(transform.a * transform.d - transform.b * transform.c)) > SMALLEST_DAB_SCALE)
 		dab = resample_brush(stroke->tip_levels, transform);
 	if (!dab.values)
-		dab.values = create_channels(0, 8);
+		dab.values = create_channels(0, BYTE_DEPTH);
 	if (shared && !stroke->hard) {
 		*rgba = stroke->tip_rgba;
 		dab.values = NULL;
@@ -186,7 +225,7 @@ static BrushLevel shape_dab(Stroke *stroke, Affine transform, double x, double y
 	}
 	if (stroke->hard)
 		threshold_tip(dab.values);
-	*rgba = create_channels((gsize)MAX(0, dab.extent.width) * MAX(0, dab.extent.height) * 4, 8);
+	*rgba = create_channels((gsize)MAX(0, dab.extent.width) * MAX(0, dab.extent.height) * RGBA_CHANNELS, BYTE_DEPTH);
 	interleave_alpha(dab.values, *rgba);
 	if (shared)
 		dab.values = NULL;
@@ -200,8 +239,8 @@ static RasterExtent draw_dab(Stroke *stroke, double x, double y, double diameter
 	translate_affine(&transform, -base.extent.width / 2.0, -base.extent.height / 2.0);
 	scale_affine(&transform, 1 / stroke->tip_scale, 1 / stroke->tip_scale);
 	scale_affine(&transform, diameter / stroke->shape.diameter, diameter / stroke->shape.diameter);
-	scale_affine(&transform, 1, MAX(5, stroke->shape.roundness) / 100);
-	rotate_affine(&transform, 0 + stroke->shape.angle * (G_PI / 180));
+	scale_affine(&transform, 1, from_percent(MAX(SMALLEST_ROUNDNESS, stroke->shape.roundness)));
+	rotate_affine(&transform, 0 + stroke->shape.angle * (G_PI / (DEGREES_PER_TURN / 2)));
 	translate_affine(&transform, x, y);
 	Record *rgba = NULL;
 	BrushLevel dab = shape_dab(stroke, transform, x, y, &rgba);
@@ -279,7 +318,7 @@ static RasterExtent sweep_capsule(Stroke *stroke, double x, double y) {
 	/* Coverage pixels hold red, green and blue bytes in memory order, like the colored dabs */
 	guint32 color = swap_red_and_blue(stroke->color);
 	guint32 *target = stroke->coverage->value.buffer.data;
-	guint32 solid = (guint32)(opacity * 255 + .5) << WORD_ALPHA_SHIFT | color;
+	guint32 solid = (guint32)(unit_to_byte(opacity) + .5) << WORD_ALPHA_SHIFT | color;
 	RasterExtent changed = {0};
 	for (int row = clip.y; row < clip.y + clip.height; row++) {
 		double point_y = row + .5 - start_y, outer_low, outer_high, inner_low, inner_high;
@@ -321,7 +360,7 @@ static RasterExtent sweep_capsule(Stroke *stroke, double x, double y) {
 				continue;
 			guint32 existing = line[column];
 			if (opacity >= 1) {
-				guint32 strongest = (guint32)(alpha * 255 + .5);
+				guint32 strongest = (guint32)(unit_to_byte(alpha) + .5);
 				if (strongest <= existing >> WORD_ALPHA_SHIFT)
 					continue;
 				line[column] = strongest << WORD_ALPHA_SHIFT | color;
@@ -329,16 +368,10 @@ static RasterExtent sweep_capsule(Stroke *stroke, double x, double y) {
 				changed_high = column;
 				continue;
 			}
-			double below = (existing >> WORD_ALPHA_SHIFT) * (1.0 / 255), remaining = below * (1 - alpha),
+			double below = (existing >> WORD_ALPHA_SHIFT) * BYTE_UNIT, remaining = below * (1 - alpha),
 				   combined = alpha + remaining;
-			double reciprocal = 1 / combined;
-			guint32 result = (guint32)(combined * 255 + .5) << WORD_ALPHA_SHIFT;
-			for (int shift = 16; shift >= 0; shift -= 8)
-				result |= (guint32)((((color >> shift) & 255) * alpha + ((existing >> shift) & 255) * remaining) *
-										reciprocal +
-									.5)
-						  << shift;
-			line[column] = result;
+			line[column] = (guint32)(unit_to_byte(combined) + .5) << WORD_ALPHA_SHIFT |
+						   mix_colors(color, alpha, existing, remaining, 1 / combined);
 			changed_low = MIN(changed_low, column);
 			changed_high = column;
 		}
@@ -353,7 +386,7 @@ static RasterExtent sweep_capsule(Stroke *stroke, double x, double y) {
 }
 
 static gboolean sweeps_capsules(const Stroke *stroke) {
-	return stroke->smooth_edges && !stroke->hard && stroke->shape.hardness >= 100 && stroke->shape.roundness >= 100 &&
+	return stroke->smooth_edges && !stroke->hard && stroke->shape.hardness >= PERCENT && stroke->shape.roundness >= PERCENT &&
 		   stroke->shape.diameter > 1;
 }
 
@@ -487,7 +520,7 @@ static RasterExtent space_dabs(Stroke *stroke, double x, double y, double pressu
 		mark_stroke_extent(stroke, extent);
 		walked = distance;
 	} else if (uses_pixel_lines(stroke)) {
-		if (distance > .99) {
+		if (distance > PIXEL_LINE_DISTANCE) {
 			draw_pixel_line(stroke->coverage, stroke->extent.width, stroke->extent.height, stroke->last_x,
 							stroke->last_y, x, y, OPAQUE_WORD | stroke->color);
 			extent = union_region(extent, bound_segment(stroke->last_x, stroke->last_y, x, y));
@@ -503,13 +536,13 @@ static RasterExtent space_dabs(Stroke *stroke, double x, double y, double pressu
 	} else
 		while (TRUE) {
 			double diameter = stroke->shape.diameter;
-			double step = MAX(5, stroke->shape.roundness) / 100 * (stroke->shape.spacing / 100) *
-						  (diameter + stroke->last_diameter) / 2 * stroke->tip_ratio;
+			double step = from_percent(MAX(SMALLEST_ROUNDNESS, stroke->shape.roundness)) *
+						  from_percent(stroke->shape.spacing) * (diameter + stroke->last_diameter) / 2 * stroke->tip_ratio;
 			/* Native improvement: hard edges keep dab scallops under a quarter pixel, since a step s on radius r
 		 * leaves bumps about s * s / (8 * r) deep */
-			if (stroke->smooth_edges && stroke->shape.hardness >= 50)
+			if (stroke->smooth_edges && stroke->shape.hardness >= SMOOTH_HARDNESS)
 				step = MIN(step, sqrt(diameter));
-			step = MAX(step, .5);
+			step = MAX(step, SHORTEST_STEP);
 			if (!(walked + step < distance))
 				break;
 			walked += step;
@@ -547,34 +580,43 @@ static void find_curve_handle(double x, double y, double base_x, double base_y, 
 	double first = sqrt(first_x * first_x + first_y * first_y);
 	double second = sqrt(second_x * second_x + second_y * second_y);
 	double angle = acos((first_x * second_x + first_y * second_y) / (first * second)) / G_PI;
-	angle = .1 + angle * (.35 - .1);
+	angle = SMALLEST_HANDLE_SHARE + angle * (LARGEST_HANDLE_SHARE - SMALLEST_HANDLE_SHARE);
 	double across_x = next_x - x, across_y = next_y - y;
 	double across = sqrt(across_x * across_x + across_y * across_y), factor = angle * second / across;
 	*handle_x = point_value(across_x * factor);
 	*handle_y = point_value(across_y * factor);
 }
 
-static double get_point(const Stroke *stroke, int index) {
-	return g_array_index(stroke->points, double, index);
+static int count_points(const Stroke *stroke) {
+	return stroke->points->len / POINT_VALUES;
 }
 
-static RasterExtent draw_curve(Stroke *stroke, int count) {
-	int available = stroke->points->len;
-	double start_x = get_point(stroke, count - 6), start_y = get_point(stroke, count - 5);
-	double end_x = get_point(stroke, count - 4), end_y = get_point(stroke, count - 3);
-	double start_pressure = g_array_index(stroke->pressures, double, (count >> 1) - 3);
-	double end_pressure = g_array_index(stroke->pressures, double, (count >> 1) - 2);
-	double before_x = 0, before_y = 0, after_x = 0, after_y = 0;
-	if (8 <= count)
-		find_curve_handle(get_point(stroke, count - 8), get_point(stroke, count - 7), start_x, start_y, end_x, end_y,
-						  &before_x, &before_y);
-	if (count <= available)
-		find_curve_handle(get_point(stroke, count - 2), get_point(stroke, count - 1), end_x, end_y, start_x, start_y,
-						  &after_x, &after_y);
+static void read_point(const Stroke *stroke, int point, double *x, double *y) {
+	*x = g_array_index(stroke->points, double, point * POINT_VALUES);
+	*y = g_array_index(stroke->points, double, point * POINT_VALUES + 1);
+}
+
+/* The curve from the third last to the second last of the first points, bent toward the points around them */
+static RasterExtent draw_curve(Stroke *stroke, int points) {
+	int start = points - 3, end = points - 2;
+	double start_x, start_y, end_x, end_y;
+	read_point(stroke, start, &start_x, &start_y);
+	read_point(stroke, end, &end_x, &end_y);
+	double start_pressure = g_array_index(stroke->pressures, double, start);
+	double end_pressure = g_array_index(stroke->pressures, double, end);
+	double before_x = 0, before_y = 0, after_x = 0, after_y = 0, x, y;
+	if (start > 0) {
+		read_point(stroke, start - 1, &x, &y);
+		find_curve_handle(x, y, start_x, start_y, end_x, end_y, &before_x, &before_y);
+	}
+	if (end + 1 < count_points(stroke)) {
+		read_point(stroke, end + 1, &x, &y);
+		find_curve_handle(x, y, end_x, end_y, start_x, start_y, &after_x, &after_y);
+	}
 	double first_x = start_x + before_x, first_y = start_y + before_y;
 	double second_x = end_x + after_x, second_y = end_y + after_y;
 	RasterExtent extent = {0};
-	int steps = uses_pixel_lines(stroke) ? 1 : 10;
+	int steps = uses_pixel_lines(stroke) ? 1 : CURVE_STEPS;
 	for (int step = 0; step < steps; step++) {
 		double t = (step + 1.0) / steps, u = 1 - t;
 		double x = u * u * u * start_x + 3 * t * u * u * first_x + 3 * t * t * u * second_x + t * t * t * end_x;
@@ -613,31 +655,34 @@ void move_stroke_to(Stroke *stroke, double x, double y, double pressure) {
 
 void draw_stroke_line_to(Stroke *stroke, double x, double y, double pressure) {
 	pressure = clamp_pressure(pressure);
-	int count = stroke->points->len;
-	if (x == get_point(stroke, count - 2) && y == get_point(stroke, count - 1))
+	double last_x, last_y;
+	read_point(stroke, count_points(stroke) - 1, &last_x, &last_y);
+	if (x == last_x && y == last_y)
 		return;
 	g_array_append_val(stroke->points, x);
 	g_array_append_val(stroke->points, y);
 	g_array_append_val(stroke->pressures, pressure);
-	count += 2;
 	/* Native improvement: whole pixel tips draw straight to the pointer without the curve's one segment of lag */
 	if (paints_whole_pixels(stroke)) {
 		record_stroke_extent(stroke, space_dabs(stroke, x, y, pressure));
 		return;
 	}
-	if (count >= 6)
-		record_stroke_extent(stroke, draw_curve(stroke, count));
+	if (count_points(stroke) >= 3)
+		record_stroke_extent(stroke, draw_curve(stroke, count_points(stroke)));
 }
 
 void finish_stroke(Stroke *stroke) {
 	if (paints_whole_pixels(stroke))
 		return;
-	int count = stroke->points->len;
-	if (count == 4)
-		record_stroke_extent(stroke, smooth_dabs(stroke, get_point(stroke, 2), get_point(stroke, 3),
-												 g_array_index(stroke->pressures, double, 1), TRUE));
-	if (count > 4)
-		record_stroke_extent(stroke, draw_curve(stroke, count + 2));
+	/* Two points draw straight, and more finish the curve to the last point */
+	int points = count_points(stroke);
+	double x, y;
+	if (points == 2) {
+		read_point(stroke, 1, &x, &y);
+		record_stroke_extent(stroke, smooth_dabs(stroke, x, y, g_array_index(stroke->pressures, double, 1), TRUE));
+	}
+	if (points > 2)
+		record_stroke_extent(stroke, draw_curve(stroke, points + 1));
 }
 
 RasterExtent get_stroke_dirty_extent(const Stroke *stroke) {

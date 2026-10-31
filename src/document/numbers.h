@@ -22,6 +22,10 @@ static inline double from_percent(double value) {
 	return value / PERCENT;
 }
 
+static inline double to_radians(double degrees) {
+	return degrees * G_PI / (DEGREES_PER_TURN / 2);
+}
+
 /* Rounds halves upward, so -2.5 becomes -2, unlike C's round */
 double round_half_up(double value);
 /* The smaller or larger number, or NaN when either one is NaN, unlike fmin and fmax */
