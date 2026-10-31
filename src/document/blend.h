@@ -61,7 +61,6 @@ bool prepare_blend_ranges(const double *layer_ranges, double *prepared);
 
 BlendKernel prepare_blend_kernel(BlendMode mode, double opacity, BlendOptions options);
 
-int32_t hash_dissolve_position(double position);
 
 /* Both pixels have straight ARGB channels and opacity is between zero and one */
 uint32_t compose_normal_pixel(uint32_t source, uint32_t destination, double opacity);

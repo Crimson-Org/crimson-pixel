@@ -32,3 +32,5 @@ guint32 wrap_uint32(double value);
 gint32 wrap_int32(double value);
 /* The low byte of the wrapped whole part */
 guint8 wrap_byte(double value);
+/* Spreads neighbouring whole numbers far apart, for dithering and dissolving; the whole part wraps into 32 bits first */
+guint32 hash_whole_number(double value);

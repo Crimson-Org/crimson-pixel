@@ -14,15 +14,6 @@ static int32_t round_to_int32(double value) {
 	return wrap_int32(value + .5);
 }
 
-int32_t hash_dissolve_position(double position) {
-	int32_t value = wrap_int32(position);
-	value = value ^ 61 ^ (int32_t)(wrap_uint32(value) >> 16);
-	double sum = (double)value + (double)(int32_t)((uint32_t)value << 3);
-	value = wrap_int32(sum) ^ (int32_t)(wrap_uint32(sum) >> 4);
-	double product = (double)value * 668265261.0;
-	return wrap_int32(product) ^ (int32_t)(wrap_uint32(product) >> 15);
-}
-
 int find_blend_mode(const char *key) {
 	if (!key)
 		return -1;
@@ -328,7 +319,7 @@ static uint32_t blend_dissolve_pixel(const BlendKernel *kernel, uint32_t source,
 	double preserve = kernel->options.preserve_alpha ? 1 : 0;
 	double scale = floor(kernel->opacity * (256.0 * 256 * 256 / 255) + .5);
 	double share = preserve * 255 + (1 - preserve) * (source >> 24);
-	if ((hash_dissolve_position(index) & 16777215) >= share * scale)
+	if ((hash_whole_number(index) & 16777215) >= share * scale)
 		return destination;
 	return (source & 16777215) | (uint32_t)wrap_int32(preserve * (destination >> 24) + (1 - preserve) * 255) << 24;
 }

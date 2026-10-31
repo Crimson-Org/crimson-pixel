@@ -112,15 +112,6 @@ static gboolean touches_region(RasterExtent first, RasterExtent second) {
 			 second.y > first.y + first.height || second.x + second.width < first.x);
 }
 
-static gint32 hash_position(gint32 value) {
-	value = value ^ 61 ^ (gint32)((guint32)value >> 16);
-	value = value + (gint32)((guint32)value << 3);
-	value = value ^ (gint32)((guint32)value >> 4);
-	double product = (double)value * 668265261.0;
-	value = (gint32)(guint32)(guint64)(gint64)product;
-	return value ^ (gint32)((guint32)value >> 15);
-}
-
 static void blend_dab(Stroke *stroke, const Record *dab, RasterExtent dab_extent, double opacity) {
 	RasterExtent clip = intersect_region(intersect_region(dab_extent, stroke->extent), dab_extent);
 	int dab_x = MAX(0, clip.x - dab_extent.x), target_x = MAX(0, clip.x - stroke->extent.x);
@@ -141,7 +132,7 @@ static void blend_dab(Stroke *stroke, const Record *dab, RasterExtent dab_extent
 			double remaining = below * (1 - alpha), combined = alpha + remaining;
 			dither >>= 8;
 			if ((column & 3) == 0)
-				dither = hash_position((gint32)(guint32)((gint64)(target_row + column) + seed));
+				dither = hash_whole_number((gint64)(target_row + column) + seed);
 			double reciprocal = combined == 0 ? 0 : 1 / combined;
 			guint32 result_alpha = ((guint32)floor(combined * (256 * 255)) + (dither & 255)) >> 8;
 			guint32 result = result_alpha << 24;

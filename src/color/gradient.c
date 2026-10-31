@@ -124,15 +124,6 @@ Record *create_gradient_record(const Gradient *gradient, const char *name) {
 	return record;
 }
 
-static guint32 hash_dither_index(gint64 index) {
-	guint32 value = (guint32)index;
-	gint32 mixed = (gint32)(value ^ 61 ^ (value >> 16));
-	guint32 grown = wrap_uint32((double)mixed + (double)(gint32)((guint32)mixed << 3));
-	gint32 shifted = (gint32)(grown ^ (grown >> 4));
-	guint32 product = wrap_uint32((double)shifted * 668265261.0);
-	return product ^ (product >> 15);
-}
-
 /* ============================== Lookup ============================== */
 
 static void resolve_gradient_stops(const Gradient *gradient, guint32 foreground, guint32 background,
@@ -358,7 +349,7 @@ static void render_gradient(const float *lookup, GradientType type, gboolean dit
 			const float *entry = lookup + find_lookup_entry(get_shape_position(type, along, sideways));
 			guint8 *target = pixels + pixel * 4;
 			if (dither) {
-				write_dithered_pixel(entry, hash_dither_index(pixel + dither_offset), target);
+				write_dithered_pixel(entry, hash_whole_number(pixel + dither_offset), target);
 				continue;
 			}
 			for (int channel = 0; channel < 4; channel++)

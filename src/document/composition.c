@@ -347,7 +347,7 @@ static void dissolve_rows(int first, int last, gpointer data) {
 		for (int x = region.x; x < region.x + region.width; x++) {
 			gsize from = (gsize)(y - source_extent.y) * source_extent.width + x - source_extent.x;
 			gsize to = (gsize)(y - target.y) * target.width + x - target.x;
-			gint32 hash = hash_dissolve_position(from);
+			gint32 hash = hash_whole_number(from);
 			gboolean kept = work->mask ? (hash & 65535) < (gint32)sample_mask(work->mask, x, y) * scale
 									   : (hash & 16777215) < threshold;
 			if (kept)
