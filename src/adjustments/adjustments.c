@@ -51,7 +51,6 @@ static const char *const SELECTIVE_INKS[SELECTIVE_INKS_COUNT] = {"Cyn", "Mgnt", 
 /* The settings a new adjustment layer starts with */
 static const double DEFAULT_GRAY_WEIGHTS[GRAY_WEIGHTS_COUNT] = {40, 85, 204, 60, 20, 80};
 static const double DEFAULT_FILTER_LAB[] = {67.06, 32, 120};
-#define DEFAULT_FILTER_DENSITY 80
 #define DEFAULT_REPLACE_FUZZINESS 55
 static const double DEFAULT_REPLACE_LOW_LAB[] = {73.1, 23.95, 8.03};
 static const double DEFAULT_REPLACE_HIGH_LAB[] = {73, 23, 8};

@@ -19,6 +19,9 @@ enum { HUE_LIMITS = 4, HUE_SHIFT = HUE_LIMITS, HUE_SATURATION, HUE_LIGHTNESS, HU
 /* Color balance shifts red, green and blue in the shadows, midtones and highlights */
 #define BALANCE_TONES_COUNT 3
 
+/* Photo filter strength in percent */
+#define DEFAULT_FILTER_DENSITY 80
+
 /* Selective color moves cyan, magenta, yellow and black inks in nine colour ranges */
 #define SELECTIVE_RANGES_COUNT 9
 #define SELECTIVE_INKS_COUNT 4
