@@ -22,22 +22,8 @@
 #define ZLIB_MEMORY_LEVEL 8
 #define DEFLATE_SLACK 64
 #define ZIP_END_ROOM 4
-/* Tagged blocks and layer names are padded to four bytes, and most blocks are signed 8BIM, or 8B64 for large
- * lengths in large files */
-#define BLOCK_ALIGNMENT 4
-#define BLOCK_SIGNATURE "8BIM"
-#define LARGE_BLOCK_SIGNATURE "8B64"
-/* A layer record lists each channel's id and data length, and keeps a byte for each blending range value */
-#define CHANNEL_INFO_BYTES 6
-#define LARGE_CHANNEL_INFO_BYTES 10
-#define MOST_LAYER_CHANNELS 6
+/* A layer record keeps a byte for each blending range value */
 #define BLENDING_RANGES_BYTES BLEND_RANGE_VALUES
-/* Mask flags, and the parameters that follow: user density and user feather */
-#define MASK_RELATIVE_TO_LAYER 1
-#define MASK_DISABLED 2
-#define MASK_FROM_OTHER_DATA 8
-#define MASK_HAS_PARAMETERS 16
-#define MASK_DENSITY_AND_FEATHER 3
 /* Delta prediction works on samples a byte apart, wrapping around a byte or a sixteen bit range */
 #define BYTE_RANGE (G_MAXUINT8 + 1)
 #define WORD_RANGE (G_MAXUINT16 + 1)
@@ -306,18 +292,6 @@ static Record *extract_channel(const Record *pixels, gsize count, unsigned posit
 
 /* ============================== Tagged blocks ==================================== */
 
-static const char *LARGE_LENGTH_KEYS =
-	"LMsk Lr16 Lr32 Layr Mt16 Mt32 Mtrn Alph FMsk lnk2 lnkE FEid FXid PxSD extn cinf artd pths";
-
-static gboolean is_listed(const char *list, const char *key) {
-	/* The keys are listed with a space between them */
-	for (const char *position = list;; position += PSD_KEY_LENGTH + 1) {
-		if (!strncmp(position, key, PSD_KEY_LENGTH))
-			return TRUE;
-		if (!position[PSD_KEY_LENGTH])
-			return FALSE;
-	}
-}
 
 static gsize write_layer_records(PsdWriter *writer, Record *document_record, gsize offset, gboolean zip,
 								 gboolean merged);
@@ -327,7 +301,7 @@ static gsize write_tagged_blocks(PsdWriter *writer, Record *document_record, gsi
 	for (guint index = 0; index < keys->len && !writer->failed; index++) {
 		const char *key = g_ptr_array_index(keys, index);
 		Record *value = get_record(descriptors, key);
-		gboolean large = writer->large && is_listed(LARGE_LENGTH_KEYS, key);
+		gboolean large = writer->large && is_listed_key(LARGE_LENGTH_KEYS, key);
 		gsize start = offset;
 		put_ascii(writer, offset, large ? LARGE_BLOCK_SIGNATURE : BLOCK_SIGNATURE);
 		offset += PSD_KEY_LENGTH;
@@ -449,10 +423,10 @@ static gsize write_layer_mask(PsdWriter *writer, const Record *layer, gsize offs
 		put_mask_flags(writer, offset, real, FALSE);
 		put_byte(writer, offset + 1, get_number(real, "color"));
 		put_rectangle(writer, offset + 2, record_extent(real));
-		offset += 2 + PSD_RECTANGLE_BYTES;
+		offset += REAL_MASK_BYTES;
 	}
 	gsize flags_start = offset;
-	put_byte(writer, offset++, MASK_DENSITY_AND_FEATHER);
+	put_byte(writer, offset++, MASK_USER_DENSITY | MASK_USER_FEATHER);
 	put_byte(writer, offset++, parameters ? get_number(parameters, "mU") : G_MAXUINT8);
 	put_double(writer, offset, parameters ? get_number(parameters, "O1") : 0);
 	offset += sizeof(double);

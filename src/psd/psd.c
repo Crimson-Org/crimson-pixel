@@ -81,11 +81,15 @@ void read_key(PsdReader *reader, gsize offset, char key[5]) {
 	key[4] = 0;
 }
 
+const char *const LARGE_LENGTH_KEYS =
+	"LMsk Lr16 Lr32 Layr Mt16 Mt32 Mtrn Alph FMsk lnk2 lnkE FEid FXid PxSD extn cinf artd pths";
+
+/* The keys are listed with a space between them */
 gboolean is_listed_key(const char *list, const char *key) {
-	for (const char *position = list;; position += 5) {
-		if (!strncmp(position, key, 4))
+	for (const char *position = list;; position += PSD_KEY_SIZE) {
+		if (!strncmp(position, key, PSD_KEY_LENGTH))
 			return TRUE;
-		if (!position[4])
+		if (!position[PSD_KEY_LENGTH])
 			return FALSE;
 	}
 }

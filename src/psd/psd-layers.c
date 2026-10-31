@@ -14,25 +14,28 @@ static const struct {
 						  {"vmsk vsms vstk vscg vogk SoCo GdFl PtFl", TEXT_PSD_SHAPES},
 						  {"artb artd", TEXT_PSD_ARTBOARDS}};
 
-static const char *LARGE_LENGTH_KEYS =
-	"LMsk Lr16 Lr32 Layr Mt16 Mt32 Mtrn Alph FMsk lnk2 lnkE FEid FXid PxSD extn cinf artd pths";
-
 static const char *UNPADDED_KEYS = "luni TySh tySh lfx2 iOpa SoCo vmsk vstk";
+
+/* Channel indexes in brightness restrictions past this are ignored */
+#define LARGEST_CHANNEL_INDEX (G_MAXUINT16 + 1)
+/* A section divider gives its type, then a blend mode signature and key, then a sub type */
+#define SECTION_MODE_AT (2 * PSD_KEY_LENGTH)
+#define SECTION_SUB_TYPE_AT (3 * PSD_KEY_LENGTH)
 
 /* ============================== Layer records =================================== */
 
 static int read_mask_flags(Record *mask, int flags) {
-	set_boolean(mask, "WE", (flags & 1) == 0);
-	set_boolean(mask, "isEnabled", (flags >> 1 & 1) == 0);
-	set_boolean(mask, "L7", (flags >> 3 & 1) == 1);
-	return flags >> 4 & 1;
+	set_boolean(mask, "WE", !(flags & MASK_RELATIVE_TO_LAYER));
+	set_boolean(mask, "isEnabled", !(flags & MASK_DISABLED));
+	set_boolean(mask, "L7", (flags & MASK_FROM_OTHER_DATA) != 0);
+	return (flags & MASK_HAS_PARAMETERS) != 0;
 }
 
 static Record *read_real_mask(PsdReader *reader, gsize offset) {
-	Record *mask = create_mask(8);
+	Record *mask = create_mask(BYTE_DEPTH);
 	read_mask_flags(mask, read_psd_byte(reader, offset));
 	set_number(mask, "color", read_psd_byte(reader, offset + 1));
-	set_record(mask, "V", read_rectangle(reader, offset + 2));
+	set_record(mask, "V", read_rectangle(reader, offset + REAL_MASK_BYTES - PSD_RECTANGLE_BYTES));
 	return mask;
 }
 
@@ -46,51 +49,50 @@ static gboolean has_channel(const Record *layer, int identifier) {
 
 static gsize read_layer_mask(PsdReader *reader, Record *layer, gsize offset) {
 	guint32 length = read_psd_u32(reader, offset);
-	offset += 4;
+	offset += sizeof(guint32);
 	if (length == 0)
 		return offset;
 	gsize start = offset;
-	Record *mask = create_mask(8);
+	Record *mask = create_mask(BYTE_DEPTH);
 	set_record(layer, "yy", mask);
 	set_record(mask, "V", read_rectangle(reader, offset));
-	offset += 16;
+	offset += PSD_RECTANGLE_BYTES;
 	set_number(mask, "color", read_psd_byte(reader, offset));
 	offset += 1;
 	gboolean parameters = read_mask_flags(mask, read_psd_byte(reader, offset));
 	offset += 1;
 	if (parameters) {
-		if (has_channel(layer, -3)) {
+		if (has_channel(layer, PSD_REAL_MASK_CHANNEL)) {
 			set_record(layer, "E_", read_real_mask(reader, offset));
-			offset += 18;
+			offset += REAL_MASK_BYTES;
 		}
-		gsize parameter_start = offset;
+		/* Densities are bytes and feathers doubles, each there only when its flag is */
 		int present = read_psd_byte(reader, offset++);
-		double values[4] = {G_MAXUINT8, 0, G_MAXUINT8, 0};
-		if (present & 1)
+		double values[MASK_PARAMETERS] = {G_MAXUINT8, 0, G_MAXUINT8, 0};
+		if (present & MASK_USER_DENSITY)
 			values[0] = read_psd_byte(reader, offset++);
-		if (present >> 1 & 1) {
+		if (present & MASK_USER_FEATHER) {
 			values[1] = read_double(reader, offset);
-			offset += 8;
+			offset += sizeof(double);
 		}
-		if (present >> 2 & 1)
+		if (present & MASK_VECTOR_DENSITY)
 			values[2] = read_psd_byte(reader, offset++);
-		if (present >> 3 & 1) {
+		if (present & MASK_VECTOR_FEATHER) {
 			values[3] = read_double(reader, offset);
-			offset += 8;
+			offset += sizeof(double);
 		}
 		Record *parameter_values = create_array();
-		for (int index = 0; index < 4; index++)
+		for (int index = 0; index < MASK_PARAMETERS; index++)
 			append_record(parameter_values, create_number(values[index]));
 		set_record(layer, "kz", parameter_values);
-		(void)parameter_start;
-	} else if (length != 20)
+	} else if (length != PLAIN_MASK_LENGTH)
 		set_record(layer, "E_", read_real_mask(reader, offset));
 	return start + length;
 }
 
 static gsize read_blend_ranges(PsdReader *reader, Record *layer, gsize offset) {
 	guint32 length = read_psd_u32(reader, offset);
-	offset += 4;
+	offset += sizeof(guint32);
 	Record *ranges = get_record(layer, "hu");
 	for (guint32 index = 0; index < length && !reader->failed; index++) {
 		Record *value = create_number(read_psd_byte(reader, offset + index));
@@ -118,11 +120,11 @@ static void read_tagged_block(PsdReader *reader, const char *key, gsize offset, 
 		set_number(descriptors, key, read_psd_byte(reader, offset));
 	else if (!strcmp(key, "brst")) {
 		Record *channels = create_array();
-		for (int index = 0; index < 3; index++)
+		for (int index = 0; index < RGB_CHANNELS; index++)
 			append_record(channels, create_number(1));
-		for (gint64 index = 0; index < length; index += 4) {
+		for (gint64 index = 0; index < length; index += sizeof(guint32)) {
 			guint32 channel = read_psd_u32(reader, offset + index);
-			if (channel > 65536)
+			if (channel > LARGEST_CHANNEL_INDEX)
 				continue;
 			while (count_records(channels) <= channel)
 				append_record(channels, create_null());
@@ -137,20 +139,20 @@ static void read_tagged_block(PsdReader *reader, const char *key, gsize offset, 
 		Record *section = create_object(RECORD_PLAIN);
 		set_number(section, "J", read_psd_u32(reader, offset));
 		set_boolean(section, "Zd", FALSE);
-		if (length >= 12) {
-			char mode[5];
-			read_key(reader, offset + 8, mode);
+		if (length >= SECTION_SUB_TYPE_AT) {
+			char mode[PSD_KEY_SIZE];
+			read_key(reader, offset + SECTION_MODE_AT, mode);
 			set_string(section, "qu", mode);
 		}
-		if (length >= 16)
-			set_boolean(section, "Zd", read_psd_u32(reader, offset + 12) == 1);
+		if (length >= SECTION_SUB_TYPE_AT + (gint64)sizeof(guint32))
+			set_boolean(section, "Zd", read_psd_u32(reader, offset + SECTION_SUB_TYPE_AT) == 1);
 		set_record(descriptors, key, section);
 	} else if (!strcmp(key, "lsdk")) {
 		Record *section = create_object(RECORD_PLAIN);
 		set_number(section, "J", read_psd_u32(reader, offset));
 		set_record(descriptors, "lsct", section);
 	} else if (!strcmp(key, "lnsr")) {
-		char source[5];
+		char source[PSD_KEY_SIZE];
 		read_key(reader, offset, source);
 		set_string(descriptors, key, source);
 	} else if (!strcmp(key, "lclr"))
@@ -159,14 +161,15 @@ static void read_tagged_block(PsdReader *reader, const char *key, gsize offset, 
 		g_autofree char *name = read_unicode(reader, offset);
 		set_string(descriptors, key, name);
 	} else if (!strcmp(key, "fxrp"))
-		set_record(descriptors, key, create_point(read_double(reader, offset), read_double(reader, offset + 8)));
+		set_record(descriptors, key,
+				   create_point(read_double(reader, offset), read_double(reader, offset + sizeof(double))));
 	else if (!strcmp(key, "Lr16") || !strcmp(key, "Lr32"))
 		read_layer_records(reader, offset);
 	else if (is_ported_adjustment(key))
 		read_adjustment_block(reader, key, offset, descriptors);
 	else if (!strcmp(key, "CgEd")) {
 		Record *settings = create_object(RECORD_PLAIN);
-		read_descriptor(reader, offset + 4, settings);
+		read_descriptor(reader, offset + sizeof(guint32), settings);
 		set_record(descriptors, key, settings);
 	} else
 		note_block_feature(reader, key);
@@ -174,31 +177,31 @@ static void read_tagged_block(PsdReader *reader, const char *key, gsize offset, 
 
 gsize read_tagged_blocks(PsdReader *reader, gsize offset, gsize end, Record *descriptors) {
 	while (offset < end && !reader->failed) {
-		char signature[5], key[5];
+		char signature[PSD_KEY_SIZE], key[PSD_KEY_SIZE];
 		read_key(reader, offset, signature);
-		if (strcmp(signature, "8BIM") && strcmp(signature, "8B64")) {
+		if (strcmp(signature, BLOCK_SIGNATURE) && strcmp(signature, LARGE_BLOCK_SIGNATURE)) {
 			fail_psd(reader, TEXT_PSD_DAMAGED);
 			return end;
 		}
-		read_key(reader, offset + 4, key);
-		gint64 length = read_psd_u32(reader, offset + 8);
-		offset += 12;
+		read_key(reader, offset + PSD_KEY_LENGTH, key);
+		gint64 length = read_psd_u32(reader, offset + 2 * PSD_KEY_LENGTH);
+		offset += 2 * PSD_KEY_LENGTH + sizeof(guint32);
 		if (reader->large && is_listed_key(LARGE_LENGTH_KEYS, key)) {
 			length = (gint32)((guint32)length | read_psd_u32(reader, offset));
-			offset += 4;
+			offset += sizeof(guint32);
 		}
 		if (length < 0 || !has_psd_bytes(reader, offset, length))
 			return end;
 		if (!strcmp(key, "lrFX") || !strcmp(key, "PlLd")) {
-			if (strcmp(key, "lrFX") && length % 4)
-				length += 4 - length % 4;
+			if (strcmp(key, "lrFX") && length % BLOCK_ALIGNMENT)
+				length += BLOCK_ALIGNMENT - length % BLOCK_ALIGNMENT;
 			offset += length;
 			continue;
 		}
 		read_tagged_block(reader, key, offset, length, descriptors);
 		offset += length;
-		if (!is_listed_key(UNPADDED_KEYS, key) && length % 4)
-			offset += 4 - length % 4;
+		if (!is_listed_key(UNPADDED_KEYS, key) && length % BLOCK_ALIGNMENT)
+			offset += BLOCK_ALIGNMENT - length % BLOCK_ALIGNMENT;
 	}
 	/* Newer files keep the current Brightness/Contrast settings in CgEd next to the legacy brit block */
 	Record *settings = get_record(descriptors, "CgEd"), *brightness = get_record(descriptors, "brit");
@@ -214,32 +217,32 @@ gsize read_tagged_blocks(PsdReader *reader, gsize offset, gsize end, Record *des
 
 static gsize read_layer_record(PsdReader *reader, Record *layer, gsize offset) {
 	set_record(layer, "V", read_rectangle(reader, offset));
-	offset += 16;
+	offset += PSD_RECTANGLE_BYTES;
 	guint channel_count = read_psd_u16(reader, offset);
-	offset += 2;
+	offset += sizeof(guint16);
 	Record *channels = create_array();
 	for (guint index = 0; index < channel_count && !reader->failed; index++) {
 		Record *channel = create_object(RECORD_PLAIN);
 		set_number(channel, "id", read_i16(reader, offset));
-		set_number(channel, "length", read_length(reader, offset + 2));
+		set_number(channel, "length", read_length(reader, offset + sizeof(guint16)));
 		append_record(channels, channel);
-		offset += reader->large ? 10 : 6;
+		offset += reader->large ? LARGE_CHANNEL_INFO_BYTES : CHANNEL_INFO_BYTES;
 	}
 	set_record(layer, "tc", channels);
-	char signature[5], mode[5];
+	char signature[PSD_KEY_SIZE], mode[PSD_KEY_SIZE];
 	read_key(reader, offset, signature);
-	if (strcmp(signature, "8BIM")) {
+	if (strcmp(signature, BLOCK_SIGNATURE)) {
 		fail_psd(reader, TEXT_PSD_DAMAGED);
 		return offset;
 	}
-	read_key(reader, offset + 4, mode);
+	read_key(reader, offset + PSD_KEY_LENGTH, mode);
 	set_string(layer, "qu", mode);
-	set_number(layer, "nv", read_psd_byte(reader, offset + 8));
-	set_boolean(layer, "jl", read_psd_byte(reader, offset + 9) == 1);
-	set_number(layer, "NF", read_psd_byte(reader, offset + 10));
-	offset += 12;
+	set_number(layer, "nv", read_psd_byte(reader, offset + LAYER_OPACITY_AT));
+	set_boolean(layer, "jl", read_psd_byte(reader, offset + LAYER_CLIPPING_AT) == 1);
+	set_number(layer, "NF", read_psd_byte(reader, offset + LAYER_FLAGS_AT));
+	offset += LAYER_BLEND_BYTES;
 	guint32 extra_length = read_psd_u32(reader, offset);
-	offset += 4;
+	offset += sizeof(guint32);
 	gsize extra_start = offset;
 	offset = read_layer_mask(reader, layer, offset);
 	offset = read_blend_ranges(reader, layer, offset);
@@ -247,8 +250,8 @@ static gsize read_layer_record(PsdReader *reader, Record *layer, gsize offset) {
 	g_autofree char *name = read_pascal(reader, offset, &name_length);
 	set_string(layer, "name", name);
 	offset += name_length;
-	if (name_length % 4)
-		offset += 4 - name_length % 4;
+	if (name_length % BLOCK_ALIGNMENT)
+		offset += BLOCK_ALIGNMENT - name_length % BLOCK_ALIGNMENT;
 	Record *descriptors = get_record(layer, "add");
 	offset = read_tagged_blocks(reader, offset, extra_start + extra_length, descriptors);
 	Record *section = get_record(descriptors, "lsct");
@@ -266,9 +269,9 @@ static gsize read_layer_record(PsdReader *reader, Record *layer, gsize offset) {
 }
 
 static Record *get_layer_mask_target(Record *layer, int identifier) {
-	if (identifier == -3)
+	if (identifier == PSD_REAL_MASK_CHANNEL)
 		return get_record(layer, "E_");
-	if (identifier == -2)
+	if (identifier == PSD_USER_MASK_CHANNEL)
 		return get_record(layer, "yy");
 	return layer;
 }
@@ -277,15 +280,16 @@ static gsize read_layer_channels(PsdReader *reader, Record *layer, gsize offset)
 	Record *record = reader->document->record;
 	int mode = get_number(record, "Ia");
 	unsigned depth = get_number(record, "depth"), file_depth = get_number(record, "g_");
-	Record *channels = get_record(layer, "tc"), *color[4] = {0};
+	Record *channels = get_record(layer, "tc"), *color[RGBA_CHANNELS] = {0};
 	g_autoptr(GPtrArray) owned = g_ptr_array_new_with_free_func((GDestroyNotify)free_record);
 	for (guint index = 0; index < count_records(channels) && !reader->failed; index++) {
 		Record *channel = get_item(channels, index);
 		int identifier = get_number(channel, "id");
 		gint64 length = get_number(channel, "length");
 		Record *mask = get_record(layer, "yy");
-		if (identifier == -2 && (!mask || mask->type == RECORD_NULL))
-			identifier = -1;
+		/* A mask channel without a mask is read as transparency */
+		if (identifier == PSD_USER_MASK_CHANNEL && (!mask || mask->type == RECORD_NULL))
+			identifier = PSD_TRANSPARENCY_CHANNEL;
 		Record *target = get_layer_mask_target(layer, identifier);
 		Record *extent = get_record(target, "V");
 		double width = MAX(0, get_number(extent, "s")), height = MAX(0, get_number(extent, "T"));
@@ -296,10 +300,10 @@ static gsize read_layer_channels(PsdReader *reader, Record *layer, gsize offset)
 		if (!samples)
 			return offset;
 		(void)depth;
-		if (identifier == -3 || identifier == -2)
+		if (identifier == PSD_REAL_MASK_CHANNEL || identifier == PSD_USER_MASK_CHANNEL)
 			set_record(target, "C", samples);
-		else if (identifier >= -1 && identifier <= 2) {
-			int slot = identifier == -1 ? 3 : identifier;
+		else if (identifier >= PSD_TRANSPARENCY_CHANNEL && identifier < RGB_CHANNELS) {
+			int slot = identifier == PSD_TRANSPARENCY_CHANNEL ? ALPHA_CHANNEL : identifier;
 			if (color[slot])
 				g_ptr_array_remove(owned, color[slot]);
 			color[slot] = samples;
@@ -307,27 +311,28 @@ static gsize read_layer_channels(PsdReader *reader, Record *layer, gsize offset)
 		} else
 			free_record(samples);
 	}
-	if (mode == 1)
+	if (mode == PSD_GRAY_MODE)
 		color[1] = color[2] = color[0];
-	else if (mode != 3)
-		color[0] = color[1] = color[2] = color[3] = NULL;
+	else if (mode != PSD_RGB_MODE)
+		color[0] = color[1] = color[2] = color[ALPHA_CHANNEL] = NULL;
 	unsigned layer_depth = get_number(record, "depth");
 	Record *extent = get_record(layer, "V");
 	double area = get_number(extent, "s") * get_number(extent, "T");
-	Record *buffer = create_channels(MAX(0, area * 4), layer_depth);
+	Record *buffer = create_channels(MAX(0, area * RGBA_CHANNELS), layer_depth);
 	if (!buffer) {
 		fail_psd(reader, TEXT_IMAGE_ALLOCATION_FAILED);
 		return offset;
 	}
 	double maximum = layer_depth == FLOAT_DEPTH ? 1 : channel_maximum(layer_depth);
-	gsize pixels = buffer->value.buffer.length / 4;
-	for (int slot = 0; slot < 4; slot++) {
+	gsize pixels = buffer->value.buffer.length / RGBA_CHANNELS;
+	/* Missing alpha is opaque, and missing green and blue take the first channel */
+	for (int slot = 0; slot < RGBA_CHANNELS; slot++) {
 		if (color[slot])
 			interleave_psd_channel(color[slot], buffer, slot);
-		else if (slot == 3 && color[0])
+		else if (slot == ALPHA_CHANNEL && color[0])
 			for (gsize index = 0; index < MIN(pixels, color[0]->value.buffer.length); index++)
-				write_channel(buffer, index * 4 + 3, maximum);
-		else if (slot > 0 && slot < 3 && color[0])
+				write_channel(buffer, index * RGBA_CHANNELS + ALPHA_CHANNEL, maximum);
+		else if (slot > 0 && slot < RGB_CHANNELS && color[0])
 			interleave_psd_channel(color[0], buffer, slot);
 	}
 	set_record(layer, "buffer", buffer);
@@ -337,7 +342,7 @@ static gsize read_layer_channels(PsdReader *reader, Record *layer, gsize offset)
 gsize read_layer_records(PsdReader *reader, gsize offset) {
 	Record *layers = get_record(reader->document->record, "Z");
 	int count = abs(read_i16(reader, offset));
-	offset += 2;
+	offset += sizeof(guint16);
 	g_autoptr(GPtrArray) created = g_ptr_array_new();
 	for (int index = 0; index < count && !reader->failed; index++) {
 		if (g_cancellable_set_error_if_cancelled(reader->cancellable, reader->error)) {
@@ -347,7 +352,7 @@ gsize read_layer_records(PsdReader *reader, gsize offset) {
 		Record *layer = create_layer_record();
 		offset = read_layer_record(reader, layer, offset);
 		double section = get_number(get_record(layer, "add"), "lsct");
-		if (section != 1 && section != 2 && !g_strcmp0(get_string(layer, "qu"), "pass"))
+		if (section != SECTION_OPEN && section != SECTION_CLOSED && !g_strcmp0(get_string(layer, "qu"), "pass"))
 			set_string(layer, "qu", "norm");
 		if ((guint)index < count_records(layers)) {
 			free_record(layers->value.array->pdata[index]);
@@ -362,7 +367,7 @@ gsize read_layer_records(PsdReader *reader, gsize offset) {
 }
 
 gsize read_layer_and_mask_information(PsdReader *reader, gsize offset) {
-	gsize start = offset, length_size = reader->large ? 8 : 4;
+	gsize start = offset, length_size = reader->large ? sizeof(guint64) : sizeof(guint32);
 	gint64 length = read_length(reader, offset);
 	offset += length_size;
 	if (length == 0)
@@ -374,7 +379,8 @@ gsize read_layer_and_mask_information(PsdReader *reader, gsize offset) {
 	if (layer_length != 0)
 		read_layer_records(reader, offset);
 	offset += layer_length;
-	offset += 4 + read_psd_u32(reader, offset);
+	/* The global layer mask is skipped */
+	offset += sizeof(guint32) + read_psd_u32(reader, offset);
 	read_tagged_blocks(reader, offset, start + length_size + length, get_record(reader->document->record, "add"));
 	return start + length_size + length;
 }
