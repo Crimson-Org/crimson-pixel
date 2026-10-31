@@ -24,7 +24,7 @@ static void mark_moved(Document *document, Record *layer, RasterExtent extent) {
 }
 
 static gboolean is_pixel_layer(Record *layer) {
-	return !is_layer_group(layer) && get_number(get_record(layer, "add"), "lsct") == 0;
+	return !is_layer_group(layer) && get_number(get_record(layer, "add"), "lsct") == SECTION_LAYER;
 }
 
 /* ============================== Picking layers ============================== */
@@ -325,7 +325,7 @@ gboolean begin_move(MoveDrag *drag, Document *document, gboolean inside_selectio
 	for (guint index = 0; index < drag->layers->len; index++) {
 		Record *layer = get_item(layers, g_array_index(drag->layers, int, index));
 		guint locks = (guint)get_number(get_record(layer, "add"), "lspf");
-		if (locks & 4 || locks >> 31) {
+		if (locks & LOCK_POSITION || locks >> LOCK_ALL_SHIFT) {
 			g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED, TEXT_LAYER_LOCKED);
 			clear_move(drag);
 			return FALSE;

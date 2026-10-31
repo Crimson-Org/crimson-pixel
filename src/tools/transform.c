@@ -498,7 +498,7 @@ Record *resample_projective(const Record *pixels, RasterExtent extent, Projectiv
 /* ============================== Targets ============================== */
 
 static gboolean is_pixel_layer(Record *layer) {
-	return !is_layer_group(layer) && get_number(get_record(layer, "add"), "lsct") == 0;
+	return !is_layer_group(layer) && get_number(get_record(layer, "add"), "lsct") == SECTION_LAYER;
 }
 
 TransformMode get_transform_mode(Document *document, gboolean selection_only) {

@@ -78,7 +78,7 @@ static RasterExtent layer_extent(const Document *document, const Record *layer) 
 		return (RasterExtent){0, 0, document_width(document), document_height(document)};
 	}
 	RasterExtent extent = {0}, bounds = read_extent(get_record(layer, "V"));
-	if (!((guint)get_number(layer, "NF") & 16) && !empty_extent(bounds))
+	if (!((guint)get_number(layer, "NF") & LAYER_PIXELS_IRRELEVANT) && !empty_extent(bounds))
 		extent = union_region(extent, bounds);
 	if (!has_record(layer, "yy"))
 		return extent;

@@ -556,7 +556,7 @@ gboolean add_adjustment_layer(Document *document, const char *key, gboolean exte
 	Record *record = document->record, *layers = get_record(record, "Z"), *selected = get_record(record, "j");
 	set_boolean(record, "di", TRUE);
 	Record *layer = create_document_layer(document, FALSE);
-	set_number(layer, "NF", (guint)get_number(layer, "NF") | 16);
+	set_number(layer, "NF", (guint)get_number(layer, "NF") | LAYER_PIXELS_IRRELEVANT);
 	set_record(get_record(layer, "add"), key, create_adjustment_descriptor(key));
 	Record *mask = create_mask(get_number(record, "depth")), *selection = get_document_selection(document);
 	if (selection) {
@@ -574,7 +574,7 @@ gboolean add_adjustment_layer(Document *document, const char *key, gboolean exte
 									   : (int)count_records(layers) - 1;
 	int position = last + 1;
 	Record *anchor = get_item(layers, last);
-	if (anchor && get_number(get_record(anchor, "add"), "lsct") == 1)
+	if (anchor && get_number(get_record(anchor, "add"), "lsct") == SECTION_OPEN)
 		position--;
 	position = CLAMP(position, 0, (int)count_records(layers));
 	Record *next = copy_array_shallow(layers);

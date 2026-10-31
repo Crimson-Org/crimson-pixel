@@ -214,19 +214,19 @@ const char *get_layer_name(const Record *layer) {
 }
 
 gboolean is_layer_visible(const Record *layer) {
-	return ((guint32)get_number(layer, "NF") & 2) == 0;
+	return ((guint32)get_number(layer, "NF") & LAYER_HIDDEN) == 0;
 }
 
 gboolean is_layer_group(const Record *layer) {
 	double section = get_number(get_record(layer, "add"), "lsct");
-	return section == 1 || section == 2;
+	return section == SECTION_OPEN || section == SECTION_CLOSED;
 }
 
 void set_layer_visible(Record *layer, gboolean visible) {
 	double flags = get_number(layer, "NF");
 	if (visible && !is_layer_visible(layer))
-		flags -= 2;
+		flags -= LAYER_HIDDEN;
 	if (!visible && is_layer_visible(layer))
-		flags += 2;
+		flags += LAYER_HIDDEN;
 	set_number(layer, "NF", flags);
 }

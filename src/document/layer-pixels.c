@@ -88,7 +88,7 @@ static void insert_pixel_layer(Document *document, Record *layer, Record *pixels
 	}
 	int position = index + 1;
 	Record *anchor = get_item(layers, index);
-	if (anchor && get_number(get_record(anchor, "add"), "lsct") == 1)
+	if (anchor && get_number(get_record(anchor, "add"), "lsct") == SECTION_OPEN)
 		position--;
 	position = CLAMP(position, 0, (int)count_records(layers));
 	g_ptr_array_insert(next->value.array, position, layer);
@@ -127,10 +127,10 @@ gboolean copy_selection_to_layer(Document *document, gboolean cut, gboolean exte
 	set_number(get_record(copy, "add"), "lyid", next_layer_id(document));
 	set_number(get_record(copy, "add"), "lspf", 0);
 	double flags = get_number(copy, "NF");
-	if ((guint)flags & 2)
-		flags -= 2;
-	if ((guint)flags & 1)
-		flags -= 1;
+	if ((guint)flags & LAYER_HIDDEN)
+		flags -= LAYER_HIDDEN;
+	if ((guint)flags & LAYER_TRANSPARENCY_LOCKED)
+		flags -= LAYER_TRANSPARENCY_LOCKED;
 	set_number(copy, "NF", flags);
 	set_boolean(copy, "jl", FALSE);
 	Record *history_name = create_history_name(cut ? HISTORY_LAYER_VIA_CUT : HISTORY_LAYER_VIA_COPY);

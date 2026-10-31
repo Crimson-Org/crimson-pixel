@@ -124,7 +124,7 @@ gboolean plan_crop(const double quad[8], int width, int height, const CropOption
 /* ============================== Document ============================== */
 
 static gboolean is_pixel_layer(Record *layer) {
-	return !is_layer_group(layer) && get_number(get_record(layer, "add"), "lsct") == 0;
+	return !is_layer_group(layer) && get_number(get_record(layer, "add"), "lsct") == SECTION_LAYER;
 }
 
 static gboolean is_identity(Projective matrix) {

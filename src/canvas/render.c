@@ -197,7 +197,7 @@ static cairo_surface_t *compose_layers(Document *document, const gboolean *shown
 		Record *layer = get_item(layers, index);
 		flags[index] = get_number(layer, "NF");
 		if (!is_layer_group(layer) && !shown[index])
-			set_number(layer, "NF", (guint)flags[index] | 2);
+			set_number(layer, "NF", (guint)flags[index] | LAYER_HIDDEN);
 	}
 	g_autoptr(Record) dirty = create_extent(region.x, region.y, region.width, region.height);
 	cairo_surface_t *surface = NULL;

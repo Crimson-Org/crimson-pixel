@@ -271,7 +271,7 @@ static void apply_image_resources(PsdReader *reader) {
 					if (get_item(selected, item)->value.number == index)
 						listed = TRUE;
 				if (has_record(descriptors, "lyid") && get_number(descriptors, "lyid") == identifier &&
-					get_number(descriptors, "lsct") != 3 && !listed)
+					get_number(descriptors, "lsct") != SECTION_GROUP_END && !listed)
 					append_record(selected, create_number(index));
 			}
 		}

@@ -5,7 +5,6 @@
 #include "tools/paint.h"
 #include "lang/en.h"
 
-enum { SECTION_OPEN = 1, SECTION_CLOSED = 2 };
 
 static int get_last_selected(Record *selected) {
 	return get_item(selected, count_records(selected) - 1)->value.number;
@@ -32,7 +31,7 @@ gboolean group_selected_layers(Document *document, gboolean extended_history, GE
 	name_layer(group, name);
 	set_string(group, "qu", "pass");
 	set_number(get_record(group, "add"), "lsct", count_records(selected) == 1 ? SECTION_OPEN : SECTION_CLOSED);
-	set_number(group, "NF", 24);
+	set_number(group, "NF", LAYER_KNOWS_IRRELEVANT_PIXELS | LAYER_PIXELS_IRRELEVANT);
 	Record *next = create_array();
 	for (guint index = 0; index < count_records(layers); index++)
 		if (!contains_index(members, index))
@@ -156,7 +155,7 @@ gboolean flatten_image(Document *document, gboolean extended_history, GError **e
 	set_record(background, "V", create_extent(0, 0, width, height));
 	set_record(background, "buffer", pixels);
 	name_layer(background, TEXT_BACKGROUND_NAME);
-	set_number(get_record(background, "add"), "lspf", 1 << 2);
+	set_number(get_record(background, "add"), "lspf", LOCK_POSITION);
 	Record *next = create_array();
 	append_record(next, background);
 	set_boolean(record, "di", TRUE);

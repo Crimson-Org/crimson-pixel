@@ -693,7 +693,7 @@ static GtkWidget *create_layer_row(Editor *editor, Document *document, int layer
 		gtk_box_append(GTK_BOX(row), clipped);
 	}
 	if (is_layer_group(layer)) {
-		gboolean open = get_number(get_record(layer, "add"), "lsct") == 1;
+		gboolean open = get_number(get_record(layer, "add"), "lsct") == SECTION_OPEN;
 		GtkWidget *disclosure = gtk_button_new_from_icon_name(open ? "pan-down-symbolic" : "pan-end-symbolic");
 		gtk_widget_add_css_class(disclosure, "flat");
 		gtk_widget_set_tooltip_text(disclosure, open ? TEXT_CLOSE_GROUP : TEXT_OPEN_GROUP);
@@ -803,7 +803,7 @@ void refresh_layers_panel(Editor *editor) {
 	int depth = 0, hidden_below = -1;
 	for (gint index = same_rows ? -1 : (gint)count_records(layers) - 1; index >= 0; index--) {
 		Record *layer = get_item(layers, index);
-		if (get_number(get_record(layer, "add"), "lsct") == 3) {
+		if (get_number(get_record(layer, "add"), "lsct") == SECTION_GROUP_END) {
 			depth = MAX(0, depth - 1);
 			if (depth == hidden_below)
 				hidden_below = -1;
@@ -815,7 +815,7 @@ void refresh_layers_panel(Editor *editor) {
 			continue;
 		}
 		/* Closed groups hide their contents until their own closing record */
-		if (get_number(get_record(layer, "add"), "lsct") == 2)
+		if (get_number(get_record(layer, "add"), "lsct") == SECTION_CLOSED)
 			hidden_below = depth;
 		gtk_list_box_append(GTK_LIST_BOX(editor->layer_list), create_layer_row(editor, document, index, depth));
 		GtkWidget *list_row = gtk_widget_get_last_child(editor->layer_list);

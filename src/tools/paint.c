@@ -68,7 +68,7 @@ static RasterExtent find_opaque_bounds(const Record *pixels, RasterExtent extent
 }
 
 void trim_layer(Record *layer) {
-	if ((guint)get_number(layer, "NF") & 16)
+	if ((guint)get_number(layer, "NF") & LAYER_PIXELS_IRRELEVANT)
 		return;
 	RasterExtent extent = read_extent(get_record(layer, "V"));
 	RasterExtent bounds = find_opaque_bounds(get_record(layer, "buffer"), extent);
@@ -165,7 +165,7 @@ gboolean check_paint_target(Document *document, GError **error) {
 			message = TEXT_LAYER_NOT_EDITABLE;
 		else if (target > 0)
 			message = TEXT_PAINT_TARGET_UNAVAILABLE;
-		else if ((guint)get_number(layer, "NF") & 16)
+		else if ((guint)get_number(layer, "NF") & LAYER_PIXELS_IRRELEVANT)
 			message = TEXT_LAYER_NOT_EDITABLE;
 		else if ((guint)get_number(descriptors, "lspf") & 2)
 			message = TEXT_LAYER_LOCKED;

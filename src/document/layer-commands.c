@@ -445,7 +445,7 @@ static void open_selected_groups(Document *document) {
 		return;
 	LayerTree *node = g_ptr_array_index(document->lookup, (guint)get_item(selected, 0)->value.number);
 	for (; node->parent; node = node->parent)
-		set_number(get_record(node->parent->layer, "add"), "lsct", 1);
+		set_number(get_record(node->parent->layer, "add"), "lsct", SECTION_OPEN);
 	set_boolean(record, "z3", TRUE);
 	set_boolean(record, "azR", TRUE);
 }
@@ -483,7 +483,7 @@ gboolean select_layer(Document *document, int layer_index, gboolean add, gboolea
 		int last = MAX(layer_index, (int)get_item(selected, count_records(selected) - 1)->value.number);
 		Record *chosen = create_array();
 		for (int index = first; index <= last && (guint)index < count_records(layers); index++)
-			if (get_number(get_record(get_item(layers, index), "add"), "lsct") != 3)
+			if (get_number(get_record(get_item(layers, index), "add"), "lsct") != SECTION_GROUP_END)
 				append_record(chosen, create_number(index));
 		set_record(record, "j", chosen);
 	} else {
@@ -519,7 +519,7 @@ gboolean select_layer(Document *document, int layer_index, gboolean add, gboolea
 void toggle_group_open(Document *document, int layer_index, gboolean all_siblings) {
 	Record *record = document->record, *layer = get_item(get_record(record, "Z"), layer_index);
 	set_boolean(record, "di", TRUE);
-	double state = get_number(get_record(layer, "add"), "lsct") == 1 ? 2 : 1;
+	double state = get_number(get_record(layer, "add"), "lsct") == SECTION_OPEN ? SECTION_CLOSED : SECTION_OPEN;
 	LayerTree *node = g_ptr_array_index(document->lookup, layer_index);
 	if (all_siblings) {
 		GPtrArray *siblings = node->parent->children;
@@ -602,7 +602,7 @@ gboolean add_new_layer(Document *document, gboolean below, gboolean extended_his
 									   : (int)count_records(layers) - 1;
 	int position = last + (below ? 0 : 1);
 	Record *anchor = get_item(layers, last);
-	if (anchor && get_number(get_record(anchor, "add"), "lsct") == 1)
+	if (anchor && get_number(get_record(anchor, "add"), "lsct") == SECTION_OPEN)
 		position--;
 	position = CLAMP(position, 0, (int)count_records(layers));
 	Record *next = copy_array_shallow(layers);
@@ -854,7 +854,7 @@ gboolean move_layers_to(Document *document, int source, int target, gboolean bel
 			layer = copy_layer_record(layer);
 			set_number(get_record(layer, "add"), "lyid", next_layer_id(document));
 			set_number(get_record(layer, "add"), "lspf", 0);
-			if (get_number(get_record(layer, "add"), "lsct") != 3) {
+			if (get_number(get_record(layer, "add"), "lsct") != SECTION_GROUP_END) {
 				char *name = choose_copy_name(get_layer_name(layer), names);
 				name_layer(layer, name);
 				g_hash_table_add(names, name);

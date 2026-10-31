@@ -153,7 +153,7 @@ Record *create_document_layer(Document *document, gboolean without_id) {
 	Record *descriptors = get_record(layer, "add");
 	if (!without_id)
 		set_number(descriptors, "lyid", next_layer_id(document));
-	set_number(descriptors, "lsct", 0);
+	set_number(descriptors, "lsct", SECTION_LAYER);
 	set_number(descriptors, "lclr", 0);
 	set_record(descriptors, "fxrp", create_point(0, 0));
 	return layer;
@@ -162,8 +162,8 @@ Record *create_document_layer(Document *document, gboolean without_id) {
 Record *create_group_closing(Document *document, gboolean without_id) {
 	Record *layer = create_document_layer(document, without_id);
 	name_layer(layer, "</Layer group>");
-	set_number(get_record(layer, "add"), "lsct", 3);
-	set_number(layer, "NF", 24);
+	set_number(get_record(layer, "add"), "lsct", SECTION_GROUP_END);
+	set_number(layer, "NF", LAYER_KNOWS_IRRELEVANT_PIXELS | LAYER_PIXELS_IRRELEVANT);
 	return layer;
 }
 
@@ -195,7 +195,7 @@ static guint build_tree(LayerTree *tree, const Record *layers, guint position, g
 	tree->depth = depth;
 	tree->index = tree->closing_index = -1;
 	Record *layer = get_item(layers, position);
-	if (get_number(get_record(layer, "add"), "lsct") != 3) {
+	if (get_number(get_record(layer, "add"), "lsct") != SECTION_GROUP_END) {
 		tree->layer = layer;
 		tree->index = (int)position - 1;
 		if (tree->index >= 0)
@@ -240,7 +240,7 @@ gboolean rebuild_layer_tree(Document *document, GError **error) {
 	free_record(document->root_closing);
 	document->root_layer = create_document_layer(document, TRUE);
 	set_string(document->root_layer, "qu", "pass");
-	set_number(get_record(document->root_layer, "add"), "lsct", 1);
+	set_number(get_record(document->root_layer, "add"), "lsct", SECTION_OPEN);
 	name_layer(document->root_layer, "");
 	document->root_closing = create_group_closing(document, TRUE);
 	g_autoptr(Record) stream = create_array();
@@ -365,7 +365,7 @@ Document *create_transparent_document(int width, int height, unsigned depth, Doc
 	g_autoptr(Record) layers = create_array();
 	Record *layer = create_document_layer(document, FALSE);
 	name_layer(layer, "Background");
-	set_number(get_record(layer, "add"), "lspf", 4);
+	set_number(get_record(layer, "add"), "lspf", LOCK_POSITION);
 	append_record(layers, layer);
 	if (!replace_document_layers(document, layers, error)) {
 		free_document(document);

@@ -10,6 +10,28 @@
 #define DOCUMENT_MAX_PIXELS (64ULL * 1024 * 1024)
 #define DOCUMENT_MAX_BYTES (512ULL * 1024 * 1024)
 
+/* Layer flags, the bits saved files keep in a layer record */
+enum {
+	LAYER_TRANSPARENCY_LOCKED = 1,
+	LAYER_HIDDEN = 2,
+	LAYER_KNOWS_IRRELEVANT_PIXELS = 8,
+	LAYER_PIXELS_IRRELEVANT = 16,
+};
+
+/* Layer locks, where the top bit locks everything */
+enum {
+	LOCK_POSITION = 4,
+};
+#define LOCK_ALL_SHIFT 31
+
+/* What a layer record is: a plain layer, an open or closed group, or the hidden record that ends a group */
+enum {
+	SECTION_LAYER = 0,
+	SECTION_OPEN = 1,
+	SECTION_CLOSED = 2,
+	SECTION_GROUP_END = 3,
+};
+
 /* A tree node indexes the original bottom-to-top layer record stream */
 typedef struct LayerTree LayerTree;
 
