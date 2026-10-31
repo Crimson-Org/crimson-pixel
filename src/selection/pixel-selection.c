@@ -168,7 +168,7 @@ gboolean record_named_selection(Document *document, Record *selection, Record *n
 	Record *data = create_object(RECORD_PLAIN);
 	set_string(data, "S", "changesel");
 	set_record(data, "g", selection ? selection : create_null());
-	Record *entry = create_history_entry(name, SELECTION_OPERATION, FALSE, g_get_real_time() / 1000);
+	Record *entry = create_history_entry(name, SELECTION_OPERATION, FALSE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 	set_record(entry, "data", data);
 	append_history_entry(document, entry, &selection_operation, extended);
 	redo_selection(data, document);
@@ -254,7 +254,7 @@ void move_selection(Document *document, int x, int y, gboolean extended_history)
 		set_string(data, "S", "movesel");
 		set_record(data, "j6", create_extent(extent.x, extent.y, extent.width, extent.height));
 		Record *entry =
-			create_history_entry(create_history_name(HISTORY_MOVE_SELECTION), SELECTION_OPERATION, FALSE, g_get_real_time() / 1000);
+			create_history_entry(create_history_name(HISTORY_MOVE_SELECTION), SELECTION_OPERATION, FALSE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 		set_record(entry, "data", data);
 		append_history_entry(document, entry, &selection_operation, extended_history);
 	}

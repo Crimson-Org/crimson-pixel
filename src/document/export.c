@@ -164,7 +164,7 @@ static void save_to_file(Editor *editor, GtkWidget *page, GFile *file, const cha
 		gtk_label_set_text(GTK_LABEL(editor->status), error->message);
 		return;
 	}
-	mark_document_saved(document, photoshop, g_get_real_time() / 1000);
+	mark_document_saved(document, photoshop, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 	if (presented->file != file) {
 		g_clear_object(&presented->file);
 		presented->file = g_object_ref(file);

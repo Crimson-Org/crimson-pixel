@@ -227,7 +227,7 @@ static gboolean apply_crop_plan(Document *document, const CropPlan *plan_pointer
 	} else
 		moved = create_null();
 	set_record(data, "g", moved);
-	Record *entry = create_history_entry(name, CROP_OPERATION, FALSE, g_get_real_time() / 1000);
+	Record *entry = create_history_entry(name, CROP_OPERATION, FALSE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 	set_record(entry, "data", data);
 	append_history_entry(document, entry, &crop_operation, extended_history);
 	swap_crop(data, document);

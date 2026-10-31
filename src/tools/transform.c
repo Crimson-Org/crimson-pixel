@@ -649,7 +649,7 @@ static gboolean apply_to_layers(Document *document, Projective matrix, gboolean 
 	Record *data = create_object(RECORD_PLAIN);
 	set_record(data, "layers", stored);
 	Record *entry =
-		create_history_entry(create_history_name(HISTORY_TRANSFORM), TRANSFORM_OPERATION, FALSE, g_get_real_time() / 1000);
+		create_history_entry(create_history_name(HISTORY_TRANSFORM), TRANSFORM_OPERATION, FALSE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 	set_record(entry, "data", data);
 	append_history_entry(document, entry, &transform_operation, extended_history);
 	swap_layers(data, document);

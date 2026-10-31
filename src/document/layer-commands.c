@@ -168,7 +168,7 @@ gboolean change_layer_fill_opacity(Document *document, int layer_index, double o
 			Record *fill = get_record(get_record(layer, "add"), "iOpa");
 			append_record(before, create_number(!fill || fill->type == RECORD_NULL ? 255 : fill->value.number));
 		}
-		entry = create_history_entry(create_string("Fill Opacity Change"), "233", FALSE, g_get_real_time() / 1000);
+		entry = create_history_entry(create_string("Fill Opacity Change"), "233", FALSE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 		data = create_object(RECORD_PLAIN);
 		set_string(data, "S", "22");
 		set_string(data, "xn", selection);
@@ -246,7 +246,7 @@ gboolean change_layer_opacity(Document *document, int layer_index, double opacit
 		Record *name = create_array();
 		append_record(name, create_number(6));
 		append_record(name, create_number(32));
-		entry = create_history_entry(name, "233", FALSE, g_get_real_time() / 1000);
+		entry = create_history_entry(name, "233", FALSE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 		data = create_object(RECORD_PLAIN);
 		set_string(data, "S", "21");
 		set_string(data, "xn", selection);
@@ -286,7 +286,7 @@ gboolean change_layer_blend_mode(Document *document, int layer_index, const char
 	Record *name = create_array();
 	append_record(name, create_number(6));
 	append_record(name, create_number(33));
-	Record *entry = create_history_entry(name, "233", FALSE, g_get_real_time() / 1000);
+	Record *entry = create_history_entry(name, "233", FALSE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 	Record *data = create_object(RECORD_PLAIN);
 	g_autofree char *selection = describe_record(indices);
 	set_string(data, "S", "20");
@@ -312,7 +312,7 @@ static gboolean find_visibility_target(Document *document, int layer_index, doub
 
 static void record_visibility(Document *document, Record *indices, double target, gboolean extended_history) {
 	set_boolean(document->record, "di", TRUE);
-	Record *entry = create_history_entry(create_string("Layer visibility"), "233", TRUE, g_get_real_time() / 1000);
+	Record *entry = create_history_entry(create_string("Layer visibility"), "233", TRUE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 	Record *data = create_object(RECORD_PLAIN);
 	set_string(data, "S", "23");
 	set_record(data, "xn", indices);
@@ -558,7 +558,7 @@ Record *create_layer_list_data(Document *document, Record *next, Record *previou
 }
 
 void commit_layer_list(Document *document, Record *data, Record *name, gboolean extended_history) {
-	Record *entry = create_history_entry(name, "233", FALSE, g_get_real_time() / 1000);
+	Record *entry = create_history_entry(name, "233", FALSE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 	set_record(entry, "data", data);
 	append_history_entry(document, entry, &layer_operation, extended_history);
 	redo_layer_command(data, document);
@@ -792,7 +792,7 @@ gboolean rename_layer(Document *document, int layer_index, const char *name, gbo
 	append_record(changes, change);
 	set_string(data, "S", "38");
 	set_record(data, "$R", changes);
-	Record *entry = create_history_entry(create_history_name(HISTORY_RENAME_LAYER), "233", FALSE, g_get_real_time() / 1000);
+	Record *entry = create_history_entry(create_history_name(HISTORY_RENAME_LAYER), "233", FALSE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 	set_record(entry, "data", data);
 	append_history_entry(document, entry, &layer_operation, extended_history);
 	redo_layer_command(data, document);

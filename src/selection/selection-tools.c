@@ -127,7 +127,7 @@ void hover_selection_path(DocumentView *view, double x, double y, GdkModifierTyp
 }
 
 static void release_polygon(DocumentView *view, double x, double y) {
-	gint64 now = g_get_monotonic_time() / 1000;
+	gint64 now = g_get_monotonic_time() / G_TIME_SPAN_MILLISECOND;
 	if (!view->lasso_points) {
 		view->lasso_points = g_array_new(FALSE, FALSE, sizeof(double));
 		add_path_point(view->lasso_points, x, y);

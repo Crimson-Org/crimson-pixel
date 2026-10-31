@@ -2,6 +2,9 @@
 
 #include "history.h"
 
+/* A document with layers counts as changed once it has been open with edits this long, even after a save */
+#define CHANGED_AFTER_MILLISECONDS (5 * G_TIME_SPAN_MINUTE / G_TIME_SPAN_MILLISECOND)
+
 Record *create_history_name(HistoryStep step) {
 	Record *name = create_array();
 	append_record(name, create_number(step.group));
@@ -118,7 +121,7 @@ void mark_document_saved(Document *document, gboolean reset_time, double time_ms
 gboolean is_document_modified(const Document *document, double time_ms) {
 	Record *record = document->record;
 	return (gint64)get_number(record, "NP") + document->trimmed_steps != document->saved_step ||
-		   (time_ms - get_number(record, "aNe") > 5 * 60 * 1000 && get_number(record, "NP") > 0 &&
+		   (time_ms - get_number(record, "aNe") > CHANGED_AFTER_MILLISECONDS && get_number(record, "NP") > 0 &&
 			count_records(get_record(record, "Z")) > 1);
 }
 

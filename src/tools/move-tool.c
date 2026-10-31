@@ -310,7 +310,7 @@ static Record *get_latest_move(Document *document, int mode) {
 
 void append_move(Document *document, Record *data, HistoryStep step, gboolean extended_history) {
 	Record *entry =
-		create_history_entry(create_history_name(step), MOVE_OPERATION, FALSE, g_get_real_time() / 1000);
+		create_history_entry(create_history_name(step), MOVE_OPERATION, FALSE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 	set_record(entry, "data", data);
 	append_history_entry(document, entry, &move_operation, extended_history);
 }

@@ -64,7 +64,7 @@ void refresh_document_page(Editor *editor, GtkWidget *page, gboolean render) {
 		gtk_widget_queue_draw(g_object_get_data(G_OBJECT(page), "secondary"));
 	}
 	g_autofree char *name = g_strdup_printf("%s%s", get_string(document->record, "name"),
-											is_document_modified(document, g_get_real_time() / 1000) ? " *" : "");
+											is_document_modified(document, g_get_real_time() / G_TIME_SPAN_MILLISECOND) ? " *" : "");
 	gtk_label_set_text(g_object_get_data(G_OBJECT(page), "tab-label"), name);
 	if (page != get_current_page(editor))
 		return;
@@ -186,7 +186,7 @@ gboolean confirm_editor_close(Editor *editor, GtkWidget *page) {
 		PresentedDocument *presented = get_page_document(candidate);
 		if ((page && candidate != page) || !presented)
 			continue;
-		modified |= is_document_modified(presented->document, g_get_real_time() / 1000);
+		modified |= is_document_modified(presented->document, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 	}
 	if (!modified)
 		return FALSE;

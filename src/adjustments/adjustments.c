@@ -34,19 +34,34 @@ static const struct {
 						  {"selc", TEXT_ADJUSTMENT_SELECTIVE_COLOR, FALSE},
 						  {"rplc", TEXT_ADJUSTMENT_REPLACE_COLOR, FALSE}};
 
-static const char *const BALANCE_TONES[] = {"ShdL", "MdtL", "HghL"};
-static const char *const MIXER_OUTPUTS[] = {"Rd", "Grn", "Bl"};
-static const char *const MIXER_INPUTS[] = {"Rd", "Grn", "Bl", NULL, "Cnst"};
+static const char *const BALANCE_TONES[BALANCE_TONES_COUNT] = {"ShdL", "MdtL", "HghL"};
+static const char *const MIXER_OUTPUTS[RGB_CHANNELS] = {"Rd", "Grn", "Bl"};
+static const char *const MIXER_INPUTS[MIXER_INPUTS_COUNT] = {"Rd", "Grn", "Bl", NULL, "Cnst"};
 
-const char *const GRAY_WEIGHTS[6] = {"Rd", "Yllw", "Grn", "Cyn", "Bl", "Mgnt"};
+const char *const GRAY_WEIGHTS[GRAY_WEIGHTS_COUNT] = {"Rd", "Yllw", "Grn", "Cyn", "Bl", "Mgnt"};
 
-static const double HUE_RANGE_LIMITS[6][4] = {{315, 345, 15, 45},	{15, 45, 75, 105},	  {75, 105, 135, 165},
+static const double HUE_RANGE_LIMITS[HUE_RANGES - 1][HUE_LIMITS] = {{315, 345, 15, 45},	{15, 45, 75, 105},	  {75, 105, 135, 165},
 											  {135, 165, 195, 225}, {195, 225, 255, 285}, {255, 285, 315, 345}};
 
-static const char *const CHANNEL_NAMES[] = {"Cmps", "Rd", "Grn", "Bl"};
+static const char *const CHANNEL_NAMES[TONE_CHANNELS] = {"Cmps", "Rd", "Grn", "Bl"};
 
-static const char *const SELECTIVE_RANGES[] = {"Rds", "Ylws", "Grns", "Cyns", "Bls", "Mgnt", "Whts", "Ntrl", "Blks"};
-static const char *const SELECTIVE_INKS[] = {"Cyn", "Mgnt", "Ylw", "Blck"};
+static const char *const SELECTIVE_RANGES[SELECTIVE_RANGES_COUNT] = {"Rds", "Ylws", "Grns", "Cyns", "Bls", "Mgnt", "Whts", "Ntrl", "Blks"};
+static const char *const SELECTIVE_INKS[SELECTIVE_INKS_COUNT] = {"Cyn", "Mgnt", "Ylw", "Blck"};
+
+/* The settings a new adjustment layer starts with */
+static const double DEFAULT_GRAY_WEIGHTS[GRAY_WEIGHTS_COUNT] = {40, 85, 204, 60, 20, 80};
+static const double DEFAULT_FILTER_LAB[] = {67.06, 32, 120};
+#define DEFAULT_FILTER_DENSITY 80
+#define DEFAULT_REPLACE_FUZZINESS 55
+static const double DEFAULT_REPLACE_LOW_LAB[] = {73.1, 23.95, 8.03};
+static const double DEFAULT_REPLACE_HIGH_LAB[] = {73, 23, 8};
+#define DEFAULT_REPLACE_HUE (-22)
+#define DEFAULT_POSTERIZE_LEVELS 3
+#define DEFAULT_THRESHOLD 128
+#define FULL_PERCENT 100
+static const double DEFAULT_LEVELS[LEVELS_VALUES] = {0, G_MAXUINT8, 0, G_MAXUINT8, LEVELS_GAMMA_SCALE};
+/* The automatic curve lifts the middle a little */
+static const CurvePoint AUTOMATIC_MIDDLE = {128, 160, TRUE};
 
 /* ============================== Descriptors ===================================== */
 
@@ -122,10 +137,10 @@ static Record *create_long_list(int count) {
 	return create_typed_value("VlLs", list);
 }
 
-static Record *create_mixer_channel(const double values[5]) {
+static Record *create_mixer_channel(const double values[MIXER_INPUTS_COUNT]) {
 	Record *channel = create_object(RECORD_PLAIN);
 	set_string(channel, "classID", "ChMx");
-	for (int input = 0; input < 5; input++) {
+	for (int input = 0; input < MIXER_INPUTS_COUNT; input++) {
 		if (MIXER_INPUTS[input])
 			set_record(channel, MIXER_INPUTS[input], create_percent(values[input]));
 	}
@@ -150,17 +165,17 @@ Record *create_adjustment_descriptor(const char *key) {
 		set_record(descriptor, "Adjs", create_typed_value("VlLs", create_array()));
 	} else if (!strcmp(key, "blnc")) {
 		set_string(descriptor, "classID", "ClrB");
-		for (int tone = 0; tone < 3; tone++)
-			set_record(descriptor, BALANCE_TONES[tone], create_long_list(3));
+		for (int tone = 0; tone < BALANCE_TONES_COUNT; tone++)
+			set_record(descriptor, BALANCE_TONES[tone], create_long_list(RGB_CHANNELS));
 		set_descriptor_boolean(descriptor, "PrsL", TRUE);
 	} else if (!strcmp(key, "mixr")) {
 		set_string(descriptor, "classID", "ChnM");
 		set_record(descriptor, "presetKind", create_preset_kind("presetKindDefault"));
 		set_descriptor_boolean(descriptor, "Mnch", FALSE);
-		for (int output = 0; output < 3; output++) {
+		for (int output = 0; output < RGB_CHANNELS; output++) {
 			Record *channel = create_object(RECORD_PLAIN);
 			set_string(channel, "classID", "ChMx");
-			set_record(channel, MIXER_OUTPUTS[output], create_percent(100));
+			set_record(channel, MIXER_OUTPUTS[output], create_percent(FULL_PERCENT));
 			set_record(descriptor, MIXER_OUTPUTS[output], create_typed_value("Objc", channel));
 		}
 	} else if (!strcmp(key, "curv")) {
@@ -170,15 +185,15 @@ Record *create_adjustment_descriptor(const char *key) {
 	} else if (!strcmp(key, "blwh")) {
 		set_string(descriptor, "classID", "BanW");
 		set_record(descriptor, "presetKind", create_preset_kind("presetKindCustom"));
-		const double weights[] = {40, 85, 204, 60, 20, 80};
-		for (int index = 0; index < 6; index++)
-			set_descriptor_number(descriptor, GRAY_WEIGHTS[index], "long", weights[index]);
+		for (int index = 0; index < GRAY_WEIGHTS_COUNT; index++)
+			set_descriptor_number(descriptor, GRAY_WEIGHTS[index], "long", DEFAULT_GRAY_WEIGHTS[index]);
 		set_descriptor_boolean(descriptor, "useTint", TRUE);
 		set_record(descriptor, "tintColor", create_typed_value("Objc", create_rgb_descriptor(0, 0, 0)));
 	} else if (!strcmp(key, "phfl")) {
 		set_string(descriptor, "classID", "photoFilter");
-		set_record(descriptor, "Clr", create_typed_value("Objc", create_lab_descriptor(67.06, 32, 120)));
-		set_descriptor_number(descriptor, "Dnst", "long", 80);
+		const double *filter = DEFAULT_FILTER_LAB;
+		set_record(descriptor, "Clr", create_typed_value("Objc", create_lab_descriptor(filter[0], filter[1], filter[2])));
+		set_descriptor_number(descriptor, "Dnst", "long", DEFAULT_FILTER_DENSITY);
 		set_descriptor_boolean(descriptor, "PrsL", TRUE);
 	} else if (!strcmp(key, "grdm")) {
 		set_string(descriptor, "classID", "GrMp");
@@ -197,10 +212,11 @@ Record *create_adjustment_descriptor(const char *key) {
 		set_record(descriptor, "ClrC", create_typed_value("VlLs", create_array()));
 	} else if (!strcmp(key, "rplc")) {
 		set_string(descriptor, "classID", "RplC");
-		set_descriptor_number(descriptor, "Fzns", "long", 55);
-		set_record(descriptor, "Mnm", create_typed_value("Objc", create_lab_descriptor(73.1, 23.95, 8.03)));
-		set_record(descriptor, "Mxm", create_typed_value("Objc", create_lab_descriptor(73, 23, 8)));
-		set_descriptor_number(descriptor, "H", "long", -22);
+		set_descriptor_number(descriptor, "Fzns", "long", DEFAULT_REPLACE_FUZZINESS);
+		const double *low = DEFAULT_REPLACE_LOW_LAB, *high = DEFAULT_REPLACE_HIGH_LAB;
+		set_record(descriptor, "Mnm", create_typed_value("Objc", create_lab_descriptor(low[0], low[1], low[2])));
+		set_record(descriptor, "Mxm", create_typed_value("Objc", create_lab_descriptor(high[0], high[1], high[2])));
+		set_descriptor_number(descriptor, "H", "long", DEFAULT_REPLACE_HUE);
 		set_descriptor_number(descriptor, "Strt", "long", 0);
 		set_descriptor_number(descriptor, "Lght", "long", 0);
 	} else if (!strcmp(key, "levl")) {
@@ -215,10 +231,10 @@ Record *create_adjustment_descriptor(const char *key) {
 		set_descriptor_number(descriptor, "gammaCorrection", "doub", 1);
 	} else if (!strcmp(key, "post")) {
 		set_string(descriptor, "classID", "Pstr");
-		set_descriptor_number(descriptor, "Lvls", "long", 3);
+		set_descriptor_number(descriptor, "Lvls", "long", DEFAULT_POSTERIZE_LEVELS);
 	} else if (!strcmp(key, "thrs")) {
 		set_string(descriptor, "classID", "Thrs");
-		set_descriptor_number(descriptor, "Lvl", "long", 128);
+		set_descriptor_number(descriptor, "Lvl", "long", DEFAULT_THRESHOLD);
 	}
 	/* Invert has no settings, so the settings stay an empty object */
 	return descriptor;
@@ -230,7 +246,7 @@ static int find_channel_entry(const Record *entries, int channel) {
 		Record *reference = get_record(get_item(get_record(get_record(entry, "Chnl"), "v"), 0), "v");
 		const char *name = get_string(reference, "enum");
 		int found = !g_strcmp0(name, "Trgt") ? 0 : -1;
-		for (int known = 0; known < 4; known++)
+		for (int known = 0; known < TONE_CHANNELS; known++)
 			if (!g_strcmp0(name, CHANNEL_NAMES[known]))
 				found = known;
 		if (found == channel)
@@ -239,9 +255,8 @@ static int find_channel_entry(const Record *entries, int channel) {
 	return -1;
 }
 
-void get_levels_channel(const Record *descriptor, int channel, double values[5]) {
-	const double defaults[5] = {0, 255, 0, 255, 100};
-	memcpy(values, defaults, sizeof defaults);
+void get_levels_channel(const Record *descriptor, int channel, double values[LEVELS_VALUES]) {
+	memcpy(values, DEFAULT_LEVELS, sizeof DEFAULT_LEVELS);
 	Record *entries = get_record(get_record(descriptor, "Adjs"), "v");
 	int found = find_channel_entry(entries, channel);
 	if (found < 0)
@@ -249,15 +264,15 @@ void get_levels_channel(const Record *descriptor, int channel, double values[5])
 	Record *entry = get_record(get_item(entries, found), "v");
 	Record *input = get_record(get_record(entry, "Inpt"), "v"), *output = get_record(get_record(entry, "Otpt"), "v");
 	if (input) {
-		values[0] = get_number(get_item(input, 0), "v");
-		values[1] = get_number(get_item(input, 1), "v");
+		values[LEVELS_INPUT_BLACK] = get_number(get_item(input, 0), "v");
+		values[LEVELS_INPUT_WHITE] = get_number(get_item(input, 1), "v");
 	}
 	if (output) {
-		values[2] = get_number(get_item(output, 0), "v");
-		values[3] = get_number(get_item(output, 1), "v");
+		values[LEVELS_OUTPUT_BLACK] = get_number(get_item(output, 0), "v");
+		values[LEVELS_OUTPUT_WHITE] = get_number(get_item(output, 1), "v");
 	}
 	if (has_record(entry, "Gmm"))
-		values[4] = round(get_descriptor_number(entry, "Gmm", 1) * 100);
+		values[LEVELS_GAMMA] = round(get_descriptor_number(entry, "Gmm", 1) * LEVELS_GAMMA_SCALE);
 }
 
 static Record *create_long_pair(double first, double second) {
@@ -298,11 +313,11 @@ static void store_channel_entry(Record *descriptor, int channel, Record *entry) 
 	}
 }
 
-void set_levels_channel(Record *descriptor, int channel, const double values[5]) {
+void set_levels_channel(Record *descriptor, int channel, const double values[LEVELS_VALUES]) {
 	Record *entry = create_channel_entry("LvlA", channel);
-	set_record(entry, "Inpt", create_long_pair(values[0], values[1]));
-	set_record(entry, "Otpt", create_long_pair(values[2], values[3]));
-	set_descriptor_number(entry, "Gmm", "doub", values[4] / 100);
+	set_record(entry, "Inpt", create_long_pair(values[LEVELS_INPUT_BLACK], values[LEVELS_INPUT_WHITE]));
+	set_record(entry, "Otpt", create_long_pair(values[LEVELS_OUTPUT_BLACK], values[LEVELS_OUTPUT_WHITE]));
+	set_descriptor_number(entry, "Gmm", "doub", values[LEVELS_GAMMA] / LEVELS_GAMMA_SCALE);
 	store_channel_entry(descriptor, channel, entry);
 }
 
@@ -310,8 +325,8 @@ static GArray *create_default_points(gboolean automatic) {
 	GArray *points = g_array_new(FALSE, FALSE, sizeof(CurvePoint));
 	g_array_append_val(points, ((CurvePoint){0, 0, TRUE}));
 	if (automatic)
-		g_array_append_val(points, ((CurvePoint){128, 160, TRUE}));
-	g_array_append_val(points, ((CurvePoint){255, 255, TRUE}));
+		g_array_append_val(points, AUTOMATIC_MIDDLE);
+	g_array_append_val(points, ((CurvePoint){G_MAXUINT8, G_MAXUINT8, TRUE}));
 	return points;
 }
 
@@ -326,7 +341,7 @@ static GArray *read_curve_points(const Record *list) {
 	return points;
 }
 
-GArray *get_curve_points(const Record *descriptor, int channel, double levels[256]) {
+GArray *get_curve_points(const Record *descriptor, int channel, double levels[CURVE_LEVELS]) {
 	Record *entries = get_record(get_record(descriptor, "Adjs"), "v");
 	int found = find_channel_entry(entries, channel);
 	if (found < 0) {
@@ -335,7 +350,7 @@ GArray *get_curve_points(const Record *descriptor, int channel, double levels[25
 			return create_default_points(FALSE);
 		if (has_record(first, "autoMachineLearning") || has_record(first, "AuCo"))
 			return create_default_points(TRUE);
-		for (int level = 0; level < 256; level++)
+		for (int level = 0; level < CURVE_LEVELS; level++)
 			levels[level] = level;
 		return NULL;
 	}
@@ -345,7 +360,7 @@ GArray *get_curve_points(const Record *descriptor, int channel, double levels[25
 	if (!has_record(entry, "Mpng"))
 		return create_default_points(FALSE);
 	Record *mapping = get_record(get_record(entry, "Mpng"), "v");
-	for (int level = 0; level < 256; level++)
+	for (int level = 0; level < CURVE_LEVELS; level++)
 		levels[level] = get_number(get_item(mapping, level), "v");
 	return NULL;
 }
@@ -364,9 +379,9 @@ void set_curve_points(Record *descriptor, int channel, const CurvePoint *points,
 	store_channel_entry(descriptor, channel, entry);
 }
 
-void set_curve_levels(Record *descriptor, int channel, const double levels[256]) {
+void set_curve_levels(Record *descriptor, int channel, const double levels[CURVE_LEVELS]) {
 	Record *entry = create_channel_entry("CrvA", channel), *list = create_array();
-	for (int level = 0; level < 256; level++)
+	for (int level = 0; level < CURVE_LEVELS; level++)
 		append_record(list, create_typed_value("long", create_number(levels[level])));
 	set_record(entry, "Mpng", create_typed_value("VlLs", list));
 	store_channel_entry(descriptor, channel, entry);
@@ -381,24 +396,24 @@ static int find_selective_entry(const Record *entries, int range) {
 	return -1;
 }
 
-void get_selective_color(const Record *descriptor, int range, double values[4]) {
-	values[0] = values[1] = values[2] = values[3] = 0;
+void get_selective_color(const Record *descriptor, int range, double values[SELECTIVE_INKS_COUNT]) {
+	memset(values, 0, SELECTIVE_INKS_COUNT * sizeof *values);
 	Record *entries = get_record(get_record(descriptor, "ClrC"), "v");
 	int found = find_selective_entry(entries, range);
 	if (found < 0)
 		return;
 	Record *entry = get_record(get_item(entries, found), "v");
-	for (int ink = 0; ink < 4; ink++)
+	for (int ink = 0; ink < SELECTIVE_INKS_COUNT; ink++)
 		if (has_record(entry, SELECTIVE_INKS[ink]))
 			values[ink] = get_number(get_record(get_record(entry, SELECTIVE_INKS[ink]), "v"), "val");
 }
 
-void set_selective_color(Record *descriptor, int range, const double values[4]) {
+void set_selective_color(Record *descriptor, int range, const double values[SELECTIVE_INKS_COUNT]) {
 	Record *entry = create_object(RECORD_PLAIN), *kind = create_object(RECORD_PLAIN);
 	set_string(entry, "classID", "ClrC");
 	set_string(kind, "Clrs", SELECTIVE_RANGES[range]);
 	set_record(entry, "Clrs", create_typed_value("enum", kind));
-	for (int ink = 0; ink < 4; ink++)
+	for (int ink = 0; ink < SELECTIVE_INKS_COUNT; ink++)
 		set_record(entry, SELECTIVE_INKS[ink], create_percent(values[ink]));
 	Record *list = get_record(descriptor, "ClrC");
 	if (!list || list->type != RECORD_OBJECT) {
@@ -469,30 +484,30 @@ static int find_hue_entry(const Record *entries, int range) {
 	return -1;
 }
 
-void get_hue_range(const Record *descriptor, int range, double values[7]) {
-	for (int field = 0; field < 4; field++)
+void get_hue_range(const Record *descriptor, int range, double values[HUE_RANGE_VALUES]) {
+	for (int field = 0; field < HUE_LIMITS; field++)
 		values[field] = range ? HUE_RANGE_LIMITS[range - 1][field] : 0;
-	values[4] = values[5] = values[6] = 0;
+	values[HUE_SHIFT] = values[HUE_SATURATION] = values[HUE_LIGHTNESS] = 0;
 	Record *entries = get_record(get_record(descriptor, "Adjs"), "v");
 	int found = find_hue_entry(entries, range);
 	if (found < 0)
 		return;
 	Record *entry = get_record(get_item(entries, found), "v");
 	const char *fields[] = {"BgnR", "BgnS", "EndS", "EndR", "H", "Strt", "Lght"};
-	for (int field = range ? 0 : 4; field < 7; field++)
+	for (int field = range ? 0 : HUE_SHIFT; field < HUE_RANGE_VALUES; field++)
 		values[field] = get_descriptor_number(entry, fields[field], 0);
 }
 
-void set_hue_range(Record *descriptor, int range, const double values[7]) {
+void set_hue_range(Record *descriptor, int range, const double values[HUE_RANGE_VALUES]) {
 	Record *entry = create_object(RECORD_PLAIN);
 	set_string(entry, "classID", "Hst2");
-	set_descriptor_number(entry, "H", "long", values[4]);
-	set_descriptor_number(entry, "Strt", "long", values[5]);
-	set_descriptor_number(entry, "Lght", "long", values[6]);
+	set_descriptor_number(entry, "H", "long", values[HUE_SHIFT]);
+	set_descriptor_number(entry, "Strt", "long", values[HUE_SATURATION]);
+	set_descriptor_number(entry, "Lght", "long", values[HUE_LIGHTNESS]);
 	if (range) {
 		set_descriptor_number(entry, "LclR", "long", range);
 		const char *limits[] = {"BgnR", "BgnS", "EndS", "EndR"};
-		for (int field = 0; field < 4; field++)
+		for (int field = 0; field < HUE_LIMITS; field++)
 			set_descriptor_number(entry, limits[field], "long", values[field]);
 	}
 	Record *list = get_record(descriptor, "Adjs");
@@ -511,39 +526,39 @@ void set_hue_range(Record *descriptor, int range, const double values[7]) {
 	}
 }
 
-void get_color_balance(const Record *descriptor, int tone, double values[3]) {
+void get_color_balance(const Record *descriptor, int tone, double values[RGB_CHANNELS]) {
 	Record *shifts = get_record(get_record(descriptor, BALANCE_TONES[tone]), "v");
-	for (int channel = 0; channel < 3; channel++)
+	for (int channel = 0; channel < RGB_CHANNELS; channel++)
 		values[channel] = get_number(get_item(shifts, channel), "v");
 }
 
-void set_color_balance(Record *descriptor, int tone, const double values[3]) {
+void set_color_balance(Record *descriptor, int tone, const double values[RGB_CHANNELS]) {
 	Record *list = create_array();
-	for (int channel = 0; channel < 3; channel++)
+	for (int channel = 0; channel < RGB_CHANNELS; channel++)
 		append_record(list, create_typed_value("long", create_number(values[channel])));
 	set_record(descriptor, BALANCE_TONES[tone], create_typed_value("VlLs", list));
 }
 
-gboolean get_channel_mixer(const Record *descriptor, double values[20]) {
-	memset(values, 0, 20 * sizeof *values);
+gboolean get_channel_mixer(const Record *descriptor, double values[MIXER_VALUES]) {
+	memset(values, 0, MIXER_VALUES * sizeof *values);
 	gboolean monochrome = get_descriptor_boolean(descriptor, "Mnch", FALSE);
-	for (int output = 0; output < (monochrome ? 1 : 3); output++) {
+	for (int output = 0; output < (monochrome ? 1 : RGB_CHANNELS); output++) {
 		Record *channel = get_record(get_record(descriptor, monochrome ? "Gry" : MIXER_OUTPUTS[output]), "v");
-		for (int input = 0; input < 5; input++)
+		for (int input = 0; input < MIXER_INPUTS_COUNT; input++)
 			if (MIXER_INPUTS[input] && has_record(channel, MIXER_INPUTS[input]))
-				values[output * 5 + input] =
+				values[output * MIXER_INPUTS_COUNT + input] =
 					get_number(get_record(get_record(channel, MIXER_INPUTS[input]), "v"), "val");
 	}
 	return monochrome;
 }
 
-void set_channel_mixer(Record *descriptor, gboolean monochrome, const double values[20]) {
+void set_channel_mixer(Record *descriptor, gboolean monochrome, const double values[MIXER_VALUES]) {
 	set_descriptor_boolean(descriptor, "Mnch", monochrome);
 	if (monochrome)
 		set_record(descriptor, "Gry", create_mixer_channel(values));
 	else
-		for (int output = 0; output < 3; output++)
-			set_record(descriptor, MIXER_OUTPUTS[output], create_mixer_channel(values + output * 5));
+		for (int output = 0; output < RGB_CHANNELS; output++)
+			set_record(descriptor, MIXER_OUTPUTS[output], create_mixer_channel(values + output * MIXER_INPUTS_COUNT));
 }
 
 /* ============================== Commands ======================================== */
@@ -624,7 +639,7 @@ gboolean edit_adjustment_layer(Document *document, int layer_index, const Record
 	Record *entry = get_latest_history_entry(document), *data = get_record(entry, "data");
 	if (!data || g_strcmp0(get_string(get_record(entry, "U"), "id"), "230") || !has_record(data, "t5") ||
 		get_number(data, "z") != layer_index) {
-		entry = create_history_entry(create_history_name(HISTORY_EDIT_ADJUSTMENT), "230", FALSE, g_get_real_time() / 1000);
+		entry = create_history_entry(create_history_name(HISTORY_EDIT_ADJUSTMENT), "230", FALSE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 		data = create_object(RECORD_PLAIN);
 		set_number(data, "z", layer_index);
 		set_record(data, "t5", copy_record(get_record(get_record(layer, "add"), key)));

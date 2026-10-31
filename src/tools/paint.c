@@ -371,7 +371,7 @@ static void finish_paint_target(PaintTool *tool, RasterExtent extent, gboolean e
 	set_record(entry, "jp", create_extent(extent.x, extent.y, extent.width, extent.height));
 	set_record(entry, "Di", previous);
 	append_record(data, entry);
-	Record *history_entry = create_history_entry(name, tool->tool, FALSE, g_get_real_time() / 1000);
+	Record *history_entry = create_history_entry(name, tool->tool, FALSE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 	set_record(history_entry, "data", data);
 	append_history_entry(tool->document, history_entry, &history->operation, extended_history);
 	cancel_paint_tool(tool);

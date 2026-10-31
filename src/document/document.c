@@ -91,7 +91,7 @@ Document *create_document_record(const char *name, DocumentMode mode) {
 	initialize_fields(options, "Dr bd El GS Wm Po Ws", RECORD_ARRAY);
 	initialize_fields(options, "Xt vq zh X9 cY Ug mT $i Pg", RECORD_NULL);
 	set_record(record, "O", options);
-	double now = g_get_real_time() / 1000;
+	double now = g_get_real_time() / G_TIME_SPAN_MILLISECOND;
 	append_record(get_record(record, "history"),
 				  create_history_entry(number_array((double[]){1, 0}, 2), NULL, FALSE, now));
 	set_number(record, "aNe", now);
