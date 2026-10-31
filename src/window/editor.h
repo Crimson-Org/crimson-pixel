@@ -16,6 +16,9 @@ typedef struct TransformSession TransformSession;
 #include "document/tiled-image.h"
 #include "canvas/move-preview.h"
 
+/* A move with Shift held keeps to the axis it started along: moving up and down keeps x, and sideways keeps y */
+typedef enum { AXIS_FREE, AXIS_VERTICAL, AXIS_HORIZONTAL } LockedAxis;
+
 /* A file request carries a decoded model and its derived presentation together */
 typedef struct {
 	Document *document;
@@ -85,7 +88,7 @@ struct DocumentView {
 	double gradient_x, gradient_y, gradient_end_x, gradient_end_y;
 	/* Where the Straighten line being drawn ends */
 	double crop_end_x, crop_end_y;
-	int move_axis;
+	LockedAxis move_axis;
 	double adjust_diameter, adjust_hardness, adjust_x, adjust_y;
 	gboolean adjust_horizontal;
 	void (*changed)(DocumentView *view, gpointer data);
@@ -225,7 +228,7 @@ void nudge_with_move_tool(Editor *editor, int x, int y, gboolean copy);
 void nudge_selection(Editor *editor, int x, int y);
 void refresh_view_tool(DocumentView *view);
 void snap_view_box(DocumentView *view, double *x, double *y, double width, double height, const GArray *excluded,
-				   int locked_axis);
+				   LockedAxis locked_axis);
 void snap_view_point(DocumentView *view, double *x, double *y);
 void clear_view_snap(DocumentView *view);
 TransformSession *get_transform(DocumentView *view);

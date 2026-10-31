@@ -41,5 +41,7 @@ void save_settings(const Settings *settings, const char *path);
 int *get_setting_value(Settings *settings, const SettingEntry *entry);
 int get_setting_choice(const SettingEntry *entry, int value);
 const SettingEntry *find_setting(const char *key);
+/* Every setting at its default, for views without an editor */
+const Settings *get_default_settings(void);
 int get_checker_size(const Settings *settings);
 int get_grid_zoom(const Settings *settings);

@@ -38,7 +38,7 @@ void begin_move_drag(DocumentView *view, double x, double y, GdkModifierType mod
 	get_document_point(view, x, y, &view->select_x, &view->select_y);
 	gboolean inside = selection_contains(document, view->select_x, view->select_y);
 	gboolean shift = (modifiers & GDK_SHIFT_MASK) != 0, alt = (modifiers & GDK_ALT_MASK) != 0;
-	view->move_axis = 0;
+	view->move_axis = AXIS_FREE;
 	view->select_dragged = FALSE;
 	view->select_preview = (RasterExtent){0};
 	g_autoptr(GError) error = NULL;
@@ -87,16 +87,16 @@ void update_move_drag(DocumentView *view, double x, double y, GdkModifierType mo
 		return;
 	}
 	if (!view->move_axis && (across || down))
-		view->move_axis = fabs(across) < fabs(down) ? 1 : 2;
+		view->move_axis = fabs(across) < fabs(down) ? AXIS_VERTICAL : AXIS_HORIZONTAL;
 	if (modifiers & GDK_SHIFT_MASK) {
-		if (view->move_axis == 1)
+		if (view->move_axis == AXIS_VERTICAL)
 			across = 0;
-		if (view->move_axis == 2)
+		if (view->move_axis == AXIS_HORIZONTAL)
 			down = 0;
 	}
 	double box_x = view->move_box.x + round(across), box_y = view->move_box.y + round(down);
 	snap_view_box(view, &box_x, &box_y, view->move_box.width, view->move_box.height, view->move.layers,
-				  (modifiers & GDK_SHIFT_MASK) ? view->move_axis : 0);
+				  (modifiers & GDK_SHIFT_MASK) ? view->move_axis : AXIS_FREE);
 	across = box_x - view->move_box.x;
 	down = box_y - view->move_box.y;
 	gboolean previewing = has_move_preview(&view->presented->move_preview);

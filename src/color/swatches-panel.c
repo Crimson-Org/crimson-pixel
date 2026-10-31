@@ -39,13 +39,6 @@ static int measure_swatch_grid(GtkWidget *widget, int width, gpointer data) {
 	return MAX(0, rows * (SWATCH_SIZE + SWATCH_GAP) - SWATCH_GAP);
 }
 
-static void append_outline(GtkSnapshot *snapshot, graphene_rect_t box, float width, GdkRGBA color) {
-	GskRoundedRect outline;
-	gsk_rounded_rect_init_from_rect(&outline, &box, 0);
-	gtk_snapshot_append_border(snapshot, &outline, (const float[4]){width, width, width, width},
-							   (const GdkRGBA[4]){color, color, color, color});
-}
-
 /* One render node per swatch, with an outline on the hovered swatch and a ring on the foreground color */
 static void draw_swatch_grid(GtkWidget *widget, GtkSnapshot *snapshot, int width, int height, gpointer data) {
 	Editor *editor = data;
@@ -60,12 +53,12 @@ static void draw_swatch_grid(GtkWidget *widget, GtkSnapshot *snapshot, int width
 							   (index / columns) * (SWATCH_SIZE + SWATCH_GAP), SWATCH_SIZE, SWATCH_SIZE);
 		GdkRGBA fill = color_to_rgba(color, 1);
 		gtk_snapshot_append_color(snapshot, &fill, &box);
-		append_outline(snapshot, box, 1, border);
+		append_outline(snapshot, box, 0, 1, &border);
 		if ((int)index == hovered - 1 || color == foreground) {
-			append_outline(snapshot, box, 2, dark);
-			append_outline(snapshot,
-						   GRAPHENE_RECT_INIT(box.origin.x + 2, box.origin.y + 2, SWATCH_SIZE - 4, SWATCH_SIZE - 4), 1,
-						   light);
+			append_outline(snapshot, box, 0, 2, &dark);
+			graphene_rect_t inside;
+			graphene_rect_inset_r(&box, 2, 2, &inside);
+			append_outline(snapshot, inside, 0, 1, &light);
 		}
 	}
 }

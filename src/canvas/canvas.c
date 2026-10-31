@@ -8,6 +8,32 @@
 #include "snapshot-area.h"
 #include "lang/en.h"
 
+/* The brush tip outline and crosshair: a light edge around a dark line, and how far the crosshair reaches */
+static const GdkRGBA TIP_LIGHT = {1, 1, 1, .9}, TIP_DARK = {0, 0, 0, .9};
+#define CROSSHAIR_ARM 4
+/* A fitted view leaves this much room around the document, and stays between these zooms */
+#define FIT_MARGIN 32.0
+#define FIT_ZOOM_LOWEST 0.01
+#define FIT_ZOOM_HIGHEST 64
+/* Brush smoothing follows the zoom, so it feels the same at any zoom */
+#define SMOOTHING_SCALE 50
+/* A smooth wheel zooms this much per unit it turns */
+#define ZOOM_PER_WHEEL_UNIT 8e-4
+/* Adjusting the brush by dragging: each pixel sideways adds two to the diameter, and four pixels up or down change
+ * the hardness by one */
+#define DIAMETER_PER_PIXEL 2
+#define PIXELS_PER_HARDNESS 4
+/* Square tips show at least this many pixels wide, and rings at least this many from their middle */
+#define SMALLEST_TIP_SQUARE 3
+#define SMALLEST_TIP_RING 1.5
+
+/* A paint stroke begins, moves and ends, and Shift begins it from the last point or moves it along one axis */
+typedef enum { STROKE_BEGIN, STROKE_MOVE, STROKE_END, STROKE_BEGIN_FROM_LAST, STROKE_MOVE_ALONG_AXIS } StrokePhase;
+/* While size and hardness change, a red fill shows the hard core fading to the edge */
+#define FALLOFF_COLOR ((GdkRGBA){0.9, 0.2, 0.2, 0.5})
+#define FALLOFF_EDGE ((GdkRGBA){0.9, 0.2, 0.2, 0})
+#define FALLOFF_CORE_LIMIT 0.999f
+
 static void draw_snap_lines(GtkSnapshot *snapshot, DocumentView *view, double x, double y);
 static void draw_gradient_line(GtkSnapshot *snapshot, DocumentView *view, double x, double y);
 
@@ -24,9 +50,14 @@ void snapshot_checkerboard(GtkSnapshot *snapshot, const graphene_rect_t *area, i
 	gtk_snapshot_pop(snapshot);
 }
 
+/* Views without an editor, such as previews, use the default settings */
+static const Settings *get_view_settings(const DocumentView *view) {
+	return view->editor ? &view->editor->settings : get_default_settings();
+}
+
 /* The pixel grid shows from the zoom chosen in Preferences */
 static int get_view_grid_zoom(const DocumentView *view) {
-	return view->editor ? get_grid_zoom(&view->editor->settings) : 8;
+	return get_grid_zoom(get_view_settings(view));
 }
 
 /* Zoomed out views blend pixels unless the Smooth zoomed out image preference is off */
@@ -46,7 +77,8 @@ static void update_fitted_zoom(DocumentView *view, int width, int height) {
 		return;
 	Document *document = view->presented->document;
 	view->zoom =
-		CLAMP(MIN((width - 32.0) / document_width(document), (height - 32.0) / document_height(document)), 0.01, 64);
+		CLAMP(MIN((width - FIT_MARGIN) / document_width(document), (height - FIT_MARGIN) / document_height(document)),
+			  FIT_ZOOM_LOWEST, FIT_ZOOM_HIGHEST);
 }
 
 void fit_document_view(DocumentView *view) {
@@ -73,12 +105,13 @@ void get_view_origin(DocumentView *view, double *x, double *y) {
 /* A two tone ring shows the brush footprint on any artwork while a paint tool is active */
 /* A small dark cross with a light edge marks the exact pointer inside the brush tip */
 static void draw_tip_crosshair(GtkSnapshot *snapshot, double center_x, double center_y) {
-	const GdkRGBA light = {1, 1, 1, 0.9}, dark = {0, 0, 0, 0.9};
 	double x = round(center_x), y = round(center_y);
-	gtk_snapshot_append_color(snapshot, &light, &GRAPHENE_RECT_INIT(x - 5, y - 1, 11, 3));
-	gtk_snapshot_append_color(snapshot, &light, &GRAPHENE_RECT_INIT(x - 1, y - 5, 3, 11));
-	gtk_snapshot_append_color(snapshot, &dark, &GRAPHENE_RECT_INIT(x - 4, y, 9, 1));
-	gtk_snapshot_append_color(snapshot, &dark, &GRAPHENE_RECT_INIT(x, y - 4, 1, 9));
+	/* The light cross is one pixel larger on every side, so it edges the dark one */
+	const int arm = CROSSHAIR_ARM, light = arm + 1;
+	gtk_snapshot_append_color(snapshot, &TIP_LIGHT, &GRAPHENE_RECT_INIT(x - light, y - 1, 2 * light + 1, 3));
+	gtk_snapshot_append_color(snapshot, &TIP_LIGHT, &GRAPHENE_RECT_INIT(x - 1, y - light, 3, 2 * light + 1));
+	gtk_snapshot_append_color(snapshot, &TIP_DARK, &GRAPHENE_RECT_INIT(x - arm, y, 2 * arm + 1, 1));
+	gtk_snapshot_append_color(snapshot, &TIP_DARK, &GRAPHENE_RECT_INIT(x, y - arm, 1, 2 * arm + 1));
 }
 
 /* A one pixel black line, over a wider white one when it must show on dark artwork too */
@@ -138,44 +171,33 @@ static void draw_brush_outline(GtkSnapshot *snapshot, DocumentView *view) {
 	if ((hard && options->square) || options->shape.diameter <= 1) {
 		/* Square and one pixel tips show a square of the tip's size that follows the pointer like the brush ring */
 		int size = MAX(1, (int)lround(options->shape.diameter));
-		double side = MAX(3, size * view->zoom);
+		double side = MAX(SMALLEST_TIP_SQUARE, size * view->zoom);
 		graphene_rect_t square = GRAPHENE_RECT_INIT(center_x - side / 2, center_y - side / 2, side, side);
-		const GdkRGBA white = {1, 1, 1, .9}, black = {0, 0, 0, .9};
-		GskRoundedRect outer, inner;
-		gsk_rounded_rect_init_from_rect(&outer,
-										&GRAPHENE_RECT_INIT(square.origin.x - 1, square.origin.y - 1,
-															square.size.width + 2, square.size.height + 2),
-										0);
-		gsk_rounded_rect_init_from_rect(&inner, &square, 0);
-		gtk_snapshot_append_border(snapshot, &outer, (const float[4]){1, 1, 1, 1},
-								   (const GdkRGBA[4]){white, white, white, white});
-		gtk_snapshot_append_border(snapshot, &inner, (const float[4]){1, 1, 1, 1},
-								   (const GdkRGBA[4]){black, black, black, black});
+		graphene_rect_t outer;
+		graphene_rect_inset_r(&square, -1, -1, &outer);
+		append_outline(snapshot, outer, 0, 1, &TIP_LIGHT);
+		append_outline(snapshot, square, 0, 1, &TIP_DARK);
 		return;
 	}
-	double radius = MAX(get_tool_options(editor)->shape.diameter * view->zoom / 2, 1.5);
+	double radius = MAX(get_tool_options(editor)->shape.diameter * view->zoom / 2, SMALLEST_TIP_RING);
 	if (view->adjusting || view->brush_anchored) {
 		/* The falloff preview fades from the hard core to the edge while size and hardness change */
-		float hardness = get_tool_options(editor)->shape.hardness / 100;
-		const GskColorStop stops[3] = {
-			{0, {0.9, 0.2, 0.2, 0.5}}, {MIN(hardness, 0.999f), {0.9, 0.2, 0.2, 0.5}}, {1, {0.9, 0.2, 0.2, 0}}};
-		gtk_snapshot_append_radial_gradient(
-			snapshot, &GRAPHENE_RECT_INIT(center_x - radius, center_y - radius, radius * 2, radius * 2),
-			&GRAPHENE_POINT_INIT(center_x, center_y), radius, radius, 0, 1, stops, 3);
+		float hardness = from_percent(get_tool_options(editor)->shape.hardness);
+		const GskColorStop stops[] = {
+			{0, FALLOFF_COLOR}, {MIN(hardness, FALLOFF_CORE_LIMIT), FALLOFF_COLOR}, {1, FALLOFF_EDGE}};
+		graphene_rect_t area = square_around(center_x, center_y, radius);
+		gtk_snapshot_append_radial_gradient(snapshot, &area, &GRAPHENE_POINT_INIT(center_x, center_y), radius, radius,
+											0, 1, stops, G_N_ELEMENTS(stops));
 	}
 
 	const struct {
 		double radius;
 		GdkRGBA color;
-	} rings[] = {{radius + 1, {1, 1, 1, 0.9}}, {MAX(radius, 1), {0, 0, 0, 0.9}}};
+	} rings[] = {{radius + 1, TIP_LIGHT}, {MAX(radius, 1), TIP_DARK}};
 
 	for (guint ring = 0; ring < G_N_ELEMENTS(rings); ring++) {
 		double size = rings[ring].radius;
-		GskRoundedRect outline;
-		gsk_rounded_rect_init_from_rect(
-			&outline, &GRAPHENE_RECT_INIT(center_x - size, center_y - size, size * 2, size * 2), size);
-		const GdkRGBA colors[4] = {rings[ring].color, rings[ring].color, rings[ring].color, rings[ring].color};
-		gtk_snapshot_append_border(snapshot, &outline, (const float[4]){1, 1, 1, 1}, colors);
+		append_outline(snapshot, square_around(center_x, center_y, size), size, 1, &rings[ring].color);
 	}
 }
 
@@ -204,7 +226,7 @@ static void draw_pixel_grid(GtkSnapshot *snapshot, DocumentView *view, double x,
  * tiled mode of pixel art editors, and painting on any copy wraps across the edges */
 static void draw_tile_preview(GtkSnapshot *snapshot, DocumentView *view, const graphene_rect_t *image, int width,
 							  int height) {
-	Settings *settings = view->editor ? &view->editor->settings : NULL;
+	const Settings *settings = get_view_settings(view);
 	for (int row = -1; row <= 1; row++)
 		for (int column = -1; column <= 1; column++) {
 			if (!row && !column)
@@ -213,8 +235,7 @@ static void draw_tile_preview(GtkSnapshot *snapshot, DocumentView *view, const g
 			graphene_rect_offset(&copy, column * image->size.width, row * image->size.height);
 			if (!graphene_rect_intersection(&copy, &GRAPHENE_RECT_INIT(0, 0, width, height), &shown))
 				continue;
-			snapshot_checkerboard(snapshot, &shown, settings ? settings->checker_colors : 0,
-								  settings ? get_checker_size(settings) : 12);
+			snapshot_checkerboard(snapshot, &shown, settings->checker_colors, get_checker_size(settings));
 			gtk_snapshot_push_clip(snapshot, &shown);
 			snapshot_tiled_image(view->presented->tiles, snapshot, &copy, &shown, view->zoom, is_view_smoothed(view),
 								 FALSE);
@@ -239,9 +260,8 @@ static void draw_document(GtkWidget *widget, GtkSnapshot *snapshot, int width, i
 		return;
 	}
 	/* The checkerboard and grid are viewing aids outside the document record */
-	Settings *settings = view->editor ? &view->editor->settings : NULL;
-	snapshot_checkerboard(snapshot, &visible, settings ? settings->checker_colors : 0,
-						  settings ? get_checker_size(settings) : 12);
+	const Settings *settings = get_view_settings(view);
+	snapshot_checkerboard(snapshot, &visible, settings->checker_colors, get_checker_size(settings));
 	PresentedDocument *presented = view->presented;
 	if (view->tiled)
 		draw_tile_preview(snapshot, view, &image, width, height);
@@ -367,31 +387,31 @@ static void update_paint_regions(Editor *editor, PresentedDocument *presented, P
 	clear_paint_dirty_regions(tool);
 }
 
-/* Phases are begin, move, end, begin from the last point and move along one axis */
-static gboolean paint_canvas_stroke(DocumentView *view, double x, double y, int phase) {
+static gboolean paint_canvas_stroke(DocumentView *view, double x, double y, StrokePhase phase) {
 	Editor *editor = view->editor;
 	PresentedDocument *presented = view->presented;
 	PaintTool *tool = &editor->paint_tool;
 	double document_x, document_y;
 	get_document_point(view, x, y, &document_x, &document_y);
-	if (phase == 0 || phase == 3) {
+	if (phase == STROKE_BEGIN || phase == STROKE_BEGIN_FROM_LAST) {
 		g_autoptr(GError) error = NULL;
 		PaintOptions options = *get_tool_options(editor);
-		options.smoothing = options.smoothing * 50 / view->zoom;
+		options.smoothing = options.smoothing * SMOOTHING_SCALE / view->zoom;
 		guint32 color = get_foreground_color(editor);
 		tool->wrap = view->tiled;
 		tool->symmetry = editor->symmetry;
-		if (!begin_paint_stroke(tool, presented->document, &options, color, document_x, document_y, phase == 3,
+		if (!begin_paint_stroke(tool, presented->document, &options, color, document_x, document_y,
+								phase == STROKE_BEGIN_FROM_LAST,
 								&error)) {
 			gtk_label_set_text(GTK_LABEL(editor->status), error->message);
 			return FALSE;
 		}
-	} else if (phase == 1 || phase == 4)
-		continue_paint_stroke(tool, document_x, document_y, phase == 4);
+	} else if (phase == STROKE_MOVE || phase == STROKE_MOVE_ALONG_AXIS)
+		continue_paint_stroke(tool, document_x, document_y, phase == STROKE_MOVE_ALONG_AXIS);
 	else
 		end_paint_stroke(tool, FALSE);
 	update_paint_regions(editor, presented, tool);
-	if (phase == 2)
+	if (phase == STROKE_END)
 		refresh_document_page(editor, get_current_page(editor), FALSE);
 	return TRUE;
 }
@@ -473,7 +493,7 @@ static void finish_canvas_stroke(DocumentView *view) {
 	if (!view->painting)
 		return;
 	view->painting = FALSE;
-	paint_canvas_stroke(view, 0, 0, 2);
+	paint_canvas_stroke(view, 0, 0, STROKE_END);
 }
 
 static void zoom_view_around(DocumentView *view, double x, double y, double zoom) {
@@ -520,7 +540,7 @@ static gboolean zoom_document(GtkEventControllerScroll *controller, double dx, d
 	} else {
 		if (dy == 0)
 			return TRUE;
-		double factor = 1 + fabs(dy) * 8e-4;
+		double factor = 1 + fabs(dy) * ZOOM_PER_WHEEL_UNIT;
 		if (dy > 0)
 			factor = 1 / factor;
 		zoom = (modifiers & GDK_SHIFT_MASK) ? step_zoom_level(zoom, factor > 1) : zoom * factor;
@@ -540,15 +560,15 @@ static void pick_canvas_color(DocumentView *view, double x, double y, GdkModifie
 /* ============================== Snapping ============================== */
 
 void snap_view_box(DocumentView *view, double *x, double *y, double width, double height, const GArray *excluded,
-				   int locked_axis) {
+				   LockedAxis locked_axis) {
 	Editor *editor = view->editor;
 	SnapResult result =
 		snap_rectangle(view->presented->document, &editor->snap, *x, *y, width, height, view->zoom, excluded, NULL, 0);
-	if (locked_axis == 1) {
+	if (locked_axis == AXIS_VERTICAL) {
 		result.offset_x = 0;
 		result.line_x = NAN;
 	}
-	if (locked_axis == 2) {
+	if (locked_axis == AXIS_HORIZONTAL) {
 		result.offset_y = 0;
 		result.line_y = NAN;
 	}
@@ -664,7 +684,8 @@ static void begin_drag(GtkGestureDrag *gesture, double x, double y, DocumentView
 		pick_canvas_color(view, x, y, modifiers);
 	if (!view->painting)
 		return;
-	view->painting = paint_canvas_stroke(view, x, y, (modifiers & GDK_SHIFT_MASK) ? 3 : 0);
+	view->painting =
+		paint_canvas_stroke(view, x, y, (modifiers & GDK_SHIFT_MASK) ? STROKE_BEGIN_FROM_LAST : STROKE_BEGIN);
 }
 
 static void update_drag(GtkGestureDrag *gesture, double x, double y, DocumentView *view) {
@@ -675,17 +696,17 @@ static void update_drag(GtkGestureDrag *gesture, double x, double y, DocumentVie
 		double across = pointer_x - view->adjust_x, down = pointer_y - view->adjust_y;
 		gboolean horizontal = fabs(across) > fabs(down);
 		if (horizontal && view->adjust_horizontal) {
-			double change = round(2 * across / view->zoom);
+			double change = round(DIAMETER_PER_PIXEL * across / view->zoom);
 			view->adjust_diameter += change;
-			pointer_x -= across - .5 * change * view->zoom;
+			pointer_x -= across - change / DIAMETER_PER_PIXEL * view->zoom;
 		}
 		if (!horizontal && !view->adjust_horizontal) {
-			double change = round(.25 * down);
+			double change = round(down / PIXELS_PER_HARDNESS);
 			view->adjust_hardness += change;
-			pointer_y -= down - 4 * change;
+			pointer_y -= down - PIXELS_PER_HARDNESS * change;
 		}
 		view->adjust_diameter = MAX(1, view->adjust_diameter);
-		view->adjust_hardness = CLAMP(view->adjust_hardness, 0, 100);
+		view->adjust_hardness = CLAMP(view->adjust_hardness, 0, PERCENT);
 		view->adjust_horizontal = horizontal;
 		view->adjust_x = pointer_x;
 		view->adjust_y = pointer_y;
@@ -737,7 +758,8 @@ static void update_drag(GtkGestureDrag *gesture, double x, double y, DocumentVie
 	}
 	if (view->painting) {
 		GdkModifierType modifiers = gtk_event_controller_get_current_event_state(GTK_EVENT_CONTROLLER(gesture));
-		paint_canvas_stroke(view, start_x + x, start_y + y, (modifiers & GDK_SHIFT_MASK) ? 4 : 1);
+		paint_canvas_stroke(view, start_x + x, start_y + y,
+							(modifiers & GDK_SHIFT_MASK) ? STROKE_MOVE_ALONG_AXIS : STROKE_MOVE);
 		return;
 	}
 	if (!view->panning)

@@ -9,6 +9,7 @@
 #include "common/spacing.h"
 
 static const int NAVIGATOR_HEIGHT = 120;
+#define NAVIGATOR_FRAME_WIDTH 2
 
 /* The overview scale and offset that fit the whole document inside the navigator */
 static double get_navigator_scale(GtkWidget *area, Document *document, double *x, double *y) {
@@ -47,7 +48,7 @@ static void draw_navigator(GtkWidget *area, GtkSnapshot *snapshot, int width, in
 		&frame, &GRAPHENE_RECT_INIT(x + left * scale, y + top * scale, (right - left) * scale, (bottom - top) * scale),
 		0);
 	const GdkRGBA red = {0.85, 0.1, 0.1, 1};
-	gtk_snapshot_append_border(snapshot, &frame, (const float[4]){2, 2, 2, 2}, (const GdkRGBA[4]){red, red, red, red});
+	append_outline(snapshot, frame.bounds, 0, NAVIGATOR_FRAME_WIDTH, &red);
 }
 
 static void center_primary_view(Editor *editor, double x, double y) {
@@ -118,11 +119,7 @@ static void draw_ring(GtkSnapshot *snapshot, double x, double y, double radius) 
 	const GdkRGBA rings[2] = {{1, 1, 1, 1}, {0, 0, 0, 0.8}};
 	for (int ring = 0; ring < 2; ring++) {
 		double size = radius + 1 - ring;
-		GskRoundedRect outline;
-		gsk_rounded_rect_init_from_rect(&outline, &GRAPHENE_RECT_INIT(x - size, y - size, size * 2, size * 2), size);
-		GdkRGBA color = rings[ring];
-		gtk_snapshot_append_border(snapshot, &outline, (const float[4]){1, 1, 1, 1},
-								   (const GdkRGBA[4]){color, color, color, color});
+		append_outline(snapshot, square_around(x, y, size), size, 1, &rings[ring]);
 	}
 }
 

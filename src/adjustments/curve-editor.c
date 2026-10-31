@@ -10,6 +10,8 @@ enum { CURVE_EDITOR_SIZE = 256, CURVE_EDITOR_MARGIN = 6, CURVE_POINT_SIZE = 7, C
 
 /* How close in levels a press must be to grab a point instead of adding one */
 #define CURVE_GRAB_DISTANCE 10.0
+/* Points that are not dragged show as outlines this wide */
+#define POINT_OUTLINE_WIDTH 1.5
 
 /* The state behind one graph */
 typedef struct {
@@ -72,10 +74,7 @@ static void draw_curve_editor(GtkWidget *widget, GtkSnapshot *snapshot, int widt
 		gtk_snapshot_append_color(snapshot, &line, &GRAPHENE_RECT_INIT(across, start, 1, size));
 		gtk_snapshot_append_color(snapshot, &line, &GRAPHENE_RECT_INIT(start, across, size, 1));
 	}
-	GskRoundedRect border;
-	gsk_rounded_rect_init_from_rect(&border, &frame, 0);
-	gtk_snapshot_append_border(snapshot, &border, (const float[]){1, 1, 1, 1},
-							   (const GdkRGBA[]){faint, faint, faint, faint});
+	append_outline(snapshot, frame, 0, 1, &faint);
 	g_autoptr(GskPathBuilder) diagonal = gsk_path_builder_new();
 	gsk_path_builder_move_to(diagonal, CURVE_EDITOR_MARGIN, CURVE_EDITOR_MARGIN + size);
 	gsk_path_builder_line_to(diagonal, CURVE_EDITOR_MARGIN + size, CURVE_EDITOR_MARGIN);
@@ -109,10 +108,7 @@ static void draw_curve_editor(GtkWidget *widget, GtkSnapshot *snapshot, int widt
 		if ((int)index == editor->dragged)
 			gtk_snapshot_append_color(snapshot, &color, &handle);
 		else {
-			GskRoundedRect outline;
-			gsk_rounded_rect_init_from_rect(&outline, &handle, 0);
-			gtk_snapshot_append_border(snapshot, &outline, (const float[]){1.5, 1.5, 1.5, 1.5},
-									   (const GdkRGBA[]){color, color, color, color});
+			append_outline(snapshot, handle, 0, POINT_OUTLINE_WIDTH, &color);
 		}
 	}
 }

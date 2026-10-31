@@ -64,3 +64,14 @@ void set_snapshot_area_measure(GtkWidget *widget, SnapshotAreaMeasure measure) {
 	SNAPSHOT_AREA(widget)->measure = measure;
 	gtk_widget_queue_resize(widget);
 }
+
+graphene_rect_t square_around(double x, double y, double half_side) {
+	return GRAPHENE_RECT_INIT(x - half_side, y - half_side, half_side * 2, half_side * 2);
+}
+
+void append_outline(GtkSnapshot *snapshot, graphene_rect_t box, float corner, float width, const GdkRGBA *color) {
+	GskRoundedRect outline;
+	gsk_rounded_rect_init_from_rect(&outline, &box, corner);
+	gtk_snapshot_append_border(snapshot, &outline, (const float[]){width, width, width, width},
+							   (const GdkRGBA[]){*color, *color, *color, *color});
+}

@@ -6,6 +6,7 @@
 #include "move-tool.h"
 #include "selection/pixel-selection.h"
 #include "transform.h"
+#include "canvas/snapshot-area.h"
 #include "crop.h"
 #include "lang/en.h"
 
@@ -517,14 +518,14 @@ void finish_transform(Editor *editor, gboolean apply) {
 
 static void draw_handle(GtkSnapshot *snapshot, double x, double y, gboolean round_marker) {
 	double size = round_marker ? REFERENCE_SIZE : HANDLE_SIZE;
+	graphene_rect_t box = square_around(x, y, size);
+	double corner = round_marker ? size : 0;
 	GskRoundedRect outline;
-	gsk_rounded_rect_init_from_rect(&outline, &GRAPHENE_RECT_INIT(x - size, y - size, size * 2, size * 2),
-									round_marker ? size : 0);
+	gsk_rounded_rect_init_from_rect(&outline, &box, corner);
 	gtk_snapshot_push_rounded_clip(snapshot, &outline);
-	gtk_snapshot_append_color(snapshot, &(GdkRGBA){1, 1, 1, 1}, &outline.bounds);
+	gtk_snapshot_append_color(snapshot, &(GdkRGBA){1, 1, 1, 1}, &box);
 	gtk_snapshot_pop(snapshot);
-	gtk_snapshot_append_border(snapshot, &outline, (const float[]){1, 1, 1, 1},
-							   (const GdkRGBA[]){BOX_COLOR, BOX_COLOR, BOX_COLOR, BOX_COLOR});
+	append_outline(snapshot, box, corner, 1, &BOX_COLOR);
 }
 
 /* The moving part is drawn by the GPU through the box's perspective, between the parts below and above it */
@@ -662,7 +663,7 @@ void drag_transform(DocumentView *view, double x, double y, GdkModifierType modi
 		}
 		double box_x = left + document_x - session->press_x, box_y = top + document_y - session->press_y;
 		g_autoptr(GArray) excluded = collect_selected_subtrees(view->presented->document);
-		snap_view_box(view, &box_x, &box_y, right - left, bottom - top, excluded, 0);
+		snap_view_box(view, &box_x, &box_y, right - left, bottom - top, excluded, AXIS_FREE);
 		document_x = session->press_x + box_x - left;
 		document_y = session->press_y + box_y - top;
 	}

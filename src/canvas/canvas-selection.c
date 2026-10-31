@@ -247,7 +247,8 @@ void update_selection_drag(DocumentView *view, double x, double y, GdkModifierTy
 			int value = get_item(selected, index)->value.number;
 			g_array_append_val(excluded, value);
 		}
-		snap_view_box(view, &box_x, &box_y, view->moved_from.width, view->moved_from.height, excluded, 0);
+		snap_view_box(view, &box_x, &box_y, view->moved_from.width, view->moved_from.height, excluded,
+				  AXIS_FREE);
 		move_selection(document, (int)box_x, (int)box_y, FALSE);
 		gtk_widget_queue_draw(view->canvas);
 		return;

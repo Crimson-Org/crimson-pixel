@@ -104,6 +104,17 @@ void save_settings(const Settings *settings, const char *path) {
 }
 
 /* The checkerboard cell size in screen pixels */
+const Settings *get_default_settings(void) {
+	static Settings defaults;
+	static gsize ready;
+	if (g_once_init_enter(&ready)) {
+		for (guint index = 0; index < SETTING_ENTRY_COUNT; index++)
+			*get_setting_value(&defaults, &SETTING_ENTRIES[index]) = SETTING_ENTRIES[index].initial;
+		g_once_init_leave(&ready, 1);
+	}
+	return &defaults;
+}
+
 int get_checker_size(const Settings *settings) {
 	return CHECKER_PIXELS[settings->checker_size];
 }
