@@ -45,18 +45,18 @@ if errorlevel 1 exit /b %errorlevel%
 echo(==^> glib-compile-resources --sourcedir assets --target build/resources.c --generate-source assets/crimson-pixel.gresource.xml
 glib-compile-resources --sourcedir assets --target build/resources.c --generate-source assets/crimson-pixel.gresource.xml
 if errorlevel 1 exit /b %errorlevel%
-echo(==^> each src/*.c
-set "CRIMSON_EACH_FROM=src/*.c"
+echo(==^> each src/*.c src/adjustments/*.c src/app/*.c src/canvas/*.c src/color/*.c src/document/*.c src/psd/*.c src/selection/*.c src/tools/*.c src/window/*.c
+set "CRIMSON_EACH_FROM=src/*.c src/adjustments/*.c src/app/*.c src/canvas/*.c src/color/*.c src/document/*.c src/psd/*.c src/selection/*.c src/tools/*.c src/window/*.c"
 set "CRIMSON_EACH_TO=build/obj/{id}.o"
 set "CRIMSON_EACH_RUN=cc -std=%STD% $WARN $OPT $DEFINES $INCLUDES $(pkg-config --cflags $PKGS | sed s/-I/-isystem /g) -c {from} -o {to}"
-set "CRIMSON_EACH_ALSO=src/*.h src/lang/*.h subprojects/crimson-core/src/common/*.h subprojects/crimson-build/src/build/*.h"
+set "CRIMSON_EACH_ALSO=src/*/*.h subprojects/crimson-core/src/common/*.h subprojects/crimson-build/src/build/*.h"
 call :crimson_each
 if errorlevel 1 exit /b %errorlevel%
 echo(==^> each subprojects/crimson-core/src/common/*.c
 set "CRIMSON_EACH_FROM=subprojects/crimson-core/src/common/*.c"
 set "CRIMSON_EACH_TO=build/obj/{id}.o"
 set "CRIMSON_EACH_RUN=cc -std=%STD% $WARN $OPT $DEFINES $INCLUDES $(pkg-config --cflags $PKGS | sed s/-I/-isystem /g) -c {from} -o {to}"
-set "CRIMSON_EACH_ALSO=src/*.h src/lang/*.h subprojects/crimson-core/src/common/*.h subprojects/crimson-build/src/build/*.h"
+set "CRIMSON_EACH_ALSO=src/*/*.h subprojects/crimson-core/src/common/*.h subprojects/crimson-build/src/build/*.h"
 call :crimson_each
 if errorlevel 1 exit /b %errorlevel%
 echo(==^> cc -std=gnu11 -O2 -g $^(pkg-config --cflags gio-2.0^) -c build/resources.c -o build/obj/resources.o
