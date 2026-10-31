@@ -1,6 +1,13 @@
 #include <string.h>
 
+#include <limits.h>
+
 #include "descriptor.h"
+
+/* Keys longer than this are refused as damage */
+#define LONGEST_KEY 1000
+/* A key is a length and that many characters, or a zero length and a four character key */
+#define SHORT_KEY_SIZE (sizeof(guint32) + PSD_KEY_LENGTH)
 
 static const char *const *get_reference_fields(const char *type) {
 	static const char *const name[] = {"classID", NULL}, *const property[] = {"classID", "keyID", NULL};
@@ -23,19 +30,19 @@ Record *create_typed_value(const char *type, Record *value) {
 
 static char *read_descriptor_key(PsdReader *reader, gsize offset) {
 	gint32 length = read_i32(reader, offset);
-	if (length > 1000) {
+	if (length > LONGEST_KEY) {
 		fail_psd(reader, TEXT_PSD_DAMAGED);
 		return g_strdup("");
 	}
 	char *text;
 	if (length == 0) {
 		char key[PSD_KEY_SIZE];
-		read_key(reader, offset + 4, key);
+		read_key(reader, offset + sizeof(guint32), key);
 		text = g_strdup(key);
 	} else {
 		text = g_malloc0(MAX(length, 0) + 1);
 		for (gint32 index = 0; index < length; index++)
-			text[index] = read_psd_byte(reader, offset + 4 + index);
+			text[index] = read_psd_byte(reader, offset + sizeof(guint32) + index);
 		if (!strcmp(text, " JPEG 2000") || !strcmp(text, "neutralizeColor    "))
 			return text;
 	}
@@ -44,13 +51,18 @@ static char *read_descriptor_key(PsdReader *reader, gsize offset) {
 
 static gsize get_key_size(PsdReader *reader, gsize offset) {
 	gint32 length = read_i32(reader, offset);
-	return length == 0 ? 8 : 4 + length;
+	return length == 0 ? SHORT_KEY_SIZE : sizeof(guint32) + length;
+}
+
+/* A counted text is its count of units, the units and a closing zero */
+static gsize get_counted_text_size(glong units) {
+	return sizeof(guint32) + (units + 1) * sizeof(gunichar2);
 }
 
 static char *read_counted_text(PsdReader *reader, gsize offset, glong *units) {
 	guint32 count = read_psd_u32(reader, offset);
 	*units = count ? count - 1 : 0;
-	return read_utf16(reader, offset + 4, *units);
+	return read_utf16(reader, offset + sizeof(guint32), *units);
 }
 
 static Record *read_descriptor_value(PsdReader *reader, gsize offset, gsize *size);
@@ -58,20 +70,20 @@ static Record *read_descriptor_value(PsdReader *reader, gsize offset, gsize *siz
 static gsize read_identifier(PsdReader *reader, gsize offset, Record *value, const char *field) {
 	g_autofree char *identifier = read_descriptor_key(reader, offset);
 	set_string(value, field, identifier);
-	return 4 + MAX(4, strlen(identifier));
+	return sizeof(guint32) + MAX(PSD_KEY_LENGTH, strlen(identifier));
 }
 
 static Record *read_descriptor_value(PsdReader *reader, gsize offset, gsize *size) {
 	gsize start = offset;
 	char type[PSD_KEY_SIZE];
 	read_key(reader, offset, type);
-	offset += 4;
+	offset += PSD_KEY_LENGTH;
 	Record *item = create_object(RECORD_PLAIN), *value = NULL;
 	set_string(item, "t", type);
 	if (!strcmp(type, "obj ") || !strcmp(type, "VlLs")) {
 		value = create_array();
 		guint32 count = read_psd_u32(reader, offset);
-		offset += 4;
+		offset += sizeof(guint32);
 		for (guint32 index = 0; index < count && !reader->failed; index++) {
 			gsize child;
 			append_record(value, read_descriptor_value(reader, offset, &child));
@@ -82,20 +94,21 @@ static Record *read_descriptor_value(PsdReader *reader, gsize offset, gsize *siz
 		char unit[PSD_KEY_SIZE];
 		read_key(reader, offset, unit);
 		set_string(value, "type", unit);
-		set_number(value, "val", read_double(reader, offset + 4));
-		offset += 12;
+		set_number(value, "val", read_double(reader, offset + PSD_KEY_LENGTH));
+		offset += PSD_KEY_LENGTH + sizeof(double);
 	} else if (!strcmp(type, "doub")) {
 		value = create_number(read_double(reader, offset));
-		offset += 8;
+		offset += sizeof(double);
 	} else if (!strcmp(type, "bool")) {
 		value = create_boolean(read_psd_byte(reader, offset) == 1);
 		offset += 1;
 	} else if (!strcmp(type, "long")) {
 		value = create_number(read_i32(reader, offset));
-		offset += 4;
+		offset += sizeof(guint32);
 	} else if (!strcmp(type, "comp")) {
-		value = create_number(read_i32(reader, offset + 4));
-		offset += 8;
+		/* A large number, of which the low half is kept */
+		value = create_number(read_i32(reader, offset + sizeof(guint32)));
+		offset += sizeof(guint64);
 	} else if (!strcmp(type, "Objc")) {
 		value = create_object(RECORD_PLAIN);
 		offset += read_descriptor(reader, offset, value);
@@ -103,11 +116,11 @@ static Record *read_descriptor_value(PsdReader *reader, gsize offset, gsize *siz
 		glong units;
 		if (read_psd_u32(reader, offset) == 0) {
 			value = create_string("");
-			offset += 4;
+			offset += sizeof(guint32);
 		} else {
 			g_autofree char *text = read_counted_text(reader, offset, &units);
 			value = create_string(text);
-			offset += 4 + units * 2 + 2;
+			offset += get_counted_text_size(units);
 		}
 	} else if (!strcmp(type, "enum")) {
 		g_autofree char *kind = read_descriptor_key(reader, offset);
@@ -119,28 +132,28 @@ static Record *read_descriptor_value(PsdReader *reader, gsize offset, gsize *siz
 	} else if (!strcmp(type, "tdta")) {
 		/* Raw data such as a Color Lookup profile is kept as one byte buffer instead of a record per byte */
 		gint32 length = read_i32(reader, offset);
-		offset += 4;
+		offset += sizeof(guint32);
 		value = has_psd_bytes(reader, offset, MAX(0, length)) ? create_bytes(reader->data + offset, MAX(0, length))
 															  : create_bytes(NULL, 0);
 		offset += MAX(0, length);
 	} else if (!strcmp(type, "Clss") || !strcmp(type, "type") || !strcmp(type, "rele")) {
 		glong units;
 		g_autofree char *name = read_counted_text(reader, offset, &units);
-		offset += 4 + units * 2 + 2;
+		offset += get_counted_text_size(units);
 		value = create_object(RECORD_PLAIN);
 		offset += read_identifier(reader, offset, value, "classID");
 		if (*name)
 			set_string(value, "__name", name);
 		if (!strcmp(type, "rele")) {
 			set_number(value, "val", read_i32(reader, offset));
-			offset += 4;
+			offset += sizeof(guint32);
 		}
 	} else if (!strcmp(type, "prop") || !strcmp(type, "Enmr") || !strcmp(type, "indx") || !strcmp(type, "name") ||
 			   !strcmp(type, "Idnt")) {
 		glong units;
 		value = create_object(RECORD_PLAIN);
 		g_autofree char *name = read_counted_text(reader, offset, &units);
-		offset += 4 + units * 2 + 2;
+		offset += get_counted_text_size(units);
 		if (units)
 			set_string(value, "unam", name);
 		for (const char *const *field = get_reference_fields(type); *field; field++)
@@ -148,15 +161,15 @@ static Record *read_descriptor_value(PsdReader *reader, gsize offset, gsize *siz
 		if (!strcmp(type, "name")) {
 			g_autofree char *text = read_counted_text(reader, offset, &units);
 			set_string(value, "val", text);
-			offset += 4 + units * 2 + 2;
+			offset += get_counted_text_size(units);
 		}
 		if (!strcmp(type, "indx") || !strcmp(type, "Idnt")) {
 			set_number(value, "val", read_psd_u32(reader, offset));
-			offset += 4;
+			offset += sizeof(guint32);
 		}
 	} else if (!strcmp(type, "alis")) {
 		guint32 length = read_psd_u32(reader, offset);
-		offset += 4;
+		offset += sizeof(guint32);
 		g_autofree char *text = g_malloc0(length + 1);
 		for (guint32 index = 0; index < length && !reader->failed; index++)
 			text[index] = read_psd_byte(reader, offset + index);
@@ -174,11 +187,11 @@ static Record *read_descriptor_value(PsdReader *reader, gsize offset, gsize *siz
 gsize read_descriptor(PsdReader *reader, gsize offset, Record *object) {
 	gsize start = offset;
 	if (read_psd_u32(reader, offset) == 0)
-		offset += 4;
+		offset += sizeof(guint32);
 	else {
 		glong units;
 		g_autofree char *name = read_counted_text(reader, offset, &units);
-		offset += 4 + units * 2 + 2;
+		offset += get_counted_text_size(units);
 		if (*name)
 			set_string(object, "__name", name);
 	}
@@ -186,7 +199,7 @@ gsize read_descriptor(PsdReader *reader, gsize offset, Record *object) {
 	set_string(object, "classID", class_identifier);
 	offset += get_key_size(reader, offset);
 	gint32 count = read_i32(reader, offset);
-	offset += 4;
+	offset += sizeof(guint32);
 	for (gint32 index = 0; index < count && !reader->failed; index++) {
 		g_autofree char *key = read_descriptor_key(reader, offset);
 		offset += get_key_size(reader, offset);
@@ -204,22 +217,23 @@ void write_u8(GByteArray *output, guint value) {
 	g_byte_array_append(output, &byte, 1);
 }
 
+static void write_big_endian(GByteArray *output, guint64 bits, gsize size) {
+	for (gsize byte = size; byte-- > 0;)
+		write_u8(output, bits >> byte * CHAR_BIT & G_MAXUINT8);
+}
+
 void write_u16(GByteArray *output, guint value) {
-	guint8 bytes[2] = {value >> 8 & G_MAXUINT8, value & G_MAXUINT8};
-	g_byte_array_append(output, bytes, 2);
+	write_big_endian(output, value, sizeof(guint16));
 }
 
 void write_u32(GByteArray *output, double value) {
-	guint32 bits = (guint32)(gint64)value;
-	guint8 bytes[4] = {bits >> 24 & G_MAXUINT8, bits >> 16 & G_MAXUINT8, bits >> 8 & G_MAXUINT8, bits & G_MAXUINT8};
-	g_byte_array_append(output, bytes, 4);
+	write_big_endian(output, (guint32)(gint64)value, sizeof(guint32));
 }
 
 void write_double(GByteArray *output, double value) {
 	guint64 bits;
 	memcpy(&bits, &value, sizeof bits);
-	for (int shift = 56; shift >= 0; shift -= 8)
-		write_u8(output, bits >> shift & G_MAXUINT8);
+	write_big_endian(output, bits, sizeof bits);
 }
 
 void write_ascii(GByteArray *output, const char *text) {
@@ -241,12 +255,12 @@ static void write_descriptor_key(GByteArray *output, const char *key) {
 										  "ty",	  "PinP", "PnRt", "PnOv", "PnDp", "xor",  "PuX0", "PuX1", "PuX2",
 										  "PuX3", "PuY0", "PuY1", "PuY2", "PuY3", "base", "kana", "ruby", "box",
 										  "flow", "time", "hold", "clio", "trim", "then", "else", NULL};
-	gboolean with_length = strlen(key) > 4;
+	gboolean with_length = strlen(key) > PSD_KEY_LENGTH;
 	for (const char *const *item = counted; *item && !with_length; item++)
 		with_length = !strcmp(*item, key);
 	write_u32(output, with_length ? strlen(key) : 0);
 	write_ascii(output, key);
-	for (gsize index = strlen(key); index < 4 && !with_length; index++)
+	for (gsize index = strlen(key); index < PSD_KEY_LENGTH && !with_length; index++)
 		write_u8(output, ' ');
 }
 
@@ -255,7 +269,7 @@ static void write_descriptor_value(GByteArray *output, const Record *item);
 static void write_identifier(GByteArray *output, const char *identifier) {
 	gsize start = output->len;
 	write_descriptor_key(output, identifier);
-	gsize end = start + 4 + MAX(4, strlen(identifier)), written = output->len;
+	gsize end = start + sizeof(guint32) + MAX(PSD_KEY_LENGTH, strlen(identifier)), written = output->len;
 	g_byte_array_set_size(output, end);
 	if (end > written)
 		memset(output->data + written, 0, end - written);
@@ -317,7 +331,7 @@ static void write_descriptor_value(GByteArray *output, const Record *item) {
 		write_u32(output, value->string_length);
 		write_ascii(output, value->value.string);
 	} else
-		g_byte_array_set_size(output, output->len - 4);
+		g_byte_array_set_size(output, output->len - PSD_KEY_LENGTH);
 }
 
 void write_descriptor(GByteArray *output, const Record *object) {
