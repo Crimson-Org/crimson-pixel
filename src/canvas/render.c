@@ -22,7 +22,7 @@ guint32 unpremultiply_pixel(guint32 pixel) {
 }
 
 static guint32 read_display_pixel(const Record *channels, gsize pixel) {
-	return (guint32)read_channel_byte(channels, pixel * 4 + 3) << WORD_ALPHA_SHIFT |
+	return (guint32)read_channel_byte(channels, pixel * RGBA_CHANNELS + ALPHA_CHANNEL) << WORD_ALPHA_SHIFT |
 		   (guint32)read_channel_byte(channels, pixel * 4) << 16 |
 		   (guint32)read_channel_byte(channels, pixel * 4 + 1) << 8 | read_channel_byte(channels, pixel * 4 + 2);
 }
@@ -43,7 +43,7 @@ static void convert_display_rows(int first, int last, gpointer data) {
 		guint32 *row = work->pixels + (gsize)(y - work->origin_y) * work->stride - work->origin_x;
 		for (int x = work->extent.x; x < work->extent.x + work->extent.width; x++) {
 			gsize index = (gsize)y * work->width + x;
-			if (!direct || index * 4 + 3 >= buffer->value.buffer.length) {
+			if (!direct || index * RGBA_CHANNELS + ALPHA_CHANNEL >= buffer->value.buffer.length) {
 				row[x] = premultiply_pixel(read_display_pixel(buffer, index));
 				continue;
 			}
@@ -146,7 +146,7 @@ GdkPixbuf *create_document_pixbuf(Document *document, gboolean opaque, GError **
 			guint32 pixel = read_display_pixel(buffer, (gsize)y * width + x);
 			guint8 *target = pixels + y * stride + x * channels;
 			guint alpha = pixel >> WORD_ALPHA_SHIFT;
-			for (int channel = 0; channel < 3; channel++) {
+			for (int channel = 0; channel < RGB_CHANNELS; channel++) {
 				guint value = pixel >> (16 - channel * 8) & G_MAXUINT8;
 				/* Opaque formats show transparent areas over white */
 				target[channel] = opaque ? (value * alpha + G_MAXUINT8 * (G_MAXUINT8 - alpha) + 127) / G_MAXUINT8 : value;

@@ -29,7 +29,7 @@ static char *read_descriptor_key(PsdReader *reader, gsize offset) {
 	}
 	char *text;
 	if (length == 0) {
-		char key[5];
+		char key[PSD_KEY_SIZE];
 		read_key(reader, offset + 4, key);
 		text = g_strdup(key);
 	} else {
@@ -63,7 +63,7 @@ static gsize read_identifier(PsdReader *reader, gsize offset, Record *value, con
 
 static Record *read_descriptor_value(PsdReader *reader, gsize offset, gsize *size) {
 	gsize start = offset;
-	char type[5];
+	char type[PSD_KEY_SIZE];
 	read_key(reader, offset, type);
 	offset += 4;
 	Record *item = create_object(RECORD_PLAIN), *value = NULL;
@@ -79,7 +79,7 @@ static Record *read_descriptor_value(PsdReader *reader, gsize offset, gsize *siz
 		}
 	} else if (!strcmp(type, "UntF")) {
 		value = create_object(RECORD_PLAIN);
-		char unit[5];
+		char unit[PSD_KEY_SIZE];
 		read_key(reader, offset, unit);
 		set_string(value, "type", unit);
 		set_number(value, "val", read_double(reader, offset + 4));

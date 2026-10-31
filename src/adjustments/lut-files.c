@@ -109,7 +109,7 @@ static double *reorder_lut(int size, const double *values, gsize count) {
 			for (int red = 0; red < size; red++) {
 				gsize from = 3 * (red + green * (gsize)size + blue * (gsize)size * size);
 				gsize to = 3 * (blue + green * (gsize)size + red * (gsize)size * size);
-				for (int channel = 0; channel < 3; channel++)
+				for (int channel = 0; channel < LUT_CHANNELS; channel++)
 					ordered[to + channel] = from + channel < count ? values[from + channel] : NAN;
 			}
 	return ordered;
@@ -127,7 +127,7 @@ static double *read_cube_file(char **lines, int *size) {
 		}
 		if (!strcmp(tokens[0], "TITLE") || !strcmp(tokens[0], "DOMAIN_MIN") || !strcmp(tokens[0], "DOMAIN_MAX"))
 			continue;
-		for (guint channel = 0; channel < 3; channel++) {
+		for (guint channel = 0; channel < LUT_CHANNELS; channel++) {
 			double value = read_token(tokens, channel);
 			g_array_append_val(values, value);
 		}
@@ -152,7 +152,7 @@ static double *read_mesh_file(char **lines, int *size) {
 			*size = g_strv_length(tokens);
 			continue;
 		}
-		for (guint channel = 0; channel < 3; channel++) {
+		for (guint channel = 0; channel < LUT_CHANNELS; channel++) {
 			double value = read_token(tokens, channel) * (1 / 4095.0);
 			g_array_append_val(values, value);
 		}

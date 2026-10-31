@@ -315,7 +315,7 @@ static Record *create_alpha_selection(const Document *document, const Record *la
 	Record *mask = create_selection_mask(document, extent);
 	double scale = get_full_coverage(document) / channel_maximum(pixels->value.buffer.depth);
 	for (gsize index = 0; index < (gsize)extent.width * extent.height; index++)
-		write_channel(mask, index, read_channel(pixels, index * 4 + 3) * scale);
+		write_channel(mask, index, read_channel(pixels, index * RGBA_CHANNELS + ALPHA_CHANNEL) * scale);
 	return create_selection(extent, mask);
 }
 

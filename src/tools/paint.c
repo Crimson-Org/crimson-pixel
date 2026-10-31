@@ -532,7 +532,7 @@ gboolean draw_paint_bitmap(PaintTool *tool, Document *document, Record *pixels, 
 	Record *selection = get_document_selection(document), *mask = selection ? get_record(selection, "C") : NULL;
 	guint8 *values = pixels->value.buffer.data;
 	for (gsize pixel = 0; mask && pixel < (gsize)extent.width * extent.height; pixel++)
-		values[pixel * 4 + 3] = (guint8)(values[pixel * 4 + 3] * read_channel(mask, pixel) * (1.0 / G_MAXUINT8));
+		values[pixel * RGBA_CHANNELS + ALPHA_CHANNEL] = (guint8)(values[pixel * RGBA_CHANNELS + ALPHA_CHANNEL] * read_channel(mask, pixel) * (1.0 / G_MAXUINT8));
 	tool->opacity = 1;
 	tool->coverage_masked = TRUE;
 	prepare_paint_target(tool, document, (RasterExtent){0});
@@ -565,13 +565,13 @@ guint32 sample_document_color(Document *document, double x, double y, int size, 
 	double count = (double)(right - left) * (bottom - top), sums[3] = {0};
 	for (int sample_x = left; sample_x < right; sample_x++)
 		for (int sample_y = top; sample_y < bottom; sample_y++)
-			for (int channel = 0; channel < 3; channel++)
+			for (int channel = 0; channel < RGB_CHANNELS; channel++)
 				sums[channel] += read_channel(pixels, 4 * ((gsize)sample_y * extent.width + sample_x) + channel);
 	double scale = G_MAXUINT8 / (channel_maximum(pixels->value.buffer.depth) * count);
 	if (pixels->value.buffer.depth == FLOAT_DEPTH)
 		scale = G_MAXUINT8 / count;
 	guint32 color = 0;
-	for (int channel = 0; channel < 3; channel++) {
+	for (int channel = 0; channel < RGB_CHANNELS; channel++) {
 		double value = round_half_up(sums[channel] * scale);
 		color |= (guint32)(isfinite(value) ? (gint64)value & G_MAXUINT8 : 0) << (16 - channel * 8);
 	}

@@ -42,7 +42,7 @@ static Record *extract_selected_pixels(const Record *layer, const Record *select
 			gsize from =
 				((gsize)(extent.y - layer_extent.y + y) * layer_extent.width + extent.x - layer_extent.x + x) * 4;
 			gsize to = ((gsize)y * extent.width + x) * 4;
-			for (int channel = 0; channel < 3; channel++)
+			for (int channel = 0; channel < RGB_CHANNELS; channel++)
 				write_channel(pixels, to + channel, read_channel(buffer, from + channel));
 			write_channel(pixels, to + 3,
 						  alpha[(gsize)(extent.y - overlap.y + y) * overlap.width + extent.x - overlap.x + x]);

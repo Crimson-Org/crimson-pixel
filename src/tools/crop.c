@@ -141,7 +141,7 @@ static gboolean is_identity(Projective matrix) {
 static Record *clip_layer_pixels(const Record *pixels, RasterExtent extent, RasterExtent clip, RasterExtent *kept) {
 	*kept = intersect_region(extent, clip);
 	unsigned depth = pixels->value.buffer.depth;
-	gsize pixel_bytes = 4 * (depth / 8);
+	gsize pixel_bytes = 4 * (depth / CHAR_BIT);
 	Record *copy = create_channels((gsize)MAX(0, kept->width) * MAX(0, kept->height) * 4, depth);
 	for (int row = 0; row < kept->height; row++)
 		memcpy((guint8 *)copy->value.buffer.data + (gsize)row * kept->width * pixel_bytes,
@@ -284,8 +284,8 @@ gboolean resize_canvas(Document *document, int width, int height, int anchor, gb
 }
 
 static gboolean differs_from_trim_color(const Record *pixels, gsize pixel, const guint8 reference[4]) {
-	for (int channel = 0; channel < 4; channel++)
-		if (read_channel_byte(pixels, pixel * 4 + channel) != reference[channel])
+	for (int channel = 0; channel < RGBA_CHANNELS; channel++)
+		if (read_channel_byte(pixels, pixel * RGBA_CHANNELS + channel) != reference[channel])
 			return TRUE;
 	return FALSE;
 }
@@ -307,8 +307,8 @@ static gboolean is_column_plain(const Record *pixels, int width, int height, int
 RasterExtent find_trim_bounds(const Record *pixels, int width, int height, TrimColor color, const gboolean sides[4]) {
 	guint8 reference[4] = {0};
 	gsize reference_pixel = color == TRIM_TOP_LEFT ? 0 : (gsize)width * height - 1;
-	for (int channel = 0; color != TRIM_TRANSPARENT && channel < 4; channel++)
-		reference[channel] = read_channel_byte(pixels, reference_pixel * 4 + channel);
+	for (int channel = 0; color != TRIM_TRANSPARENT && channel < RGBA_CHANNELS; channel++)
+		reference[channel] = read_channel_byte(pixels, reference_pixel * RGBA_CHANNELS + channel);
 	int top = 0, bottom = 0, left = 0, right = 0;
 	if (sides[TRIM_TOP])
 		while (top < height && is_row_plain(pixels, width, top, reference))

@@ -167,7 +167,7 @@ static GdkTexture *create_layer_thumbnail(Document *document, Record *layer) {
 			if (source_x < 0 || source_y < 0 || source_x >= extent.width || source_y >= extent.height)
 				continue;
 			gsize index = ((gsize)source_y * extent.width + source_x) * 4;
-			for (int channel = 0; channel < 4; channel++)
+			for (int channel = 0; channel < RGBA_CHANNELS; channel++)
 				pixels[((gsize)y * width + x) * 4 + channel] =
 					CLAMP(read_channel(buffer, index + channel) / maximum * G_MAXUINT8 + 0.5, 0, G_MAXUINT8);
 		}

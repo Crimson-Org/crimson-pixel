@@ -64,7 +64,7 @@ static void reduce_rows(int first, int last, gpointer data) {
 			const guint8 *c = from + (gsize)bottom * source->stride + left * 4;
 			const guint8 *d = from + (gsize)bottom * source->stride + right * 4;
 			guint8 *pixel = to + (gsize)y * target->stride + x * 4;
-			for (int channel = 0; channel < 4; channel++)
+			for (int channel = 0; channel < RGBA_CHANNELS; channel++)
 				pixel[channel] = (a[channel] + b[channel] + c[channel] + d[channel] + 2) >> 2;
 		}
 	}

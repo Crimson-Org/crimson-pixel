@@ -77,7 +77,7 @@ Record *create_bytes(const guint8 *bytes, gsize length) {
 static Record *allocate_channels(gsize length, unsigned depth, gboolean cleared) {
 	g_return_val_if_fail(depth == BYTE_DEPTH || depth == WORD_DEPTH || depth == FLOAT_DEPTH, NULL);
 	gsize padding = depth == BYTE_DEPTH ? (4 - length % 4) % 4 : depth == WORD_DEPTH ? length & 1 : 0;
-	if (length > G_MAXSIZE - padding || length + padding > G_MAXSIZE / (depth / 8))
+	if (length > G_MAXSIZE - padding || length + padding > G_MAXSIZE / (depth / CHAR_BIT))
 		return NULL;
 	Record *record = allocate_record(RECORD_BUFFER);
 	record->value.buffer = (ChannelBuffer){depth, length + padding, NULL};

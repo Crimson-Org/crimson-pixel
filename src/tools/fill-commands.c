@@ -41,7 +41,7 @@ static Record *create_layer_alpha_selection(Document *document) {
 	gsize count = (gsize)MAX(0, extent.width) * MAX(0, extent.height);
 	Record *mask = create_channels(count, BYTE_DEPTH);
 	for (gsize index = 0; index < count; index++)
-		write_channel(mask, index, read_channel(pixels, index * 4 + 3));
+		write_channel(mask, index, read_channel(pixels, index * RGBA_CHANNELS + ALPHA_CHANNEL));
 	return create_selection(extent, mask);
 }
 

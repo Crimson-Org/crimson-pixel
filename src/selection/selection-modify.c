@@ -20,7 +20,7 @@ static Record *convert_mask_depth(const Record *mask, unsigned depth) {
 	unsigned from = mask->value.buffer.depth;
 	Record *converted = create_channels(length, depth);
 	if (from == depth) {
-		memcpy(converted->value.buffer.data, mask->value.buffer.data, length * (depth / 8));
+		memcpy(converted->value.buffer.data, mask->value.buffer.data, length * (depth / CHAR_BIT));
 		return converted;
 	}
 	for (gsize index = 0; index < length; index++)
@@ -256,7 +256,7 @@ static Record *blur_selection(const Record *selection, double radius, gboolean s
 		write_channel(values, index,
 					  nan_max(0, nan_min(full, half + (read_channel(values, index) - half) * radius * 2.5)));
 	Record *mask = create_channels(count, depth);
-	memcpy(mask->value.buffer.data, values->value.buffer.data, count * (depth / 8));
+	memcpy(mask->value.buffer.data, values->value.buffer.data, count * (depth / CHAR_BIT));
 	free_record(values);
 	return create_selection(extent, mask);
 }

@@ -415,7 +415,7 @@ static void reset_channel_targets(Document *document) {
 	}
 	if (strcmp(joined->str, "111")) {
 		Record *all = create_array();
-		for (int channel = 0; channel < 3; channel++)
+		for (int channel = 0; channel < RGB_CHANNELS; channel++)
 			append_record(all, create_number(1));
 		set_record(get_record(record, "u"), "RD", all);
 		set_boolean(record, "z3", TRUE);
