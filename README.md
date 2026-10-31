@@ -58,4 +58,4 @@ Steps:
  1. Clone using `git clone --recurse-submodules https://github.com/Crimson-Org/crimson-pixel`
  2. Run `sh .crimson-build/install.sh`
 
-`sh .crimson-build/uninstall.sh` removes it again.
+`sh .crimson-build/uninstall.sh` uninstalls Crimson Pixel.
