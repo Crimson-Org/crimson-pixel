@@ -3,6 +3,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* Blending ranges have a block for gray, red, green, blue and one more channel; each block holds the layer's range and
+ * then the range below it, and each range is black from, black to, white from and white to */
+enum { RANGE_BLACK_FROM, RANGE_BLACK_TO, RANGE_WHITE_FROM, RANGE_WHITE_TO, RANGE_VALUES };
+#define RANGE_BLOCK (2 * RANGE_VALUES)
+#define RANGE_BLOCKS 5
+#define BLEND_RANGE_VALUES (RANGE_BLOCKS * RANGE_BLOCK)
+
+/* Dissolve keeps a pixel when the low 24 bits of its hash fall under its share */
+#define DISSOLVE_BITS 24
+#define DISSOLVE_MASK ((1 << DISSOLVE_BITS) - 1)
+
 typedef enum {
 	BLEND_NORMAL,
 	BLEND_DISSOLVE,

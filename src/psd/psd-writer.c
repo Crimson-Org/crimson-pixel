@@ -6,6 +6,7 @@
 #include "adjustments/adjustments.h"
 #include "descriptor.h"
 #include "tools/kernels.h"
+#include "document/blend.h"
 #include "psd.h"
 #include "psd-output.h"
 
@@ -26,11 +27,11 @@
 #define BLOCK_ALIGNMENT 4
 #define BLOCK_SIGNATURE "8BIM"
 #define LARGE_BLOCK_SIGNATURE "8B64"
-/* A layer record lists each channel's id and data length, and keeps 40 bytes of blending ranges */
+/* A layer record lists each channel's id and data length, and keeps a byte for each blending range value */
 #define CHANNEL_INFO_BYTES 6
 #define LARGE_CHANNEL_INFO_BYTES 10
 #define MOST_LAYER_CHANNELS 6
-#define BLENDING_RANGES_BYTES 40
+#define BLENDING_RANGES_BYTES BLEND_RANGE_VALUES
 /* Mask flags, and the parameters that follow: user density and user feather */
 #define MASK_RELATIVE_TO_LAYER 1
 #define MASK_DISABLED 2

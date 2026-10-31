@@ -213,9 +213,9 @@ static gboolean supports_composition_layer(const Record *layer) {
 				return FALSE;
 	}
 	Record *ranges = get_record(layer, "hu");
-	if (count_records(ranges) != 40)
+	if (count_records(ranges) != BLEND_RANGE_VALUES)
 		return FALSE;
-	for (guint index = 0; index < 40; index++) {
+	for (guint index = 0; index < BLEND_RANGE_VALUES; index++) {
 		Record *range = get_item(ranges, index);
 		if (!range || range->type != RECORD_NUMBER || !(range->value.number >= 0 && range->value.number <= 255))
 			return FALSE;
@@ -406,13 +406,13 @@ static void interpolate_region(const Record *source, RasterExtent source_extent,
 
 typedef struct {
 	BlendOptions options;
-	double ranges[40];
+	double ranges[BLEND_RANGE_VALUES];
 } LayerBlend;
 
 static void read_layer_blend(const Record *layer, LayerBlend *blend) {
 	Record *descriptors = get_record(layer, "add"), *ranges = get_record(layer, "hu");
-	double values[40];
-	for (guint index = 0; index < 40; index++)
+	double values[BLEND_RANGE_VALUES];
+	for (guint index = 0; index < BLEND_RANGE_VALUES; index++)
 		values[index] = get_item(ranges, index)->value.number;
 	blend->options =
 		(BlendOptions){has_record(descriptors, "iOpa") ? get_number(descriptors, "iOpa") / 255 : 1, NULL, FALSE, FALSE};

@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <math.h>
 #include <string.h>
 
@@ -23,22 +24,35 @@ int find_blend_mode(const char *key) {
 	return -1;
 }
 
+/* Ranges reach a hair past their ends, and a range without a fade has a slope this steep */
+#define RANGE_EDGE .001
+#define STEEP_SLOPE 1e6
+
+static double sum_range_part(const double *block, int from, int to) {
+	const double *below = block + RANGE_VALUES;
+	return block[from] + block[to] + below[from] + below[to];
+}
+
+/* Ranges that all run from black to white change nothing, so only other ones are prepared, as each range's start,
+ * the slopes of its two fades and its end, in unit values */
 bool prepare_blend_ranges(const double *layer_ranges, double *prepared) {
 	bool custom = false;
-	for (int index = 0; index < 32; index += 8)
-		if (layer_ranges[index] + layer_ranges[index + 1] + layer_ranges[index + 4] + layer_ranges[index + 5] != 0 ||
-			layer_ranges[index + 2] + layer_ranges[index + 3] + layer_ranges[index + 6] + layer_ranges[index + 7] !=
-				1020)
+	for (int block = 0; block < RANGE_BLOCKS - 1; block++) {
+		const double *values = layer_ranges + block * RANGE_BLOCK;
+		if (sum_range_part(values, RANGE_BLACK_FROM, RANGE_BLACK_TO) != 0 ||
+			sum_range_part(values, RANGE_WHITE_FROM, RANGE_WHITE_TO) != RANGE_VALUES * G_MAXUINT8)
 			custom = true;
+	}
 	if (!custom)
 		return false;
-	for (int index = 0; index < 40; index += 4) {
-		double low = layer_ranges[index] / 255, low_end = layer_ranges[index + 1] / 255;
-		double high_start = layer_ranges[index + 2] / 255, high = layer_ranges[index + 3] / 255;
-		prepared[index] = low - .001;
-		prepared[index + 1] = low == low_end ? 1e6 : 1 / (low_end - low);
-		prepared[index + 2] = high_start == high ? -1e6 : 1 / (high_start - high);
-		prepared[index + 3] = high + .001;
+	for (int index = 0; index < BLEND_RANGE_VALUES; index += RANGE_VALUES) {
+		double low = layer_ranges[index + RANGE_BLACK_FROM] / 255, low_end = layer_ranges[index + RANGE_BLACK_TO] / 255;
+		double high_start = layer_ranges[index + RANGE_WHITE_FROM] / 255;
+		double high = layer_ranges[index + RANGE_WHITE_TO] / 255;
+		prepared[index] = low - RANGE_EDGE;
+		prepared[index + 1] = low == low_end ? STEEP_SLOPE : 1 / (low_end - low);
+		prepared[index + 2] = high_start == high ? -STEEP_SLOPE : 1 / (high_start - high);
+		prepared[index + 3] = high + RANGE_EDGE;
 	}
 	return true;
 }
@@ -257,42 +271,42 @@ static double measure_range(double value, const double *ranges, int index) {
 
 static double measure_blend_ranges(const double *source, const double *destination, double destination_alpha,
 								   const double *ranges) {
+	/* The gray block first, then red, green and blue */
 	double top = measure_range(get_luminosity(source), ranges, 0);
-	top = nan_min(top, measure_range(source[0], ranges, 8));
-	top = nan_min(top, measure_range(source[1], ranges, 16));
-	top = nan_min(top, measure_range(source[2], ranges, 24));
-	double below = measure_range(get_luminosity(destination), ranges, 4);
-	below = nan_min(below, measure_range(destination[0], ranges, 12));
-	below = nan_min(below, measure_range(destination[1], ranges, 20));
-	below = nan_min(below, measure_range(destination[2], ranges, 28));
+	double below = measure_range(get_luminosity(destination), ranges, RANGE_VALUES);
+	for (int channel = 0; channel < RGB_CHANNELS; channel++) {
+		int block = (channel + 1) * RANGE_BLOCK;
+		top = nan_min(top, measure_range(source[channel], ranges, block));
+		below = nan_min(below, measure_range(destination[channel], ranges, block + RANGE_VALUES));
+	}
 	below = nan_max(below, 1 - destination_alpha);
 	double factor = nan_min(top, below);
 	return factor < 0 ? 0 : factor > 1 ? 1 : factor;
 }
 
 static void read_color(uint32_t pixel, double *color) {
-	color[0] = ((pixel >> WORD_RED_SHIFT) & G_MAXUINT8) * (1.0 / 255);
-	color[1] = ((pixel >> 8) & 255) * (1.0 / 255);
-	color[2] = (pixel & 255) * (1.0 / 255);
+	color[0] = ((pixel >> WORD_RED_SHIFT) & G_MAXUINT8) * BYTE_UNIT;
+	color[1] = ((pixel >> WORD_GREEN_SHIFT) & G_MAXUINT8) * BYTE_UNIT;
+	color[2] = (pixel & G_MAXUINT8) * BYTE_UNIT;
 }
 
 uint32_t compose_normal_pixel(uint32_t source, uint32_t destination, double opacity) {
 	unsigned source_alpha = source >> WORD_ALPHA_SHIFT;
 	if (!source_alpha)
 		return destination;
-	if (source_alpha == 255 && opacity == 1)
+	if (source_alpha == G_MAXUINT8 && opacity == 1)
 		return source;
-	double source_weight = source_alpha * opacity * (1.0 / 255);
-	double destination_alpha = (destination >> WORD_ALPHA_SHIFT) * (1.0 / 255);
+	double source_weight = source_alpha * opacity * BYTE_UNIT;
+	double destination_alpha = (destination >> WORD_ALPHA_SHIFT) * BYTE_UNIT;
 	double destination_weight = destination_alpha * (1 - source_weight);
 	double alpha = source_weight + destination_weight;
 	if (alpha == 0)
 		return 0;
 	double reciprocal = 1 / alpha;
-	uint32_t pixel = (uint32_t)(0.5 + alpha * 255) << WORD_ALPHA_SHIFT;
-	for (unsigned shift = 0; shift <= 16; shift += 8) {
-		double source_channel = (source >> shift) & 255;
-		double destination_channel = (destination >> shift) & 255;
+	uint32_t pixel = (uint32_t)(0.5 + unit_to_byte(alpha)) << WORD_ALPHA_SHIFT;
+	for (unsigned shift = 0; shift <= WORD_RED_SHIFT; shift += CHAR_BIT) {
+		double source_channel = (source >> shift) & G_MAXUINT8;
+		double destination_channel = (destination >> shift) & G_MAXUINT8;
 		unsigned channel =
 			0.5 + (source_channel * source_weight + destination_channel * destination_weight) * reciprocal;
 		pixel |= channel << shift;
@@ -305,23 +319,24 @@ static uint32_t blend_normal_pixel(const BlendKernel *kernel, uint32_t source, u
 		return compose_normal_pixel(source, destination, kernel->opacity);
 	if (!(source >> WORD_ALPHA_SHIFT))
 		return destination;
-	double opacity = kernel->opacity, destination_alpha = (destination >> WORD_ALPHA_SHIFT) * (1.0 / 255);
+	double opacity = kernel->opacity, destination_alpha = (destination >> WORD_ALPHA_SHIFT) * BYTE_UNIT;
 	double below = 1 - opacity, reciprocal = 1 / (opacity + below);
-	uint32_t pixel = (uint32_t)round_to_int32(destination_alpha * 255) << WORD_ALPHA_SHIFT;
-	for (unsigned shift = 0; shift <= 16; shift += 8) {
-		double top = (source >> shift) & 255, bottom = (destination >> shift) & 255;
-		pixel |= ((uint32_t)round_to_int32((top * opacity + bottom * below) * reciprocal) & 255) << shift;
+	uint32_t pixel = (uint32_t)round_to_int32(unit_to_byte(destination_alpha)) << WORD_ALPHA_SHIFT;
+	for (unsigned shift = 0; shift <= WORD_RED_SHIFT; shift += CHAR_BIT) {
+		double top = (source >> shift) & G_MAXUINT8, bottom = (destination >> shift) & G_MAXUINT8;
+		pixel |= ((uint32_t)round_to_int32((top * opacity + bottom * below) * reciprocal) & G_MAXUINT8) << shift;
 	}
 	return pixel;
 }
 
 static uint32_t blend_dissolve_pixel(const BlendKernel *kernel, uint32_t source, uint32_t destination, uint32_t index) {
 	double preserve = kernel->options.preserve_alpha ? 1 : 0;
-	double scale = floor(kernel->opacity * (256.0 * 256 * 256 / 255) + .5);
+	double scale = floor(kernel->opacity * ((double)(1 << DISSOLVE_BITS) / 255) + .5);
 	double share = preserve * 255 + (1 - preserve) * (source >> WORD_ALPHA_SHIFT);
-	if ((hash_whole_number(index) & 16777215) >= share * scale)
+	if ((hash_whole_number(index) & DISSOLVE_MASK) >= share * scale)
 		return destination;
-	return (source & 16777215) | (uint32_t)wrap_int32(preserve * (destination >> WORD_ALPHA_SHIFT) + (1 - preserve) * 255) << WORD_ALPHA_SHIFT;
+	return (source & WORD_COLOR_MASK) |
+		   (uint32_t)wrap_int32(preserve * (destination >> WORD_ALPHA_SHIFT) + (1 - preserve) * 255) << WORD_ALPHA_SHIFT;
 }
 
 static uint32_t blend_separable_pixel(const BlendKernel *kernel, uint32_t source, uint32_t destination,
@@ -330,12 +345,12 @@ static uint32_t blend_separable_pixel(const BlendKernel *kernel, uint32_t source
 		return destination;
 	double preserve = kernel->options.preserve_alpha ? 1 : 0, fill = kernel->options.fill;
 	double top_alpha = kernel->opacity, bottom_alpha = 1;
-	double top[3], bottom[3];
+	double top[RGB_CHANNELS], bottom[RGB_CHANNELS];
 	read_color(source, top);
 	read_color(destination, bottom);
 	if (!preserve) {
-		top_alpha = (source >> WORD_ALPHA_SHIFT) * ((1.0 / 255) * kernel->opacity);
-		bottom_alpha = (destination >> WORD_ALPHA_SHIFT) * (1.0 / 255);
+		top_alpha = (source >> WORD_ALPHA_SHIFT) * (BYTE_UNIT * kernel->opacity);
+		bottom_alpha = (destination >> WORD_ALPHA_SHIFT) * BYTE_UNIT;
 	}
 	if (kernel->options.ranges)
 		top_alpha *= measure_blend_ranges(top, bottom, bottom_alpha, kernel->options.ranges);
@@ -343,39 +358,39 @@ static uint32_t blend_separable_pixel(const BlendKernel *kernel, uint32_t source
 	double scale = total == 0 ? 0 : 255 / total, weight = kernel->options.style ? 1 : top_alpha;
 	double mixed_fill = (1 + top_alpha - weight) * fill;
 	uint32_t pixel = 0;
-	for (int channel = 0; channel < 3; channel++) {
+	for (int channel = 0; channel < RGB_CHANNELS; channel++) {
 		double value = ((1 - bottom_alpha) * top_alpha * top[channel] + (1 - weight) * bottom_alpha * bottom[channel] +
 						weight * bottom_alpha * kernel->channel(top[channel], bottom[channel], mixed_fill)) *
 					   scale;
-		pixel |= ((uint32_t)round_to_int32(value) & 255) << (16 - channel * 8);
+		pixel |= ((uint32_t)round_to_int32(value) & G_MAXUINT8) << (WORD_RED_SHIFT - channel * CHAR_BIT);
 	}
 	double alpha = top_alpha * fill + bottom_alpha * (1 - top_alpha * fill);
-	return pixel | (uint32_t)round_to_int32(preserve * (destination >> WORD_ALPHA_SHIFT) + (1 - preserve) * round_to_int32(alpha * 255))
-					   << WORD_ALPHA_SHIFT;
+	double kept = preserve * (destination >> WORD_ALPHA_SHIFT) + (1 - preserve) * round_to_int32(unit_to_byte(alpha));
+	return pixel | (uint32_t)round_to_int32(kept) << WORD_ALPHA_SHIFT;
 }
 
 static uint32_t blend_color_pixel(const BlendKernel *kernel, uint32_t source, uint32_t destination, uint32_t index) {
 	double preserve = kernel->options.preserve_alpha ? 1 : 0;
 	double top_alpha = kernel->opacity, bottom_alpha = 1;
-	double top[3], bottom[3], mixed[3];
+	double top[RGB_CHANNELS], bottom[RGB_CHANNELS], mixed[RGB_CHANNELS];
 	read_color(source, top);
 	read_color(destination, bottom);
 	if (!preserve) {
-		top_alpha = (source >> WORD_ALPHA_SHIFT) * ((1.0 / 255) * kernel->opacity);
-		bottom_alpha = (destination >> WORD_ALPHA_SHIFT) * (1.0 / 255);
+		top_alpha = (source >> WORD_ALPHA_SHIFT) * (BYTE_UNIT * kernel->opacity);
+		bottom_alpha = (destination >> WORD_ALPHA_SHIFT) * BYTE_UNIT;
 	}
 	if (kernel->options.ranges)
 		top_alpha *= measure_blend_ranges(top, bottom, bottom_alpha, kernel->options.ranges);
 	double below = bottom_alpha * (1 - top_alpha), total = top_alpha + below, scale = 255 / total;
 	kernel->color(top, bottom, mixed);
 	uint32_t pixel = 0;
-	for (int channel = 0; channel < 3; channel++) {
+	for (int channel = 0; channel < RGB_CHANNELS; channel++) {
 		double value = (((1 - bottom_alpha) * top[channel] + bottom_alpha * mixed[channel]) * top_alpha +
 						bottom[channel] * below) *
 					   scale;
-		pixel |= ((uint32_t)wrap_int32(value) & 255) << (16 - channel * 8);
+		pixel |= ((uint32_t)wrap_int32(value) & G_MAXUINT8) << (WORD_RED_SHIFT - channel * CHAR_BIT);
 	}
-	double alpha = preserve * (destination >> WORD_ALPHA_SHIFT) + (1 - preserve) * floor(total * 255 + .5);
+	double alpha = preserve * (destination >> WORD_ALPHA_SHIFT) + (1 - preserve) * floor(unit_to_byte(total) + .5);
 	return pixel | (uint32_t)wrap_int32(alpha) << WORD_ALPHA_SHIFT;
 }
 
