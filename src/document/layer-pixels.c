@@ -133,8 +133,7 @@ gboolean copy_selection_to_layer(Document *document, gboolean cut, gboolean exte
 		flags -= 1;
 	set_number(copy, "NF", flags);
 	set_boolean(copy, "jl", FALSE);
-	Record *history_name = create_history_name(6, 49);
-	append_record(history_name, create_number(cut ? 1 : 0));
+	Record *history_name = create_history_name(cut ? HISTORY_LAYER_VIA_CUT : HISTORY_LAYER_VIA_COPY);
 	insert_pixel_layer(document, copy, pixels, extent, index, cut ? create_cleared_layer(layer, selection) : NULL,
 					   history_name, extended_history);
 	return TRUE;
@@ -173,7 +172,7 @@ gboolean clear_selection_pixels(Document *document, gboolean extended_history, G
 	free_record(g_ptr_array_index(next->value.array, index));
 	g_ptr_array_index(next->value.array, index) = create_cleared_layer(layer, selection);
 	set_boolean(record, "di", TRUE);
-	record_layer_list(document, create_history_name(2, 2), next, copy_array_shallow(selected),
+	record_layer_list(document, create_history_name(HISTORY_CLEAR), next, copy_array_shallow(selected),
 					  copy_array_shallow(selected), extended_history);
 	return TRUE;
 }
@@ -190,6 +189,6 @@ gboolean paste_pixels(Document *document, Record *pixels, RasterExtent extent, g
 			extent.y = -((extent.height - height + 1) / 2);
 	}
 	insert_pixel_layer(document, create_document_layer(document, FALSE), pixels, extent, -1, NULL,
-					   create_history_name(5, 2), extended_history);
+					   create_history_name(HISTORY_PASTE), extended_history);
 	return TRUE;
 }

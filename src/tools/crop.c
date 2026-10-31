@@ -241,7 +241,7 @@ gboolean crop_document(Document *document, const double quad[8], const CropOptio
 		options = &FREE_CROP;
 	if (!plan_crop(quad, document_width(document), document_height(document), options, &plan))
 		return FALSE;
-	return apply_crop_plan(document, &plan, create_history_name(10, 2), clear_selection, extended_history);
+	return apply_crop_plan(document, &plan, create_history_name(HISTORY_CROP), clear_selection, extended_history);
 }
 
 gboolean resize_image(Document *document, int width, int height, double resolution, ResampleMode mode,
@@ -259,7 +259,7 @@ gboolean resize_image(Document *document, int width, int height, double resoluti
 					 FALSE,
 					 resolution,
 					 mode};
-	return apply_crop_plan(document, &plan, create_history_name(11, 10), FALSE, extended_history);
+	return apply_crop_plan(document, &plan, create_history_name(HISTORY_IMAGE_SIZE), FALSE, extended_history);
 }
 
 gboolean resize_canvas(Document *document, int width, int height, int anchor, gboolean extended_history) {
@@ -277,7 +277,7 @@ gboolean resize_canvas(Document *document, int width, int height, int anchor, gb
 	if (anchor / 3 == 2)
 		rectangle.y = spare_y;
 	CropPlan plan = {rectangle, rectangle, {{1, 0, 0, 0, 1, 0, 0, 0}}, FALSE, FALSE, 0, RESAMPLE_BILINEAR};
-	return apply_crop_plan(document, &plan, create_history_name(11, 3), FALSE, extended_history);
+	return apply_crop_plan(document, &plan, create_history_name(HISTORY_CANVAS_SIZE), FALSE, extended_history);
 }
 
 static gboolean differs_from_trim_color(const Record *pixels, gsize pixel, const guint8 reference[4]) {
@@ -323,13 +323,12 @@ RasterExtent find_trim_bounds(const Record *pixels, int width, int height, TrimC
 	return bounds.width > 0 && bounds.height > 0 ? bounds : (RasterExtent){0};
 }
 
-static gboolean change_canvas_to(Document *document, RasterExtent rectangle, int name_item, gboolean extended_history) {
+static gboolean change_canvas_to(Document *document, RasterExtent rectangle, HistoryStep step, gboolean extended_history) {
 	RasterExtent canvas = {0, 0, document_width(document), document_height(document)};
 	if (empty_extent(rectangle) || !memcmp(&rectangle, &canvas, sizeof(rectangle)))
 		return FALSE;
 	CropPlan plan = {rectangle, rectangle, {{1, 0, 0, 0, 1, 0, 0, 0}}, FALSE, FALSE, 0, RESAMPLE_BILINEAR};
-	Record *name = create_history_name(11, 12);
-	append_record(name, create_number(name_item));
+	Record *name = create_history_name(step);
 	return apply_crop_plan(document, &plan, name, FALSE, extended_history);
 }
 
@@ -338,9 +337,9 @@ gboolean trim_document(Document *document, TrimColor color, const gboolean sides
 	int width = document_width(document), height = document_height(document);
 	if (!composite || composite->type != RECORD_BUFFER || composite->value.buffer.length < (gsize)width * height * 4)
 		return FALSE;
-	return change_canvas_to(document, find_trim_bounds(composite, width, height, color, sides), 0, extended_history);
+	return change_canvas_to(document, find_trim_bounds(composite, width, height, color, sides), HISTORY_TRIM, extended_history);
 }
 
 gboolean reveal_all(Document *document, gboolean extended_history) {
-	return change_canvas_to(document, get_tree_extent(document, document->root), 2, extended_history);
+	return change_canvas_to(document, get_tree_extent(document, document->root), HISTORY_REVEAL_ALL, extended_history);
 }

@@ -41,7 +41,7 @@ static void finish_selection_path(DocumentView *view, gboolean empty) {
 	SelectionPath *path = create_polygon_path((const double *)points->data, points->len / 2);
 	gboolean *anti_alias = get_selection_anti_alias(editor);
 	gboolean changed = empty ? deselect(document, FALSE)
-							 : select_path_area(document, path, mode, !anti_alias || *anti_alias, 10, 9, FALSE);
+							 : select_path_area(document, path, mode, !anti_alias || *anti_alias, HISTORY_LASSO_SELECTION, FALSE);
 	free_selection_path(path);
 	if (is_polygon_view(view)) {
 		g_clear_pointer(&view->finished_polygon, g_array_unref);
@@ -259,7 +259,7 @@ void finish_ellipse_selection(DocumentView *view) {
 	}
 	SelectionPath *path = create_ellipse_path(box);
 	gboolean *anti_alias = get_selection_anti_alias(view->editor);
-	select_path_area(document, path, view->select_mode, !anti_alias || *anti_alias, 10, 4, FALSE);
+	select_path_area(document, path, view->select_mode, !anti_alias || *anti_alias, HISTORY_ELLIPSE_SELECTION, FALSE);
 	free_selection_path(path);
 }
 

@@ -308,9 +308,9 @@ static Record *get_latest_move(Document *document, int mode) {
 	return get_number(data, "S") == mode ? data : NULL;
 }
 
-void append_move(Document *document, Record *data, int group, int item, gboolean extended_history) {
+void append_move(Document *document, Record *data, HistoryStep step, gboolean extended_history) {
 	Record *entry =
-		create_history_entry(create_history_name(group, item), MOVE_OPERATION, FALSE, g_get_real_time() / 1000);
+		create_history_entry(create_history_name(step), MOVE_OPERATION, FALSE, g_get_real_time() / 1000);
 	set_record(entry, "data", data);
 	append_history_entry(document, entry, &move_operation, extended_history);
 }
@@ -352,7 +352,7 @@ gboolean begin_move(MoveDrag *drag, Document *document, gboolean inside_selectio
 		return FALSE;
 	}
 	set_number(data, "z", index);
-	append_move(document, data, 12, copy ? 53 : 54, extended_history);
+	append_move(document, data, copy ? HISTORY_MOVE_COPY : HISTORY_MOVE, extended_history);
 	drag->floating = reference_record(data);
 	compose_floating(document, data, &(RasterExtent){0});
 	drag->composed = get_floating_placement(data);
@@ -409,7 +409,7 @@ gboolean finish_move(MoveDrag *drag, Document *document, gboolean extended_histo
 			set_record(data, "j", indices);
 			set_number(data, "x", drag->moved_x);
 			set_number(data, "y", drag->moved_y);
-			append_move(document, data, 12, 54, extended_history);
+			append_move(document, data, HISTORY_MOVE, extended_history);
 		}
 	}
 	clear_move(drag);

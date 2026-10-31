@@ -4,8 +4,6 @@
 #include "selection-modify.h"
 #include "pixel-selection.h"
 
-static const int MODIFY_NAMES[][3] = {{7, 9, -1}, {19, 3, 0}, {7, 4, -1}, {7, 5, -1}, {7, 6, -1}};
-
 /* ============================== Source arithmetic ============================== */
 
 /* Math.max and Math.min return NaN when either side is NaN */
@@ -367,13 +365,6 @@ static Record *clip_selection(const Document *document, Record *selection, Raste
 	return create_selection(extent, mask);
 }
 
-static Record *create_modify_name(SelectionModification modification) {
-	Record *name = create_array();
-	for (int index = 0; index < 3 && MODIFY_NAMES[modification][index] >= 0; index++)
-		append_record(name, create_number(MODIFY_NAMES[modification][index]));
-	return name;
-}
-
 gboolean modify_selection(Document *document, SelectionModification modification, int amount, gboolean at_canvas_bounds,
 						  gboolean extended_history) {
 	Record *selection = get_document_selection(document);
@@ -385,5 +376,8 @@ gboolean modify_selection(Document *document, SelectionModification modification
 	if (modified && outward && !at_canvas_bounds)
 		modified = clip_selection(document, modified, canvas);
 	modified = trim_selection(document, modified);
-	return record_named_selection(document, modified, create_modify_name(modification), extended_history);
+	/* The history step of each modification, in the order of SelectionModification */
+	const HistoryStep steps[] = {HISTORY_BORDER_SELECTION, HISTORY_SMOOTH_SELECTION, HISTORY_EXPAND_SELECTION,
+								 HISTORY_CONTRACT_SELECTION, HISTORY_FEATHER_SELECTION};
+	return record_named_selection(document, modified, create_history_name(steps[modification]), extended_history);
 }

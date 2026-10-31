@@ -2,10 +2,12 @@
 
 #include "history.h"
 
-Record *create_history_name(int group, int item) {
+Record *create_history_name(HistoryStep step) {
 	Record *name = create_array();
-	append_record(name, create_number(group));
-	append_record(name, create_number(item));
+	append_record(name, create_number(step.group));
+	append_record(name, create_number(step.item));
+	if (step.detail != NO_DETAIL)
+		append_record(name, create_number(step.detail));
 	return name;
 }
 

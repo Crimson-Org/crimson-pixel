@@ -586,7 +586,7 @@ gboolean add_adjustment_layer(Document *document, const char *key, gboolean exte
 		append_record(selections, create_null());
 		set_record(data, "Ra", selections);
 	}
-	commit_layer_list(document, data, create_history_name(6, 1), extended_history);
+	commit_layer_list(document, data, create_history_name(HISTORY_ADD_ADJUSTMENT_LAYER), extended_history);
 	return TRUE;
 }
 
@@ -624,7 +624,7 @@ gboolean edit_adjustment_layer(Document *document, int layer_index, const Record
 	Record *entry = get_latest_history_entry(document), *data = get_record(entry, "data");
 	if (!data || g_strcmp0(get_string(get_record(entry, "U"), "id"), "230") || !has_record(data, "t5") ||
 		get_number(data, "z") != layer_index) {
-		entry = create_history_entry(create_history_name(6, 39), "230", FALSE, g_get_real_time() / 1000);
+		entry = create_history_entry(create_history_name(HISTORY_EDIT_ADJUSTMENT), "230", FALSE, g_get_real_time() / 1000);
 		data = create_object(RECORD_PLAIN);
 		set_number(data, "z", layer_index);
 		set_record(data, "t5", copy_record(get_record(get_record(layer, "add"), key)));

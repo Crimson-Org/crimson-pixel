@@ -163,7 +163,7 @@ gboolean record_named_selection(Document *document, Record *selection, Record *n
 	}
 	if (!selection) {
 		free_record(name);
-		name = create_history_name(7, 1);
+		name = create_history_name(HISTORY_DESELECT);
 	}
 	Record *data = create_object(RECORD_PLAIN);
 	set_string(data, "S", "changesel");
@@ -175,8 +175,8 @@ gboolean record_named_selection(Document *document, Record *selection, Record *n
 	return TRUE;
 }
 
-gboolean record_selection(Document *document, Record *selection, int group, int item, gboolean extended) {
-	return record_named_selection(document, selection, create_history_name(group, item), extended);
+gboolean record_selection(Document *document, Record *selection, HistoryStep step, gboolean extended) {
+	return record_named_selection(document, selection, create_history_name(step), extended);
 }
 
 /* ============================== Commands ============================== */
@@ -200,11 +200,11 @@ gboolean select_rectangle(Document *document, RasterExtent rectangle, SelectionM
 		selection = combined;
 	} else if (!selection && mode != SELECTION_REPLACE && previous)
 		return FALSE;
-	return record_selection(document, selection, 10, 15, extended_history);
+	return record_selection(document, selection, HISTORY_RECTANGLE_SELECTION, extended_history);
 }
 
 gboolean select_path_area(Document *document, const SelectionPath *path, SelectionMode mode, gboolean anti_alias,
-						  int group, int item, gboolean extended_history) {
+						  HistoryStep step, gboolean extended_history) {
 	RasterExtent bounds;
 	Record *mask = rasterize_selection_path(path, get_number(document->record, "depth"), anti_alias, &bounds);
 	Record *selection = mask ? create_selection(bounds, mask) : NULL;
@@ -215,18 +215,18 @@ gboolean select_path_area(Document *document, const SelectionPath *path, Selecti
 		selection = combined;
 	} else
 		selection = trim_selection(document, selection);
-	return record_selection(document, selection, group, item, extended_history);
+	return record_selection(document, selection, step, extended_history);
 }
 
 gboolean select_all(Document *document, gboolean extended_history) {
 	RasterExtent canvas = {0, 0, document_width(document), document_height(document)};
 	if (empty_extent(canvas))
 		return FALSE;
-	return record_selection(document, create_filled_selection(document, canvas), 7, 0, extended_history);
+	return record_selection(document, create_filled_selection(document, canvas), HISTORY_SELECT_ALL, extended_history);
 }
 
 gboolean deselect(Document *document, gboolean extended_history) {
-	return record_selection(document, NULL, 7, 1, extended_history);
+	return record_selection(document, NULL, HISTORY_DESELECT, extended_history);
 }
 
 gboolean invert_selection(Document *document, gboolean extended_history) {
@@ -240,7 +240,7 @@ gboolean invert_selection(Document *document, gboolean extended_history) {
 	for (gsize index = 0; index < (gsize)canvas.width * canvas.height; index++)
 		write_channel(mask, index, full - read_channel(mask, index));
 	Record *selection = trim_selection(document, create_selection(canvas, mask));
-	return record_selection(document, selection, 7, 2, extended_history);
+	return record_selection(document, selection, HISTORY_INVERT_SELECTION, extended_history);
 }
 
 void move_selection(Document *document, int x, int y, gboolean extended_history) {
@@ -254,7 +254,7 @@ void move_selection(Document *document, int x, int y, gboolean extended_history)
 		set_string(data, "S", "movesel");
 		set_record(data, "j6", create_extent(extent.x, extent.y, extent.width, extent.height));
 		Record *entry =
-			create_history_entry(create_history_name(7, 7), SELECTION_OPERATION, FALSE, g_get_real_time() / 1000);
+			create_history_entry(create_history_name(HISTORY_MOVE_SELECTION), SELECTION_OPERATION, FALSE, g_get_real_time() / 1000);
 		set_record(entry, "data", data);
 		append_history_entry(document, entry, &selection_operation, extended_history);
 	}
@@ -304,7 +304,7 @@ gboolean select_similar_area(Document *document, double x, double y, WandSetting
 		free_record(selection);
 		selection = combined;
 	}
-	return record_selection(document, selection, 10, 12, extended_history);
+	return record_selection(document, selection, HISTORY_MAGIC_WAND, extended_history);
 }
 
 static Record *create_alpha_selection(const Document *document, const Record *layer) {
@@ -342,5 +342,5 @@ gboolean select_layer_pixels(Document *document, int layer_index, gboolean exten
 				selection = joined;
 			}
 		}
-	return record_selection(document, trim_selection(document, selection), 14, 11, extended_history);
+	return record_selection(document, trim_selection(document, selection), HISTORY_SELECT_LAYER_PIXELS, extended_history);
 }

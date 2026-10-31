@@ -11,12 +11,6 @@ static int get_last_selected(Record *selected) {
 	return get_item(selected, count_records(selected) - 1)->value.number;
 }
 
-static Record *create_merge_name(int item) {
-	Record *name = create_history_name(6, 12);
-	append_record(name, create_number(item));
-	return name;
-}
-
 static Record *create_number_list(const GArray *indices) {
 	Record *list = create_array();
 	for (guint index = 0; index < indices->len; index++)
@@ -52,7 +46,7 @@ gboolean group_selected_layers(Document *document, gboolean extended_history, GE
 	int position = place + 1 + members->len;
 	g_ptr_array_insert(next->value.array, position, group);
 	set_boolean(record, "di", TRUE);
-	record_layer_list(document, create_history_name(6, 9), next, copy_array_shallow(selected),
+	record_layer_list(document, create_history_name(HISTORY_GROUP_LAYERS), next, copy_array_shallow(selected),
 					  create_index_list(position), extended_history);
 	return TRUE;
 }
@@ -142,7 +136,7 @@ gboolean merge_layers(Document *document, MergeKind kind, gboolean extended_hist
 			position = index;
 	g_ptr_array_insert(next->value.array, position, merged);
 	set_boolean(record, "di", TRUE);
-	record_layer_list(document, create_merge_name(0), next, copy_array_shallow(get_record(record, "j")),
+	record_layer_list(document, create_history_name(HISTORY_MERGE_DOWN), next, copy_array_shallow(get_record(record, "j")),
 					  create_index_list(position), extended_history);
 	return TRUE;
 }
@@ -166,7 +160,7 @@ gboolean flatten_image(Document *document, gboolean extended_history, GError **e
 	Record *next = create_array();
 	append_record(next, background);
 	set_boolean(record, "di", TRUE);
-	record_layer_list(document, create_merge_name(1), next, copy_array_shallow(get_record(record, "j")),
+	record_layer_list(document, create_history_name(HISTORY_FLATTEN), next, copy_array_shallow(get_record(record, "j")),
 					  create_index_list(0), extended_history);
 	return TRUE;
 }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "document/document.h"
+#include "document/history.h"
 #include "tools/magic-wand.h"
 #include "selection-path.h"
 
@@ -11,7 +11,7 @@ RasterExtent get_selection_extent(const Document *document);
 gboolean selection_contains(const Document *document, double x, double y);
 gboolean select_rectangle(Document *document, RasterExtent rectangle, SelectionMode mode, gboolean extended_history);
 gboolean select_path_area(Document *document, const SelectionPath *path, SelectionMode mode, gboolean anti_alias,
-						  int group, int item, gboolean extended_history);
+						  HistoryStep step, gboolean extended_history);
 gboolean select_all(Document *document, gboolean extended_history);
 gboolean deselect(Document *document, gboolean extended_history);
 gboolean invert_selection(Document *document, gboolean extended_history);
@@ -24,7 +24,7 @@ RasterExtent find_mask_bounds(const Record *mask, RasterExtent extent);
 gboolean select_similar_area(Document *document, double x, double y, WandSettings settings, gboolean all_layers,
 							 SelectionMode mode, gboolean extended_history, GError **error);
 gboolean select_layer_pixels(Document *document, int layer_index, gboolean extended_history);
-gboolean record_selection(Document *document, Record *selection, int group, int item, gboolean extended);
+gboolean record_selection(Document *document, Record *selection, HistoryStep step, gboolean extended);
 gboolean record_named_selection(Document *document, Record *selection, Record *name, gboolean extended);
 Record *create_selection(RasterExtent extent, Record *mask);
 Record *create_selection_mask(const Document *document, RasterExtent extent);

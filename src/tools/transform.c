@@ -649,7 +649,7 @@ static gboolean apply_to_layers(Document *document, Projective matrix, gboolean 
 	Record *data = create_object(RECORD_PLAIN);
 	set_record(data, "layers", stored);
 	Record *entry =
-		create_history_entry(create_history_name(10, 16), TRANSFORM_OPERATION, FALSE, g_get_real_time() / 1000);
+		create_history_entry(create_history_name(HISTORY_TRANSFORM), TRANSFORM_OPERATION, FALSE, g_get_real_time() / 1000);
 	set_record(entry, "data", data);
 	append_history_entry(document, entry, &transform_operation, extended_history);
 	swap_layers(data, document);
@@ -680,7 +680,7 @@ static gboolean apply_to_pixels(Document *document, Projective matrix, gboolean 
 	set_record(selection, "V", create_extent(result.x, result.y, result.width, result.height));
 	set_record(data, "xO", selection);
 	set_number(data, "z", index);
-	append_move(document, data, 10, 16, extended_history);
+	append_move(document, data, HISTORY_TRANSFORM, extended_history);
 	compose_floating(document, data, NULL);
 	return TRUE;
 }
@@ -704,7 +704,7 @@ static gboolean apply_to_selection(Document *document, Projective matrix, gboole
 	Record *selection = create_object(RECORD_PLAIN);
 	set_record(selection, "C", values);
 	set_record(selection, "V", create_extent(result.x, result.y, result.width, result.height));
-	return record_selection(document, selection, 7, 10, extended_history);
+	return record_selection(document, selection, HISTORY_TRANSFORM_SELECTION, extended_history);
 }
 
 gboolean apply_transform(Document *document, TransformMode mode, const double quad[8], gboolean extended_history,

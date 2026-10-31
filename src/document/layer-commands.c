@@ -607,7 +607,7 @@ gboolean add_new_layer(Document *document, gboolean below, gboolean extended_his
 	position = CLAMP(position, 0, (int)count_records(layers));
 	Record *next = copy_array_shallow(layers);
 	g_ptr_array_insert(next->value.array, position, layer);
-	record_layer_list(document, create_history_name(6, 13), next, copy_array_shallow(selected),
+	record_layer_list(document, create_history_name(HISTORY_NEW_LAYER), next, copy_array_shallow(selected),
 					  create_index_list(position), extended_history);
 	return TRUE;
 }
@@ -671,7 +671,7 @@ gboolean delete_selected_layers(Document *document, gboolean extended_history, G
 		   !g_strcmp0(get_string(get_item(next, lowest), "name"), "</Layer group>"))
 		lowest++;
 	set_boolean(record, "di", TRUE);
-	record_layer_list(document, create_history_name(6, 31), next, copy_array_shallow(get_record(record, "j")),
+	record_layer_list(document, create_history_name(HISTORY_DELETE_LAYERS), next, copy_array_shallow(get_record(record, "j")),
 					  create_index_list(lowest), extended_history);
 	return TRUE;
 }
@@ -767,7 +767,7 @@ gboolean duplicate_selected_layers(Document *document, gboolean extended_history
 	for (guint index = 0; index < previous->len; index++)
 		append_record(previous_selection, create_number(g_array_index(previous, int, index)));
 	set_boolean(record, "di", TRUE);
-	record_layer_list(document, create_history_name(6, 0), next, previous_selection, chosen, extended_history);
+	record_layer_list(document, create_history_name(HISTORY_DUPLICATE_LAYERS), next, previous_selection, chosen, extended_history);
 	return TRUE;
 }
 
@@ -792,7 +792,7 @@ gboolean rename_layer(Document *document, int layer_index, const char *name, gbo
 	append_record(changes, change);
 	set_string(data, "S", "38");
 	set_record(data, "$R", changes);
-	Record *entry = create_history_entry(create_history_name(6, 37), "233", FALSE, g_get_real_time() / 1000);
+	Record *entry = create_history_entry(create_history_name(HISTORY_RENAME_LAYER), "233", FALSE, g_get_real_time() / 1000);
 	set_record(entry, "data", data);
 	append_history_entry(document, entry, &layer_operation, extended_history);
 	redo_layer_command(data, document);
@@ -865,7 +865,7 @@ gboolean move_layers_to(Document *document, int source, int target, gboolean bel
 		append_record(chosen, create_number(at));
 	}
 	set_boolean(record, "di", TRUE);
-	record_layer_list(document, create_history_name(6, copy ? 0 : 35), next, copy_array_shallow(selected), chosen,
+	record_layer_list(document, create_history_name(copy ? HISTORY_DUPLICATE_LAYERS : HISTORY_MOVE_LAYERS), next, copy_array_shallow(selected), chosen,
 					  extended_history);
 	return TRUE;
 }
@@ -913,7 +913,7 @@ gboolean toggle_clipping_mask(Document *document, gboolean extended_history, GEr
 	Record *data = create_object(RECORD_PLAIN);
 	set_string(data, "S", "31");
 	set_number(data, "z", index);
-	commit_layer_list(document, data, create_history_name(6, get_boolean(layer, "jl") ? 19 : 18), extended_history);
+	commit_layer_list(document, data, create_history_name(get_boolean(layer, "jl") ? HISTORY_RELEASE_CLIPPING_MASK : HISTORY_CREATE_CLIPPING_MASK), extended_history);
 	return TRUE;
 }
 
@@ -936,6 +936,6 @@ gboolean set_layer_color(Document *document, int color, gboolean extended_histor
 	set_record(data, "Z", indices);
 	set_record(data, "a4w", before);
 	set_record(data, "ct", after);
-	commit_layer_list(document, data, create_history_name(6, 38), extended_history);
+	commit_layer_list(document, data, create_history_name(HISTORY_LAYER_COLOR), extended_history);
 	return TRUE;
 }

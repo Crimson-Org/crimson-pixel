@@ -1,6 +1,6 @@
 #pragma once
 
-#include "document/document.h"
+#include "document/history.h"
 
 typedef struct {
 	int mode;
@@ -23,4 +23,4 @@ gboolean finish_move(MoveDrag *drag, Document *document, gboolean extended_histo
 void clear_move(MoveDrag *drag);
 Record *lift_pixels(Document *document, Record *layer, gboolean copy, GError **error);
 void compose_floating(Document *document, Record *data, const RasterExtent *previous);
-void append_move(Document *document, Record *data, int group, int item, gboolean extended_history);
+void append_move(Document *document, Record *data, HistoryStep step, gboolean extended_history);
