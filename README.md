@@ -56,7 +56,8 @@ Settings are in Edit > Preferences (Ctrl+K).
 You need a [C compiler](https://gcc.gnu.org/), [make](https://www.gnu.org/software/make/), [pkg-config](https://www.freedesktop.org/wiki/Software/pkg-config/) and the development files for [GTK4](https://gtk.org) 4.14, [libadwaita](https://gnome.pages.gitlab.gnome.org/libadwaita/) 1.6, libpanel and [zlib](https://zlib.net/).\
 On [openSUSE](https://www.opensuse.org/) these come from `sudo zypper install gcc make pkg-config gtk4-devel libadwaita-devel libpanel-devel zlib-devel`.
 
-Clone it with `git clone --recurse-submodules` so the shared Crimson Core code comes along.\
-`sh .crimson-build/install.sh` installs it and `sh .crimson-build/uninstall.sh` removes it.\
-`sh .crimson-build/run.sh` builds and starts it, and `sh .crimson-build/archive.sh` writes a tar.gz to `dist/`.\
-`sh .crimson-build/appimage.sh` writes an [AppImage](https://appimage.org/) to `dist/` on [Arch Linux](https://archlinux.org/).
+Steps:
+ 1. Clone using `git clone --recurse-submodules https://github.com/Crimson-Org/crimson-pixel`
+ 2. Run `sh .crimson-build/install.sh`
+
+`sh .crimson-build/uninstall.sh` removes it again.
