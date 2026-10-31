@@ -7,6 +7,8 @@
 
 /* Selections grow, shrink, border or feather by at most this many pixels */
 #define LARGEST_MODIFY_AMOUNT 255
+/* Strokes are at most this many pixels wide */
+#define WIDEST_STROKE 200
 
 /* Modify, Fill and Stroke inputs after the shared dialog */
 typedef struct {
@@ -83,11 +85,11 @@ void show_modify_dialog(Editor *editor, int modification) {
 	dialog->base.cancel = cancel_modification;
 	dialog->amount =
 		add_number_input(&dialog->base, titles[modification], TEXT_PIXEL_UNIT, 0, LARGEST_MODIFY_AMOUNT,
-						 modify_amounts[modification], 0);
+						 modify_amounts[modification]);
 	if (modification != MODIFY_BORDER) {
 		dialog->bounds = gtk_check_button_new_with_label(TEXT_APPLY_AT_CANVAS_BOUNDS);
 		gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->bounds), modify_bounds[modification]);
-		gtk_grid_attach(GTK_GRID(dialog->base.grid), dialog->bounds, 0, 1, 3, 1);
+		add_grid_row(dialog->base.grid, dialog->bounds, LABEL_COLUMN);
 		g_signal_connect(dialog->bounds, "toggled", G_CALLBACK(change_modify_bounds), dialog);
 	}
 	g_signal_connect(dialog->amount, "value-changed", G_CALLBACK(change_modify_amount), dialog);
@@ -155,16 +157,16 @@ void show_fill_dialog(Editor *editor) {
 		gtk_drop_down_new_from_strings((const char *[]){TEXT_FILL_FOREGROUND, TEXT_FILL_BACKGROUND, TEXT_FILL_CUSTOM,
 														TEXT_FILL_BLACK, TEXT_FILL_GRAY, TEXT_FILL_WHITE, NULL});
 	gtk_drop_down_set_selected(GTK_DROP_DOWN(dialog->content), fill_content);
-	add_dialog_input(dialog->base.grid, TEXT_FILL_TITLE, dialog->content, 0);
+	add_dialog_input(dialog->base.grid, TEXT_FILL_TITLE, dialog->content);
 	dialog->color = create_color_input(fill_custom_color);
 	gtk_accessible_update_property(GTK_ACCESSIBLE(dialog->color), GTK_ACCESSIBLE_PROPERTY_LABEL, TEXT_FILL_CUSTOM, -1);
-	gtk_grid_attach(GTK_GRID(dialog->base.grid), dialog->color, 2, 0, 1, 1);
+	gtk_grid_attach(GTK_GRID(dialog->base.grid), dialog->color, EXTRA_COLUMN, get_grid_row(dialog->base.grid), 1, 1);
 	g_signal_connect(dialog->content, "notify::selected", G_CALLBACK(change_fill_content), dialog);
 	change_fill_content(G_OBJECT(dialog->content), NULL, dialog);
-	dialog->opacity = add_number_input(&dialog->base, TEXT_DIALOG_OPACITY, TEXT_PERCENT_UNIT, 0, 100, fill_opacity, 1);
+	dialog->opacity = add_number_input(&dialog->base, TEXT_DIALOG_OPACITY, TEXT_PERCENT_UNIT, 0, PERCENT, fill_opacity);
 	dialog->preserve = gtk_check_button_new_with_label(TEXT_PRESERVE_TRANSPARENCY);
 	gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->preserve), fill_preserve);
-	gtk_grid_attach(GTK_GRID(dialog->base.grid), dialog->preserve, 0, 2, 3, 1);
+	add_grid_row(dialog->base.grid, dialog->preserve, LABEL_COLUMN);
 	gtk_window_present(GTK_WINDOW(dialog->base.window));
 }
 
@@ -195,14 +197,13 @@ void show_stroke_dialog(Editor *editor) {
 		return;
 	FillDialog *dialog = (FillDialog *)create_command_dialog(editor, TEXT_STROKE_TITLE, sizeof(FillDialog));
 	dialog->base.accept = accept_stroke;
-	dialog->amount = add_number_input(&dialog->base, TEXT_STROKE_SIZE, TEXT_PIXEL_UNIT, 1, 200, stroke_width, 0);
+	dialog->amount = add_number_input(&dialog->base, TEXT_STROKE_SIZE, TEXT_PIXEL_UNIT, 1, WIDEST_STROKE, stroke_width);
 	dialog->position = gtk_drop_down_new_from_strings(
 		(const char *[]){TEXT_STROKE_INSIDE, TEXT_STROKE_CENTER, TEXT_STROKE_OUTSIDE, NULL});
 	gtk_drop_down_set_selected(GTK_DROP_DOWN(dialog->position), stroke_location);
-	add_dialog_input(dialog->base.grid, TEXT_STROKE_POSITION, dialog->position, 1);
-	dialog->opacity =
-		add_number_input(&dialog->base, TEXT_DIALOG_OPACITY, TEXT_PERCENT_UNIT, 0, 100, stroke_opacity, 2);
+	add_dialog_input(dialog->base.grid, TEXT_STROKE_POSITION, dialog->position);
+	dialog->opacity = add_number_input(&dialog->base, TEXT_DIALOG_OPACITY, TEXT_PERCENT_UNIT, 0, PERCENT, stroke_opacity);
 	dialog->color = create_color_input(read_color_button(editor->foreground));
-	add_dialog_input(dialog->base.grid, TEXT_COLOR, dialog->color, 3);
+	add_dialog_input(dialog->base.grid, TEXT_COLOR, dialog->color);
 	gtk_window_present(GTK_WINDOW(dialog->base.window));
 }

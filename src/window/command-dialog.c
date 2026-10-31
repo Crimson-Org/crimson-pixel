@@ -98,15 +98,15 @@ static gboolean press_number_key(GtkEventControllerKey *controller, guint key, g
 
 /* A number field followed by its unitshow it */
 GtkWidget *add_number_input(CommandDialog *dialog, const char *name, const char *unit, double minimum, double maximum,
-							double value, int row) {
+							double value) {
 	GtkWidget *input = gtk_spin_button_new_with_range(minimum, maximum, 1);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(input), value);
 	GtkEventController *keys = gtk_event_controller_key_new();
 	gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);
 	g_signal_connect(keys, "key-pressed", G_CALLBACK(press_number_key), dialog);
 	gtk_widget_add_controller(input, keys);
-	add_dialog_input(dialog->grid, name, input, row);
-	gtk_grid_attach(GTK_GRID(dialog->grid), gtk_label_new(unit), 2, row, 1, 1);
+	add_dialog_input(dialog->grid, name, input);
+	gtk_grid_attach(GTK_GRID(dialog->grid), gtk_label_new(unit), EXTRA_COLUMN, get_grid_row(dialog->grid), 1, 1);
 	return input;
 }
 

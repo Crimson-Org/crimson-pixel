@@ -14,7 +14,7 @@ struct CommandDialog {
 
 CommandDialog *create_command_dialog(Editor *editor, const char *title, gsize size);
 GtkWidget *add_number_input(CommandDialog *dialog, const char *name, const char *unit, double minimum, double maximum,
-							double value, int row);
+							double value);
 void show_dialog_message(CommandDialog *dialog, const GError *error);
 void press_ok(GtkButton *button, CommandDialog *dialog);
 void refresh_command_page(Editor *editor, gboolean render);

@@ -13,6 +13,12 @@
 
 /* A label colour bar leaves this much room above and below it */
 #define COLOR_BAR_INSET 2
+#define COLOR_BAR_WIDTH 4
+#define DECIMAL_BASE 10
+/* Nested layers move in this far for each group around them */
+#define NESTING_INDENT 16
+/* Thumbnails show their checkerboard in small cells */
+#define THUMBNAIL_CHECKER 4
 
 static void press_layer_list(GtkGestureClick *gesture, int presses, double x, double y, Editor *editor);
 static void press_eye(GtkGestureDrag *gesture, double x, double y, Editor *editor);
@@ -28,7 +34,7 @@ static void change_layer_value(GtkWidget *field, double percent, gpointer data) 
 	PresentedDocument *presented = get_page_document(page);
 	if (!presented || !gtk_widget_get_sensitive(field))
 		return;
-	double value = round(percent * G_MAXUINT8 / 100);
+	double value = round(percent * G_MAXUINT8 / PERCENT);
 	g_autoptr(GError) error = NULL;
 	gboolean changed = field == editor->opacity
 						   ? change_layer_opacity(presented->document, -1, value, FALSE, &error)
@@ -41,13 +47,13 @@ static void change_layer_value(GtkWidget *field, double percent, gpointer data) 
 }
 
 static GtkWidget *create_percent_control(Editor *editor, const char *label_text, GtkWidget **field) {
-	*field = create_value_field(label_text, "%", 0, 100, change_layer_value, editor);
+	*field = create_value_field(label_text, "%", 0, PERCENT, change_layer_value, editor);
 	return *field;
 }
 
 /* Layer values change through the panel for eight bit raster documents with an active layer */
 static gboolean can_edit_layer_values(Document *document) {
-	return !document->preview && document->mode == DOCUMENT_RASTER && get_number(document->record, "depth") == 8 &&
+	return !document->preview && document->mode == DOCUMENT_RASTER && get_number(document->record, "depth") == BYTE_DEPTH &&
 		   count_records(get_record(document->record, "j")) > 0 && get_active_layer(document);
 }
 
@@ -55,10 +61,11 @@ int type_percent_digit(int current, int digit) {
 	static gint64 last_digit = 0;
 	gint64 now = g_get_monotonic_time();
 	int percent;
+	/* A first digit sets the tens, with 0 for full, and a digit typed right after it sets the ones */
 	if (now - last_digit > G_USEC_PER_SEC)
-		percent = digit == 0 ? 100 : digit * 10;
+		percent = digit == 0 ? PERCENT : digit * DECIMAL_BASE;
 	else
-		percent = ((current % 10 != 0 ? current * 10 : current) + digit) % 100;
+		percent = ((current % DECIMAL_BASE != 0 ? current * DECIMAL_BASE : current) + digit) % (int)PERCENT;
 	last_digit = now;
 	return percent;
 }
@@ -69,9 +76,9 @@ void type_layer_opacity_digit(Editor *editor, int digit) {
 	if (!presented || !can_edit_layer_values(presented->document))
 		return;
 	Record *layer = get_active_layer(presented->document);
-	int percent = type_percent_digit((int)round(100 * get_number(layer, "nv") / G_MAXUINT8), digit);
+	int percent = type_percent_digit((int)round(PERCENT * get_number(layer, "nv") / G_MAXUINT8), digit);
 	g_autoptr(GError) error = NULL;
-	if (!change_layer_opacity(presented->document, -1, round(255.0 * percent / 100), FALSE, &error)) {
+	if (!change_layer_opacity(presented->document, -1, round(255.0 * percent / PERCENT), FALSE, &error)) {
 		gtk_label_set_text(GTK_LABEL(editor->status), error->message);
 		return;
 	}
@@ -160,19 +167,19 @@ static GdkTexture *create_layer_thumbnail(Document *document, Record *layer) {
 	int width = MAX(1, (int)round(document_w * scale)), height = MAX(1, (int)round(document_h * scale));
 	RasterExtent extent = read_extent(get_record(layer, "V"));
 	double maximum = channel_maximum(buffer->value.buffer.depth);
-	guint8 *pixels = g_malloc0((gsize)width * height * 4);
+	guint8 *pixels = g_malloc0((gsize)width * height * RGBA_CHANNELS);
 	for (int y = 0; y < height; y++)
 		for (int x = 0; x < width; x++) {
 			int source_x = (int)((x + 0.5) / scale) - extent.x, source_y = (int)((y + 0.5) / scale) - extent.y;
 			if (source_x < 0 || source_y < 0 || source_x >= extent.width || source_y >= extent.height)
 				continue;
-			gsize index = ((gsize)source_y * extent.width + source_x) * 4;
+			gsize index = ((gsize)source_y * extent.width + source_x) * RGBA_CHANNELS;
 			for (int channel = 0; channel < RGBA_CHANNELS; channel++)
-				pixels[((gsize)y * width + x) * 4 + channel] =
+				pixels[((gsize)y * width + x) * RGBA_CHANNELS + channel] =
 					CLAMP(read_channel(buffer, index + channel) / maximum * G_MAXUINT8 + 0.5, 0, G_MAXUINT8);
 		}
-	g_autoptr(GBytes) bytes = g_bytes_new_take(pixels, (gsize)width * height * 4);
-	return gdk_memory_texture_new(width, height, GDK_MEMORY_R8G8B8A8, bytes, (gsize)width * 4);
+	g_autoptr(GBytes) bytes = g_bytes_new_take(pixels, (gsize)width * height * RGBA_CHANNELS);
+	return gdk_memory_texture_new(width, height, GDK_MEMORY_R8G8B8A8, bytes, (gsize)width * RGBA_CHANNELS);
 }
 
 static void draw_layer_thumbnail(GtkWidget *widget, GtkSnapshot *snapshot, int width, int height, gpointer data) {
@@ -181,12 +188,7 @@ static void draw_layer_thumbnail(GtkWidget *widget, GtkSnapshot *snapshot, int w
 		MIN((double)width / gdk_texture_get_width(texture), (double)height / gdk_texture_get_height(texture));
 	double w = round(gdk_texture_get_width(texture) * scale), h = round(gdk_texture_get_height(texture) * scale);
 	graphene_rect_t bounds = GRAPHENE_RECT_INIT(round((width - w) / 2), round((height - h) / 2), w, h);
-	const GdkRGBA dark = {0.75, 0.75, 0.75, 1}, light = {0.95, 0.95, 0.95, 1};
-	gtk_snapshot_push_repeat(snapshot, &bounds, &GRAPHENE_RECT_INIT(0, 0, 8, 8));
-	gtk_snapshot_append_color(snapshot, &dark, &GRAPHENE_RECT_INIT(0, 0, 8, 8));
-	gtk_snapshot_append_color(snapshot, &light, &GRAPHENE_RECT_INIT(0, 0, 4, 4));
-	gtk_snapshot_append_color(snapshot, &light, &GRAPHENE_RECT_INIT(4, 4, 4, 4));
-	gtk_snapshot_pop(snapshot);
+	snapshot_checkerboard(snapshot, &bounds, get_default_settings()->checker_colors, THUMBNAIL_CHECKER);
 	gtk_snapshot_append_scaled_texture(snapshot, texture, GSK_SCALING_FILTER_LINEAR, &bounds);
 }
 
@@ -289,7 +291,7 @@ GtkWidget *create_layers_panel(Editor *editor) {
 
 static void set_percent_value(Editor *editor, GtkWidget *field, double value, gboolean supported) {
 	gtk_widget_set_sensitive(field, supported);
-	set_value_field(field, round(value * 100 / G_MAXUINT8));
+	set_value_field(field, round(value * PERCENT / G_MAXUINT8));
 }
 
 static void toggle_visibility(GtkButton *button, Editor *editor) {
@@ -544,7 +546,7 @@ static GtkWidget *create_color_bar(Document *document, int layer_index) {
 	int color = get_label_color(document, layer_index);
 	GtkWidget *bar = color ? create_snapshot_area(draw_color_bar, NULL, GINT_TO_POINTER(color))
 						   : gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-	gtk_widget_set_size_request(bar, 4, -1);
+	gtk_widget_set_size_request(bar, COLOR_BAR_WIDTH, -1);
 	return bar;
 }
 
@@ -701,7 +703,7 @@ static GtkWidget *create_layer_row(Editor *editor, Document *document, int layer
 		gtk_widget_set_tooltip_text(disclosure, open ? TEXT_CLOSE_GROUP : TEXT_OPEN_GROUP);
 		gtk_accessible_update_property(GTK_ACCESSIBLE(disclosure), GTK_ACCESSIBLE_PROPERTY_LABEL,
 									   open ? TEXT_CLOSE_GROUP : TEXT_OPEN_GROUP, -1);
-		gtk_widget_set_margin_start(disclosure, depth * 16);
+		gtk_widget_set_margin_start(disclosure, depth * NESTING_INDENT);
 		g_object_set_data(G_OBJECT(disclosure), "layer-index", GINT_TO_POINTER(layer_index));
 		GtkGesture *click = gtk_gesture_click_new();
 		g_signal_connect(click, "pressed", G_CALLBACK(press_group_disclosure), editor);
@@ -713,7 +715,7 @@ static GtkWidget *create_layer_row(Editor *editor, Document *document, int layer
 						   : is_adjustment_layer(layer) ? create_adjustment_button(editor, layer_index)
 														: create_thumbnail_widget(document, layer);
 	if (thumbnail) {
-		gtk_widget_set_margin_start(thumbnail, depth * 16);
+		gtk_widget_set_margin_start(thumbnail, depth * NESTING_INDENT);
 		gtk_box_append(GTK_BOX(row), thumbnail);
 		depth = 0;
 	}
@@ -721,7 +723,7 @@ static GtkWidget *create_layer_row(Editor *editor, Document *document, int layer
 	gtk_label_set_xalign(GTK_LABEL(label), 0);
 	gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
 	gtk_widget_set_hexpand(label, TRUE);
-	gtk_widget_set_margin_start(label, depth * 16);
+	gtk_widget_set_margin_start(label, depth * NESTING_INDENT);
 	if (!visible)
 		gtk_widget_add_css_class(label, "dim-label");
 	if (is_layer_group(layer))

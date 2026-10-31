@@ -16,9 +16,6 @@ enum { LEVEL_INPUT_BLACK, LEVEL_GAMMA, LEVEL_INPUT_WHITE, LEVEL_OUTPUT_BLACK, LE
 
 /* The most sliders one adjustment shows, which Black & White needs for its six hue ranges */
 #define ADJUSTMENT_SLOTS GRAY_WEIGHTS_COUNT
-/* The grid has a label, a slider and a number box, and wide rows span all three */
-#define PANEL_COLUMNS 3
-#define NUMBER_COLUMN 2
 #define SLIDER_WIDTH 220
 /* Clicking beside a slider moves it this many steps */
 #define PAGE_STEPS 10
@@ -97,7 +94,7 @@ typedef struct {
 	Record *settings;
 	GtkAdjustment *values[ADJUSTMENT_SLOTS];
 	SliderSpec specs[ADJUSTMENT_SLOTS];
-	int slider_count, next_row;
+	int slider_count;
 	/* Pixel counts of the luminance and the red, green and blue channels of the layers below */
 	guint32 counts[TONE_CHANNELS][CURVE_LEVELS];
 	gboolean has_histogram, updating;
@@ -480,18 +477,13 @@ static void toggle_option(GtkCheckButton *button, AdjustmentPanel *panel) {
 	change_value(NULL, panel);
 }
 
-/* Rows go below each other, so each part takes the next row */
-static int take_row(AdjustmentPanel *panel) {
-	return panel->next_row++;
-}
-
 static void attach_wide(AdjustmentPanel *panel, GtkWidget *widget) {
-	gtk_grid_attach(GTK_GRID(panel->grid), widget, 0, take_row(panel), PANEL_COLUMNS, 1);
+	add_grid_row(panel->grid, widget, LABEL_COLUMN);
 }
 
 /* A label, a slider and a number box sharing one value, which a setting of its own gives or a choice sets later */
 static void add_slider(AdjustmentPanel *panel, const SliderSpec *spec) {
-	int slot = panel->slider_count++, row = take_row(panel);
+	int slot = panel->slider_count++;
 	panel->specs[slot] = *spec;
 	double value = spec->key ? get_descriptor_number(panel->settings, spec->key, spec->fallback) : spec->fallback;
 	GtkAdjustment *adjustment =
@@ -501,10 +493,10 @@ static void add_slider(AdjustmentPanel *panel, const SliderSpec *spec) {
 	gtk_scale_set_draw_value(GTK_SCALE(scale), FALSE);
 	gtk_widget_set_size_request(scale, SLIDER_WIDTH, -1);
 	gtk_widget_set_hexpand(scale, TRUE);
-	add_dialog_input(panel->grid, spec->label, scale, row);
+	add_dialog_input(panel->grid, spec->label, scale);
 	GtkWidget *number = gtk_spin_button_new(adjustment, spec->step, spec->digits);
 	gtk_accessible_update_property(GTK_ACCESSIBLE(number), GTK_ACCESSIBLE_PROPERTY_LABEL, spec->label, -1);
-	gtk_grid_attach(GTK_GRID(panel->grid), number, NUMBER_COLUMN, row, 1, 1);
+	gtk_grid_attach(GTK_GRID(panel->grid), number, EXTRA_COLUMN, get_grid_row(panel->grid), 1, 1);
 	g_signal_connect(adjustment, "value-changed", G_CALLBACK(change_value), panel);
 }
 
@@ -528,7 +520,7 @@ static void add_color(AdjustmentPanel *panel, int slot, const char *name, const 
 									 &(GdkRGBA){byte_to_unit(rgb[0]), byte_to_unit(rgb[1]), byte_to_unit(rgb[2]), 1});
 	gtk_widget_set_halign(button, GTK_ALIGN_START);
 	panel->colors[slot] = button;
-	add_dialog_input(panel->grid, name, button, take_row(panel));
+	add_dialog_input(panel->grid, name, button);
 	g_signal_connect(button, "notify::rgba", G_CALLBACK(change_color), panel);
 }
 
@@ -546,7 +538,7 @@ static void read_color(const Record *settings, const char *key, double rgb[RGB_C
 
 static void add_choice(AdjustmentPanel *panel, const char *name, const char *const *labels) {
 	panel->choice = gtk_drop_down_new_from_strings(labels);
-	add_dialog_input(panel->grid, name, panel->choice, take_row(panel));
+	add_dialog_input(panel->grid, name, panel->choice);
 	g_signal_connect(panel->choice, "notify::selected", G_CALLBACK(change_choice), panel);
 }
 

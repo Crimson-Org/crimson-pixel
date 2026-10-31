@@ -255,7 +255,13 @@ guint32 get_foreground_color(Editor *editor);
 guint32 get_background_color(Editor *editor);
 guint32 read_color_button(GtkWidget *button);
 void write_color_button(GtkWidget *button, guint32 color);
-void add_dialog_input(GtkWidget *grid, const char *name, GtkWidget *input, int row);
+/* Dialog grids fill row by row, with a label, an input and sometimes something after it, such as a unit */
+enum { LABEL_COLUMN, INPUT_COLUMN, EXTRA_COLUMN, GRID_COLUMNS };
+int take_grid_row(GtkWidget *grid);
+int get_grid_row(GtkWidget *grid);
+void add_dialog_input(GtkWidget *grid, const char *name, GtkWidget *input);
+/* A widget on the next row, from a column to the end */
+void add_grid_row(GtkWidget *grid, GtkWidget *widget, int column);
 /* A colour with red in its high byte, as GTK draws it */
 GdkRGBA color_to_rgba(guint32 color, double alpha);
 guint32 rgba_to_color(const GdkRGBA *rgba);

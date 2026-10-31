@@ -10,11 +10,20 @@
 
 static const int NAVIGATOR_HEIGHT = 120;
 #define NAVIGATOR_FRAME_WIDTH 2
+/* The navigator leaves this much room around the document, and shows its checkerboard in cells this size */
+#define NAVIGATOR_MARGIN 16.0
+#define SMALL_CHECKER 4
+/* The colour square's markers, and the hue strip's height limit just under a full turn */
+#define RING_RADIUS 5
+#define HUE_MARKER_HALF 2
+#define LAST_HUE 0.9999
+#define COLOR_PANEL_HEIGHT 110
 
 /* The overview scale and offset that fit the whole document inside the navigator */
 static double get_navigator_scale(GtkWidget *area, Document *document, double *x, double *y) {
 	int width = gtk_widget_get_width(area), height = gtk_widget_get_height(area);
-	double scale = MIN((width - 16.0) / document_width(document), (height - 16.0) / document_height(document));
+	double scale = MIN((width - NAVIGATOR_MARGIN) / document_width(document),
+					   (height - NAVIGATOR_MARGIN) / document_height(document));
 	*x = (width - document_width(document) * scale) / 2;
 	*y = (height - document_height(document) * scale) / 2;
 	return scale;
@@ -32,7 +41,7 @@ static void draw_navigator(GtkWidget *area, GtkSnapshot *snapshot, int width, in
 		return;
 	graphene_rect_t image =
 		GRAPHENE_RECT_INIT(x, y, document_width(document) * scale, document_height(document) * scale);
-	snapshot_checkerboard(snapshot, &image, editor->settings.checker_colors, 4);
+	snapshot_checkerboard(snapshot, &image, editor->settings.checker_colors, SMALL_CHECKER);
 	snapshot_tiled_image(presented->tiles, snapshot, &image, &image, scale, TRUE, FALSE);
 	/* The frame marks the part of the document the primary view shows */
 	DocumentView *view = get_page_view(page, "primary");
@@ -90,13 +99,9 @@ typedef struct {
 enum { HUE_STRIP = 18, HUE_GAP = 10 };
 
 static guint32 hsv_to_color(double hue, double saturation, double value) {
-	double sector = fmod(hue, 1) * 6, fraction = sector - floor(sector);
-	double p = value * (1 - saturation), q = value * (1 - saturation * fraction);
-	double t = value * (1 - saturation * (1 - fraction));
-	double rgb[6][3] = {{value, t, p}, {q, value, p}, {p, value, t}, {p, q, value}, {t, p, value}, {value, p, q}};
-	double *channel = rgb[(int)floor(sector) % 6];
-	return (guint32)lround(channel[0] * G_MAXUINT8) << 16 | (guint32)lround(channel[1] * G_MAXUINT8) << 8 |
-		   (guint32)lround(channel[2] * G_MAXUINT8);
+	double rgb[RGB_CHANNELS];
+	convert_hsb(hue, saturation, value, rgb);
+	return rgba_to_color(&(GdkRGBA){rgb[0], rgb[1], rgb[2], 1});
 }
 
 /* Grey colors keep the previous hue so the square does not jump to red */
@@ -121,8 +126,8 @@ GdkRGBA color_to_rgba(guint32 color, double alpha) {
 }
 
 static void draw_ring(GtkSnapshot *snapshot, double x, double y, double radius) {
-	const GdkRGBA rings[2] = {{1, 1, 1, 1}, {0, 0, 0, 0.8}};
-	for (int ring = 0; ring < 2; ring++) {
+	const GdkRGBA rings[] = {{1, 1, 1, 1}, {0, 0, 0, 0.8}};
+	for (guint ring = 0; ring < G_N_ELEMENTS(rings); ring++) {
 		double size = radius + 1 - ring;
 		append_outline(snapshot, square_around(x, y, size), size, 1, &rings[ring]);
 	}
@@ -136,25 +141,28 @@ static void draw_color_panel(GtkWidget *widget, GtkSnapshot *snapshot, int width
 	graphene_rect_t area = GRAPHENE_RECT_INIT(0, 0, square, height);
 	GdkRGBA hue = color_to_rgba(hsv_to_color(panel->hue, 1, 1), 1);
 	gtk_snapshot_append_color(snapshot, &hue, &area);
-	const GskColorStop whites[2] = {{0, {1, 1, 1, 1}}, {1, {1, 1, 1, 0}}};
-	const GskColorStop blacks[2] = {{0, {0, 0, 0, 0}}, {1, {0, 0, 0, 1}}};
+	const GskColorStop whites[] = {{0, {1, 1, 1, 1}}, {1, {1, 1, 1, 0}}};
+	const GskColorStop blacks[] = {{0, {0, 0, 0, 0}}, {1, {0, 0, 0, 1}}};
 	gtk_snapshot_append_linear_gradient(snapshot, &area, &GRAPHENE_POINT_INIT(0, 0), &GRAPHENE_POINT_INIT(square, 0),
-										whites, 2);
+										whites, G_N_ELEMENTS(whites));
 	gtk_snapshot_append_linear_gradient(snapshot, &area, &GRAPHENE_POINT_INIT(0, 0), &GRAPHENE_POINT_INIT(0, height),
-										blacks, 2);
-	GskColorStop spectrum[7];
-	for (int stop = 0; stop < 7; stop++)
-		spectrum[stop] = (GskColorStop){stop / 6.0f, color_to_rgba(hsv_to_color(stop / 6.0, 1, 1), 1)};
+										blacks, G_N_ELEMENTS(blacks));
+	/* The strip runs once around the hues, with a stop at each sector's start and the first hue again at the end */
+	GskColorStop spectrum[HUE_SECTORS + 1];
+	for (int stop = 0; stop <= HUE_SECTORS; stop++)
+		spectrum[stop] = (GskColorStop){(float)stop / HUE_SECTORS,
+										color_to_rgba(hsv_to_color((double)stop / HUE_SECTORS, 1, 1), 1)};
 	graphene_rect_t strip = GRAPHENE_RECT_INIT(width - HUE_STRIP, 0, HUE_STRIP, height);
 	gtk_snapshot_append_linear_gradient(snapshot, &strip, &GRAPHENE_POINT_INIT(0, 0), &GRAPHENE_POINT_INIT(0, height),
-										spectrum, 7);
-	draw_ring(snapshot, panel->saturation * square, (1 - panel->value) * height, 5);
+										spectrum, G_N_ELEMENTS(spectrum));
+	draw_ring(snapshot, panel->saturation * square, (1 - panel->value) * height, RING_RADIUS);
 	double marker = panel->hue * height;
 	const GdkRGBA white = {1, 1, 1, 1}, black = {0, 0, 0, 0.8};
-	gtk_snapshot_append_color(snapshot, &black,
-							  &GRAPHENE_RECT_INIT(width - HUE_STRIP - 2, marker - 2, HUE_STRIP + 4, 4));
-	gtk_snapshot_append_color(snapshot, &white,
-							  &GRAPHENE_RECT_INIT(width - HUE_STRIP - 1, marker - 1, HUE_STRIP + 2, 2));
+	graphene_rect_t line = GRAPHENE_RECT_INIT(width - HUE_STRIP, marker, HUE_STRIP, 0), outer, inner;
+	graphene_rect_inset_r(&line, -HUE_MARKER_HALF, -HUE_MARKER_HALF, &outer);
+	graphene_rect_inset_r(&line, -HUE_MARKER_HALF / 2, -HUE_MARKER_HALF / 2, &inner);
+	gtk_snapshot_append_color(snapshot, &black, &outer);
+	gtk_snapshot_append_color(snapshot, &white, &inner);
 }
 
 static void pick_panel_color(GtkWidget *area, ColorPanel *panel, double x, double y) {
@@ -163,7 +171,7 @@ static void pick_panel_color(GtkWidget *area, ColorPanel *panel, double x, doubl
 	if (square <= 0 || height <= 0)
 		return;
 	if (panel->picking_hue)
-		panel->hue = CLAMP(y / height, 0, 0.9999);
+		panel->hue = CLAMP(y / height, 0, LAST_HUE);
 	else {
 		panel->saturation = CLAMP(x / square, 0, 1);
 		panel->value = 1 - CLAMP(y / height, 0, 1);
@@ -201,7 +209,7 @@ static GtkWidget *create_color_panel(Editor *editor) {
 	GtkWidget *area = create_snapshot_area(draw_color_panel, NULL, panel);
 	g_object_set_data_full(G_OBJECT(area), "color-panel", panel, g_free);
 	color_to_hsv(get_foreground_color(editor), panel);
-	gtk_widget_set_size_request(area, -1, 110);
+	gtk_widget_set_size_request(area, -1, COLOR_PANEL_HEIGHT);
 	gtk_widget_set_vexpand(area, FALSE);
 	gtk_widget_set_tooltip_text(area, TEXT_COLOR_HELP);
 	gtk_widget_set_cursor_from_name(area, "crosshair");

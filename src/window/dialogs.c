@@ -69,12 +69,28 @@ static void create_requested_document(GtkButton *button, NewDocumentDialog *dial
 	gtk_window_destroy(GTK_WINDOW(dialog->window));
 }
 
-void add_dialog_input(GtkWidget *grid, const char *name, GtkWidget *input, int row) {
+/* The grid keeps how many rows it has handed out */
+int take_grid_row(GtkWidget *grid) {
+	int row = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(grid), "next-row"));
+	g_object_set_data(G_OBJECT(grid), "next-row", GINT_TO_POINTER(row + 1));
+	return row;
+}
+
+int get_grid_row(GtkWidget *grid) {
+	return GPOINTER_TO_INT(g_object_get_data(G_OBJECT(grid), "next-row")) - 1;
+}
+
+void add_dialog_input(GtkWidget *grid, const char *name, GtkWidget *input) {
+	int row = take_grid_row(grid);
 	GtkWidget *label = gtk_label_new(name);
 	gtk_label_set_xalign(GTK_LABEL(label), 0);
-	gtk_grid_attach(GTK_GRID(grid), label, 0, row, 1, 1);
-	gtk_grid_attach(GTK_GRID(grid), input, 1, row, 1, 1);
+	gtk_grid_attach(GTK_GRID(grid), label, LABEL_COLUMN, row, 1, 1);
+	gtk_grid_attach(GTK_GRID(grid), input, INPUT_COLUMN, row, 1, 1);
 	gtk_accessible_update_property(GTK_ACCESSIBLE(input), GTK_ACCESSIBLE_PROPERTY_LABEL, name, -1);
+}
+
+void add_grid_row(GtkWidget *grid, GtkWidget *widget, int column) {
+	gtk_grid_attach(GTK_GRID(grid), widget, column, take_grid_row(grid), GRID_COLUMNS - column, 1);
 }
 
 static void change_document_mode(GObject *mode, GParamSpec *property, NewDocumentDialog *dialog) {
@@ -107,22 +123,22 @@ void show_new_dialog(Editor *editor) {
 	gtk_widget_set_margin_top(box, SPACING_ROOMY);
 	gtk_widget_set_margin_bottom(box, SPACING_ROOMY);
 	GtkWidget *grid = gtk_grid_new();
-	gtk_grid_set_row_spacing(GTK_GRID(grid), 8);
-	gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
+	gtk_grid_set_row_spacing(GTK_GRID(grid), SPACING_SNUG);
+	gtk_grid_set_column_spacing(GTK_GRID(grid), SPACING_NORMAL);
 	dialog->name = gtk_entry_new();
 	gtk_editable_set_text(GTK_EDITABLE(dialog->name), TEXT_NEW_PROJECT);
-	dialog->width = gtk_spin_button_new_with_range(1, 32768, 1);
-	dialog->height = gtk_spin_button_new_with_range(1, 32768, 1);
+	dialog->width = gtk_spin_button_new_with_range(1, NEW_DOCUMENT_LARGEST_SIDE, 1);
+	dialog->height = gtk_spin_button_new_with_range(1, NEW_DOCUMENT_LARGEST_SIDE, 1);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->width), 1280);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->height), 720);
 	dialog->mode = gtk_drop_down_new_from_strings((const char *[]){TEXT_IMAGE_MODE, TEXT_ILLUSTRATION_MODE, NULL});
 	dialog->depth = gtk_drop_down_new_from_strings((const char *[]){TEXT_DEPTH_8, TEXT_DEPTH_16, TEXT_DEPTH_32, NULL});
 	g_signal_connect(dialog->mode, "notify::selected", G_CALLBACK(change_document_mode), dialog);
-	add_dialog_input(grid, TEXT_NAME, dialog->name, 0);
-	add_dialog_input(grid, TEXT_WIDTH, dialog->width, 1);
-	add_dialog_input(grid, TEXT_HEIGHT, dialog->height, 2);
-	add_dialog_input(grid, TEXT_DOCUMENT_MODE, dialog->mode, 3);
-	add_dialog_input(grid, TEXT_CHANNEL_DEPTH, dialog->depth, 4);
+	add_dialog_input(grid, TEXT_NAME, dialog->name);
+	add_dialog_input(grid, TEXT_WIDTH, dialog->width);
+	add_dialog_input(grid, TEXT_HEIGHT, dialog->height);
+	add_dialog_input(grid, TEXT_DOCUMENT_MODE, dialog->mode);
+	add_dialog_input(grid, TEXT_CHANNEL_DEPTH, dialog->depth);
 	gtk_box_append(GTK_BOX(box), grid);
 	gtk_box_append(GTK_BOX(box), gtk_label_new(TEXT_NEW_COLOR_SETTINGS));
 	dialog->message = gtk_label_new(NULL);

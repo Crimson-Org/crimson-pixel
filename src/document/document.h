@@ -9,6 +9,8 @@
 
 #define DOCUMENT_MAX_PIXELS (64ULL * 1024 * 1024)
 #define DOCUMENT_MAX_BYTES (512ULL * 1024 * 1024)
+/* New documents are at most this many pixels a side */
+#define NEW_DOCUMENT_LARGEST_SIDE 32768
 
 /* Layer flags, the bits saved files keep in a layer record */
 enum {
