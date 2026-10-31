@@ -28,9 +28,9 @@ guint32 get_fill_content_color(FillContent content, guint32 foreground, guint32 
 gboolean fill_document(Document *document, const char *operation, guint32 color, int opacity_percent,
 					   gboolean preserve_transparency, GError **error) {
 	PaintTool tool = {.tool = operation};
-	int alpha = round_half_up(G_MAXUINT8 * (opacity_percent / 100.0));
+	int alpha = round_half_up(G_MAXUINT8 * from_percent(opacity_percent));
 	gboolean filled = fill_paint_region(&tool, document, get_document_selection(document), color, alpha,
-										preserve_transparency, 2, 3, error);
+										preserve_transparency, HISTORY_FILL, error);
 	cancel_paint_tool(&tool);
 	return filled;
 }
@@ -60,7 +60,7 @@ gboolean stroke_document(Document *document, guint32 color, int width, StrokeLoc
 		return TRUE;
 	PaintTool tool = {.tool = TOOL_STROKE_TARGET};
 	int alpha = round_half_up(255.0 * opacity_percent / 100);
-	gboolean stroked = fill_paint_region(&tool, document, border, color, alpha, FALSE, 14, 9, error);
+	gboolean stroked = fill_paint_region(&tool, document, border, color, alpha, FALSE, HISTORY_STROKE, error);
 	cancel_paint_tool(&tool);
 	return stroked;
 }

@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <math.h>
 #include <string.h>
 
@@ -7,6 +8,13 @@
 #include "document/blend.h"
 #include "document/history.h"
 #include "lang/en.h"
+
+/* Wrapped painting reaches the copies around the image, three by three, and symmetry mirrors in up to four ways */
+#define TILE_COPIES 3
+#define MIRRORS 4
+#define PAINTED_PARTS (TILE_COPIES * TILE_COPIES * MIRRORS)
+/* A straight line ends with a point a hair before its end */
+#define LINE_LEAD .001
 
 void reset_paint_tool(PaintTool *tool, const char *identifier) {
 	cancel_paint_tool(tool);
@@ -26,13 +34,13 @@ static void copy_pixels(const Record *source, RasterExtent source_extent, Record
 	for (int row = 0; row < overlap.height; row++) {
 		gsize from = (gsize)(overlap.y - source_extent.y + row) * source_extent.width + overlap.x - source_extent.x;
 		gsize to = (gsize)(overlap.y - target_extent.y + row) * target_extent.width + overlap.x - target_extent.x;
-		memcpy((guint8 *)target->value.buffer.data + to * 4, (guint8 *)source->value.buffer.data + from * 4,
-			   (gsize)overlap.width * 4);
+		memcpy((guint8 *)target->value.buffer.data + to * RGBA_CHANNELS,
+			   (guint8 *)source->value.buffer.data + from * RGBA_CHANNELS, (gsize)overlap.width * RGBA_CHANNELS);
 	}
 }
 
 static Record *create_region_pixels(RasterExtent extent) {
-	return create_channels((gsize)MAX(0, extent.width) * MAX(0, extent.height) * 4, BYTE_DEPTH);
+	return create_channels((gsize)MAX(0, extent.width) * MAX(0, extent.height) * RGBA_CHANNELS, BYTE_DEPTH);
 }
 
 static void extend_layer(Record *layer, RasterExtent extent) {
@@ -120,25 +128,29 @@ static double get_painted_history_size(const Record *data) {
 	return size;
 }
 
-/* Each painting tool names its history step with its source label in list 10 */
+/* Each painting tool names its history step in the tools group */
 typedef struct {
-	int label;
+	int step;
 	HistoryOperation operation;
 } PaintHistory;
 
 static const PaintHistory PAINT_HISTORIES[] = {
-	{0, {PAINT_TOOL_BRUSH, swap_painted_regions, swap_painted_regions, get_painted_history_size}},
-	{38, {PAINT_TOOL_PENCIL, swap_painted_regions, swap_painted_regions, get_painted_history_size}},
-	{3, {PAINT_TOOL_ERASER, swap_painted_regions, swap_painted_regions, get_painted_history_size}},
-	{6, {PAINT_TOOL_GRADIENT, swap_painted_regions, swap_painted_regions, get_painted_history_size}},
-	{13, {PAINT_TOOL_BUCKET, swap_painted_regions, swap_painted_regions, get_painted_history_size}},
-	{52, {PAINT_TOOL_MAGIC_ERASER, swap_painted_regions, swap_painted_regions, get_painted_history_size}}};
+	{TOOL_STEP_BRUSH, {PAINT_TOOL_BRUSH, swap_painted_regions, swap_painted_regions, get_painted_history_size}},
+	{TOOL_STEP_PENCIL, {PAINT_TOOL_PENCIL, swap_painted_regions, swap_painted_regions, get_painted_history_size}},
+	{TOOL_STEP_ERASER, {PAINT_TOOL_ERASER, swap_painted_regions, swap_painted_regions, get_painted_history_size}},
+	{TOOL_STEP_GRADIENT, {PAINT_TOOL_GRADIENT, swap_painted_regions, swap_painted_regions, get_painted_history_size}},
+	{TOOL_STEP_BUCKET, {PAINT_TOOL_BUCKET, swap_painted_regions, swap_painted_regions, get_painted_history_size}},
+	{TOOL_STEP_MAGIC_ERASER, {PAINT_TOOL_MAGIC_ERASER, swap_painted_regions, swap_painted_regions, get_painted_history_size}}};
 
 static const PaintHistory *find_paint_history(const char *tool) {
 	for (guint index = 0; index < G_N_ELEMENTS(PAINT_HISTORIES); index++)
 		if (!g_strcmp0(PAINT_HISTORIES[index].operation.id, tool))
 			return &PAINT_HISTORIES[index];
 	return &PAINT_HISTORIES[0];
+}
+
+static HistoryStep get_paint_step(const PaintTool *tool) {
+	return HISTORY_STEP(HISTORY_TOOLS_GROUP, find_paint_history(tool->tool)->step);
 }
 
 static gboolean is_erasing_tool(const char *tool) {
@@ -154,7 +166,7 @@ gboolean check_paint_target(Document *document, GError **error) {
 		message = count_records(selected) ? TEXT_MORE_THAN_ONE_LAYER : TEXT_SELECT_LAYER_FIRST;
 	else if (document->preview)
 		message = TEXT_PAINT_PREVIEW;
-	else if (get_number(record, "depth") != 8 || document->mode != DOCUMENT_RASTER)
+	else if (get_number(record, "depth") != BYTE_DEPTH || document->mode != DOCUMENT_RASTER)
 		message = TEXT_PAINT_DEPTH;
 	if (!message) {
 		guint index = get_item(selected, 0)->value.number;
@@ -167,11 +179,12 @@ gboolean check_paint_target(Document *document, GError **error) {
 			message = TEXT_PAINT_TARGET_UNAVAILABLE;
 		else if ((guint)get_number(layer, "NF") & LAYER_PIXELS_IRRELEVANT)
 			message = TEXT_LAYER_NOT_EDITABLE;
-		else if ((guint)get_number(descriptors, "lspf") & 2)
+		else if ((guint)get_number(descriptors, "lspf") & LOCK_PIXELS)
 			message = TEXT_LAYER_LOCKED;
 		for (LayerTree *node = g_ptr_array_index(document->lookup, index); !message && node->parent;
 			 node = node->parent)
-			if (node->parent->layer && ((guint)get_number(get_record(node->parent->layer, "add"), "lspf") >> 31 & 1))
+			if (node->parent->layer &&
+				((guint)get_number(get_record(node->parent->layer, "add"), "lspf") >> LOCK_ALL_SHIFT & 1))
 				message = TEXT_LAYER_LOCKED;
 	}
 	if (!message)
@@ -188,7 +201,7 @@ static Record *get_target_layer(PaintTool *tool) {
 static guint32 erase_pixel(guint32 coverage, guint32 pixel, double opacity) {
 	guint keep = ~(guint)round_half_up((coverage >> WORD_ALPHA_SHIFT) * opacity) & G_MAXUINT8;
 	guint alpha = (pixel >> WORD_ALPHA_SHIFT) * keep;
-	alpha = (alpha + 1 + (alpha >> 8)) >> 8;
+	alpha = divide_255(alpha);
 	return (pixel & WORD_COLOR_MASK) | alpha << WORD_ALPHA_SHIFT;
 }
 
@@ -235,7 +248,7 @@ static void composite_coverage(PaintTool *tool, const Record *coverage_pixels, R
 				guint value = (guint)read_channel(mask, (gsize)(overlap.y - mask_extent.y + row) * mask_extent.width +
 															overlap.x - mask_extent.x + column) *
 							  (covered >> WORD_ALPHA_SHIFT);
-				covered = (covered & WORD_COLOR_MASK) | ((value + 1 + (value >> 8)) >> 8) << WORD_ALPHA_SHIFT;
+				covered = (covered & WORD_COLOR_MASK) | divide_255(value) << WORD_ALPHA_SHIFT;
 			}
 			if (erasing) {
 				pixels[to] = erase_pixel(covered, below, tool->opacity);
@@ -251,9 +264,9 @@ static void composite_coverage(PaintTool *tool, const Record *coverage_pixels, R
 }
 
 /* Each image part a stroke area extent reaches through its wrapped copies and mirror images */
-static int collect_painted_parts(const PaintTool *tool, RasterExtent region, RasterExtent parts[36]) {
+static int collect_painted_parts(const PaintTool *tool, RasterExtent region, RasterExtent parts[PAINTED_PARTS]) {
 	int width = document_width(tool->document), height = document_height(tool->document);
-	int copies = tool->wrap ? 3 : 1, count = 0;
+	int copies = tool->wrap ? TILE_COPIES : 1, count = 0;
 	for (int row = 0; row < copies; row++)
 		for (int column = 0; column < copies; column++) {
 			RasterExtent part = intersect_region(
@@ -261,7 +274,7 @@ static int collect_painted_parts(const PaintTool *tool, RasterExtent region, Ras
 				(RasterExtent){0, 0, width, height});
 			if (empty_extent(part))
 				continue;
-			for (int mirror = 0; mirror < 4; mirror++) {
+			for (int mirror = 0; mirror < MIRRORS; mirror++) {
 				if ((mirror & tool->symmetry) != mirror)
 					continue;
 				RasterExtent mirrored = part;
@@ -278,14 +291,14 @@ static int collect_painted_parts(const PaintTool *tool, RasterExtent region, Ras
 /* Each image pixel takes the strongest coverage of its copies and mirror images, so overlaps never add up */
 static void merge_coverage(PaintTool *tool, RasterExtent part) {
 	int width = document_width(tool->document), height = document_height(tool->document);
-	int copies = tool->wrap ? 3 : 1;
+	int copies = tool->wrap ? TILE_COPIES : 1;
 	const guint32 *coverage = tool->stroke->coverage->value.buffer.data;
 	guint32 *merged = tool->merged->value.buffer.data;
 	gsize stride = (gsize)width * copies;
 	for (int y = part.y; y < part.y + part.height; y++)
 		for (int x = part.x; x < part.x + part.width; x++) {
 			guint32 strongest = 0;
-			for (int mirror = 0; mirror < 4; mirror++) {
+			for (int mirror = 0; mirror < MIRRORS; mirror++) {
 				if ((mirror & tool->symmetry) != mirror)
 					continue;
 				int source_x = mirror & SYMMETRY_VERTICAL ? width - 1 - x : x;
@@ -305,7 +318,7 @@ static void merge_coverage(PaintTool *tool, RasterExtent part) {
 static void composite_stroke(PaintTool *tool) {
 	g_autoptr(GArray) pending = g_array_new(FALSE, FALSE, sizeof(RasterExtent));
 	take_stroke_pending_regions(tool->stroke, pending);
-	RasterExtent image = {0, 0, document_width(tool->document), document_height(tool->document)}, parts[36];
+	RasterExtent image = {0, 0, document_width(tool->document), document_height(tool->document)}, parts[PAINTED_PARTS];
 	for (guint region = 0; region < pending->len; region++) {
 		RasterExtent changed = g_array_index(pending, RasterExtent, region);
 		if (!tool->merged) {
@@ -321,7 +334,7 @@ static void composite_stroke(PaintTool *tool) {
 
 /* The image area a complete stroke changed, mapped back from the stroke area */
 static RasterExtent get_painted_extent(PaintTool *tool) {
-	RasterExtent total = get_stroke_total_extent(tool->stroke), parts[36], painted = {0};
+	RasterExtent total = get_stroke_total_extent(tool->stroke), parts[PAINTED_PARTS], painted = {0};
 	if (!tool->merged)
 		return total;
 	int count = collect_painted_parts(tool, total, parts);
@@ -344,8 +357,7 @@ static void prepare_paint_target(PaintTool *tool, Document *document, RasterExte
 	}
 }
 
-static void finish_paint_target(PaintTool *tool, RasterExtent extent, gboolean extended_history, int name_group,
-								int name_item) {
+static void finish_paint_target(PaintTool *tool, RasterExtent extent, gboolean extended_history, HistoryStep step) {
 	Record *layer = get_target_layer(tool);
 	RasterExtent layer_extent = read_extent(get_record(layer, "V"));
 	gboolean keeps_growth = !g_strcmp0(tool->tool, PAINT_TOOL_BRUSH) || !g_strcmp0(tool->tool, PAINT_TOOL_PENCIL);
@@ -363,9 +375,7 @@ static void finish_paint_target(PaintTool *tool, RasterExtent extent, gboolean e
 	const PaintHistory *history = find_paint_history(tool->tool);
 	Record *previous = create_region_pixels(extent);
 	copy_pixels(tool->backup, tool->backup_extent, previous, extent);
-	Record *name = create_array(), *data = create_array(), *entry = create_object(RECORD_PLAIN);
-	append_record(name, create_number(name_group));
-	append_record(name, create_number(name_item));
+	Record *name = create_history_name(step), *data = create_array(), *entry = create_object(RECORD_PLAIN);
 	set_number(entry, "z", get_item(get_record(tool->document->record, "j"), 0)->value.number);
 	set_number(entry, "nG", 0);
 	set_record(entry, "jp", create_extent(extent.x, extent.y, extent.width, extent.height));
@@ -392,7 +402,8 @@ gboolean begin_paint_stroke(PaintTool *tool, Document *document, const PaintOpti
 	RasterExtent stroke_extent = document_extent;
 	tool->wrap_x = tool->wrap_y = 0;
 	if (tool->wrap) {
-		stroke_extent = (RasterExtent){0, 0, document_extent.width * 3, document_extent.height * 3};
+		stroke_extent =
+			(RasterExtent){0, 0, document_extent.width * TILE_COPIES, document_extent.height * TILE_COPIES};
 		tool->wrap_x = document_extent.width * (1 - floor(x / document_extent.width));
 		tool->wrap_y = document_extent.height * (1 - floor(y / document_extent.height));
 	}
@@ -407,7 +418,9 @@ gboolean begin_paint_stroke(PaintTool *tool, Document *document, const PaintOpti
 	double stroke_x = x + tool->wrap_x, stroke_y = y + tool->wrap_y;
 	if (line_from_last && tool->has_last) {
 		move_stroke_to(tool->stroke, last_x, last_y, NAN);
-		draw_stroke_line_to(tool->stroke, .001 * last_x + .999 * stroke_x, .001 * last_y + .999 * stroke_y, NAN);
+		/* A point a hair before the end turns the curve toward the line */
+		draw_stroke_line_to(tool->stroke, LINE_LEAD * last_x + (1 - LINE_LEAD) * stroke_x,
+							LINE_LEAD * last_y + (1 - LINE_LEAD) * stroke_y, NAN);
 		draw_stroke_line_to(tool->stroke, stroke_x, stroke_y, NAN);
 	} else
 		move_stroke_to(tool->stroke, stroke_x, stroke_y, NAN);
@@ -448,7 +461,7 @@ void end_paint_stroke(PaintTool *tool, gboolean extended_history) {
 		return;
 	finish_stroke(tool->stroke);
 	composite_stroke(tool);
-	finish_paint_target(tool, get_painted_extent(tool), extended_history, 10, find_paint_history(tool->tool)->label);
+	finish_paint_target(tool, get_painted_extent(tool), extended_history, get_paint_step(tool));
 }
 
 gboolean fill_paint_area(PaintTool *tool, Document *document, const FillOptions *options, guint32 color, double x,
@@ -483,12 +496,12 @@ gboolean fill_paint_area(PaintTool *tool, Document *document, const FillOptions 
 	tool->opacity = options->opacity;
 	prepare_paint_target(tool, document, (RasterExtent){0});
 	composite_coverage(tool, coverage, kept, kept);
-	finish_paint_target(tool, kept, FALSE, 10, find_paint_history(tool->tool)->label);
+	finish_paint_target(tool, kept, FALSE, get_paint_step(tool));
 	return TRUE;
 }
 
 gboolean fill_paint_region(PaintTool *tool, Document *document, const Record *selection, guint32 color, int alpha,
-						   gboolean preserve_transparency, int name_group, int name_item, GError **error) {
+						   gboolean preserve_transparency, HistoryStep step, GError **error) {
 	cancel_paint_tool(tool);
 	if (!check_paint_target(document, error))
 		return FALSE;
@@ -521,7 +534,7 @@ gboolean fill_paint_region(PaintTool *tool, Document *document, const Record *se
 	invalidate_painted_region(document, layer, region);
 	clear_paint_dirty_regions(tool);
 	add_paint_dirty_region(tool, region);
-	finish_paint_target(tool, region, FALSE, name_group, name_item);
+	finish_paint_target(tool, region, FALSE, step);
 	return TRUE;
 }
 
@@ -538,7 +551,7 @@ gboolean draw_paint_bitmap(PaintTool *tool, Document *document, Record *pixels, 
 	prepare_paint_target(tool, document, (RasterExtent){0});
 	composite_coverage(tool, pixels, extent, extent);
 	tool->coverage_masked = FALSE;
-	finish_paint_target(tool, extent, FALSE, 10, find_paint_history(tool->tool)->label);
+	finish_paint_target(tool, extent, FALSE, get_paint_step(tool));
 	return TRUE;
 }
 
@@ -562,18 +575,19 @@ guint32 sample_document_color(Document *document, double x, double y, int size, 
 	int column = (int)floor(x) - extent.x, row = (int)floor(y) - extent.y, half = (size - 1) / 2;
 	int left = MAX(0, column - half), top = MAX(0, row - half);
 	int right = MIN(extent.width, column + half + 1), bottom = MIN(extent.height, row + half + 1);
-	double count = (double)(right - left) * (bottom - top), sums[3] = {0};
+	double count = (double)(right - left) * (bottom - top), sums[RGB_CHANNELS] = {0};
 	for (int sample_x = left; sample_x < right; sample_x++)
 		for (int sample_y = top; sample_y < bottom; sample_y++)
 			for (int channel = 0; channel < RGB_CHANNELS; channel++)
-				sums[channel] += read_channel(pixels, 4 * ((gsize)sample_y * extent.width + sample_x) + channel);
+				sums[channel] +=
+					read_channel(pixels, RGBA_CHANNELS * ((gsize)sample_y * extent.width + sample_x) + channel);
 	double scale = G_MAXUINT8 / (channel_maximum(pixels->value.buffer.depth) * count);
 	if (pixels->value.buffer.depth == FLOAT_DEPTH)
 		scale = G_MAXUINT8 / count;
 	guint32 color = 0;
 	for (int channel = 0; channel < RGB_CHANNELS; channel++) {
 		double value = round_half_up(sums[channel] * scale);
-		color |= (guint32)(isfinite(value) ? (gint64)value & G_MAXUINT8 : 0) << (16 - channel * 8);
+		color |= (guint32)(isfinite(value) ? (gint64)value & G_MAXUINT8 : 0) << (WORD_RED_SHIFT - channel * CHAR_BIT);
 	}
 	return color;
 }

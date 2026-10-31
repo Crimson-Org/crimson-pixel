@@ -127,8 +127,8 @@ void show_new_dialog(Editor *editor) {
 	gtk_grid_set_column_spacing(GTK_GRID(grid), SPACING_NORMAL);
 	dialog->name = gtk_entry_new();
 	gtk_editable_set_text(GTK_EDITABLE(dialog->name), TEXT_NEW_PROJECT);
-	dialog->width = gtk_spin_button_new_with_range(1, NEW_DOCUMENT_LARGEST_SIDE, 1);
-	dialog->height = gtk_spin_button_new_with_range(1, NEW_DOCUMENT_LARGEST_SIDE, 1);
+	dialog->width = gtk_spin_button_new_with_range(1, DOCUMENT_LARGEST_SIDE, 1);
+	dialog->height = gtk_spin_button_new_with_range(1, DOCUMENT_LARGEST_SIDE, 1);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->width), 1280);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->height), 720);
 	dialog->mode = gtk_drop_down_new_from_strings((const char *[]){TEXT_IMAGE_MODE, TEXT_ILLUSTRATION_MODE, NULL});

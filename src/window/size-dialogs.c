@@ -3,9 +3,8 @@
 #include "lang/en.h"
 #include "common/spacing.h"
 
-/* Images resize to at most this many pixels a side, and open at this resolution when the file has none */
+/* Images resize to at most this many pixels a side, as Photoshop files allow */
 #define LARGEST_SIDE 30000
-#define DEFAULT_RESOLUTION 72
 #define ANCHOR_BUTTON_SIZE 32
 #define TRIM_COLORS (TRIM_TRANSPARENT + 1)
 

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "document/document.h"
+#include "document/history.h"
 #include "stroke.h"
 #include "magic-wand.h"
 
@@ -70,7 +70,7 @@ gboolean fill_paint_area(PaintTool *tool, Document *document, const FillOptions 
 gboolean draw_paint_bitmap(PaintTool *tool, Document *document, Record *pixels, RasterExtent extent, GError **error);
 gboolean check_paint_target(Document *document, GError **error);
 gboolean fill_paint_region(PaintTool *tool, Document *document, const Record *selection, guint32 color, int alpha,
-						   gboolean preserve_transparency, int name_group, int name_item, GError **error);
+						   gboolean preserve_transparency, HistoryStep step, GError **error);
 void cancel_paint_tool(PaintTool *tool);
 const GArray *get_paint_dirty_regions(PaintTool *tool);
 void clear_paint_dirty_regions(PaintTool *tool);

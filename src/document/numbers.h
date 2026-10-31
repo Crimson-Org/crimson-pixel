@@ -18,6 +18,11 @@ static inline double unit_to_byte(double value) {
 	return value * 255;
 }
 
+/* Divides by 255, exactly for products of two bytes, with shifts only */
+static inline guint divide_255(guint value) {
+	return (value + 1 + (value >> 8)) >> 8;
+}
+
 static inline double from_percent(double value) {
 	return value / PERCENT;
 }

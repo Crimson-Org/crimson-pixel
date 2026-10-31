@@ -18,7 +18,9 @@ typedef struct {
 #define HISTORY_STEP(group, item) ((HistoryStep){group, item, NO_DETAIL})
 #define HISTORY_DETAILED_STEP(group, item, detail) ((HistoryStep){group, item, detail})
 
+#define HISTORY_OPEN HISTORY_STEP(1, 0)
 #define HISTORY_CLEAR HISTORY_STEP(2, 2)
+#define HISTORY_FILL HISTORY_STEP(2, 3)
 #define HISTORY_PASTE HISTORY_STEP(5, 2)
 #define HISTORY_DUPLICATE_LAYERS HISTORY_STEP(6, 0)
 #define HISTORY_ADD_ADJUSTMENT_LAYER HISTORY_STEP(6, 1)
@@ -56,8 +58,13 @@ typedef struct {
 #define HISTORY_REVEAL_ALL HISTORY_DETAILED_STEP(11, 12, 2)
 #define HISTORY_MOVE_COPY HISTORY_STEP(12, 53)
 #define HISTORY_MOVE HISTORY_STEP(12, 54)
+#define HISTORY_STROKE HISTORY_STEP(14, 9)
 #define HISTORY_SELECT_LAYER_PIXELS HISTORY_STEP(14, 11)
 #define HISTORY_SMOOTH_SELECTION HISTORY_DETAILED_STEP(19, 3, 0)
+/* Painting tools name their steps in the tools group */
+#define HISTORY_TOOLS_GROUP 10
+enum { TOOL_STEP_BRUSH = 0, TOOL_STEP_ERASER = 3, TOOL_STEP_GRADIENT = 6, TOOL_STEP_BUCKET = 13, TOOL_STEP_PENCIL = 38,
+	   TOOL_STEP_MAGIC_ERASER = 52 };
 
 Record *create_history_name(HistoryStep step);
 Record *create_history_entry(Record *name, const char *operation_id, gboolean transient, double time_ms);

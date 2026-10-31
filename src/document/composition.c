@@ -33,8 +33,7 @@ typedef struct {
 	gboolean failed;
 } Composition;
 
-/* Extents past this many pixels from the origin are refused, and masks are padded to four bytes */
-#define LARGEST_COORDINATE 32768
+/* Masks are padded to four bytes */
 #define MASK_ALIGNMENT 4
 /* A spare buffer is reused unless it is this many times larger than needed */
 #define LARGEST_BUFFER_WASTE 10
@@ -116,7 +115,7 @@ static gboolean valid_extent(const Record *extent) {
 	const char *fields[] = {"x", "y", "s", "T"};
 	for (guint index = 0; index < G_N_ELEMENTS(fields); index++) {
 		double value = get_number(extent, fields[index]);
-		if (!isfinite(value) || value != trunc(value) || fabs(value) > LARGEST_COORDINATE)
+		if (!isfinite(value) || value != trunc(value) || fabs(value) > DOCUMENT_LARGEST_SIDE)
 			return FALSE;
 	}
 	return get_number(extent, "s") >= 0 && get_number(extent, "T") >= 0;
@@ -341,11 +340,6 @@ static void copy_region(const Record *source, RasterExtent source_extent, Record
 					   .destination_extent = destination_extent,
 					   .region = region};
 	run_rows_in_parallel(region.y, region.height, region.width, copy_rows, &work);
-}
-
-/* Divides by 255 exactly for products of two bytes, with shifts only */
-static guint divide_255(guint value) {
-	return (value + 1 + (value >> CHAR_BIT)) >> CHAR_BIT;
 }
 
 static void dissolve_rows(int first, int last, gpointer data) {

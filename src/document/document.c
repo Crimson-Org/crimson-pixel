@@ -1,9 +1,14 @@
+#include <limits.h>
 #include <math.h>
 #include <string.h>
 
 #include "document.h"
 #include "history.h"
 #include "lang/en.h"
+
+/* Groups nest at most this deep, and a group end that shares its group's id is moved this far away */
+#define DEEPEST_GROUPS 512
+#define GROUP_END_ID_OFFSET 16777215
 
 static void initialize_fields(Record *record, const char *names, RecordType type) {
 	g_auto(GStrv) fields = g_strsplit(names, " ", -1);
@@ -59,11 +64,11 @@ Document *create_document_record(const char *name, DocumentMode mode) {
 	Record *record = document->record = create_object(RECORD_DOCUMENT);
 	set_string(record, "UM", "psd");
 	set_string(record, "name", name);
-	set_number(record, "g_", 8);
-	set_number(record, "depth", 8);
+	set_number(record, "g_", BYTE_DEPTH);
+	set_number(record, "depth", BYTE_DEPTH);
 	set_number(record, "Ia", -1);
-	set_number(record, "P9", 4);
-	set_number(record, "Qf", 72);
+	set_number(record, "P9", RGBA_CHANNELS);
+	set_number(record, "Qf", DEFAULT_RESOLUTION);
 	set_number(record, "vt", -1);
 	initialize_fields(record, "s T aBu akI NP eN aH2 aKe", RECORD_NUMBER);
 	initialize_fields(record, "fK zn Jg Rx aAI aCN at0 _s z3 Ma di kA Ir qW", RECORD_BOOLEAN);
@@ -93,7 +98,7 @@ Document *create_document_record(const char *name, DocumentMode mode) {
 	set_record(record, "O", options);
 	double now = g_get_real_time() / G_TIME_SPAN_MILLISECOND;
 	append_record(get_record(record, "history"),
-				  create_history_entry(number_array((double[]){1, 0}, 2), NULL, FALSE, now));
+				  create_history_entry(create_history_name(HISTORY_OPEN), NULL, FALSE, now));
 	set_number(record, "aNe", now);
 	set_record(record, "u", create_view_record(record));
 	return document;
@@ -121,11 +126,24 @@ void free_document(Document *document) {
 	g_free(document);
 }
 
+/* The layer id counter keeps the last id as four big endian bytes */
+static void write_id_counter(Record *counter, guint32 value) {
+	for (gsize index = 0; index < sizeof value; index++)
+		write_channel(counter, index, value >> (sizeof value - 1 - index) * CHAR_BIT & G_MAXUINT8);
+}
+
+static double read_id_counter(const Record *counter) {
+	double value = 0;
+	for (gsize index = 0; index < sizeof(guint32); index++)
+		value = value * (G_MAXUINT8 + 1) + read_channel(counter, index);
+	return value;
+}
+
 double next_layer_id(Document *document) {
 	Record *resources = get_record(document->record, "Pz");
 	Record *counter = get_record(resources, "r1044");
 	if (!counter || counter->type == RECORD_NULL) {
-		counter = create_channels(4, BYTE_DEPTH);
+		counter = create_channels(sizeof(guint32), BYTE_DEPTH);
 		set_record(resources, "r1044", counter);
 		double maximum = 0;
 		Record *layers = get_record(document->record, "Z");
@@ -133,15 +151,10 @@ double next_layer_id(Document *document) {
 			Record *id = get_record(get_record(get_item(layers, index), "add"), "lyid");
 			maximum = !id || isnan(maximum) ? NAN : MAX(maximum, id->value.number);
 		}
-		guint32 value = isfinite(maximum) ? (guint32)fmod(maximum, 4294967296.0) : 0;
-		for (guint index = 0; index < 4; index++)
-			write_channel(counter, index, (value >> (24 - index * 8)) & G_MAXUINT8);
+		write_id_counter(counter, isfinite(maximum) ? wrap_uint32(maximum) : 0);
 	}
-	double next = read_channel(counter, 0) * 16777216 + read_channel(counter, 1) * 65536 +
-				  read_channel(counter, 2) * 256 + read_channel(counter, 3) + 1;
-	guint32 value = (guint32)fmod(next, 4294967296.0);
-	for (guint index = 0; index < 4; index++)
-		write_channel(counter, index, (value >> (24 - index * 8)) & G_MAXUINT8);
+	double next = read_id_counter(counter) + 1;
+	write_id_counter(counter, wrap_uint32(next));
 	return next;
 }
 
@@ -174,10 +187,10 @@ static gboolean validate_groups(const Record *layers, GError **error) {
 		if (!layer || layer->class != RECORD_LAYER)
 			break;
 		double section = get_number(get_record(layer, "add"), "lsct");
-		if (section == 3) {
-			if (++depth > 512)
+		if (section == SECTION_GROUP_END) {
+			if (++depth > DEEPEST_GROUPS)
 				break;
-		} else if (section == 1 || section == 2) {
+		} else if (section == SECTION_OPEN || section == SECTION_CLOSED) {
 			if (!depth)
 				break;
 			depth--;
@@ -213,7 +226,7 @@ static guint build_tree(LayerTree *tree, const Record *layers, guint position, g
 			Record *closing_id = get_record(closing_add, "lyid"), *opening_id = get_record(opening_add, "lyid");
 			if ((!closing_id && !opening_id) ||
 				(closing_id && opening_id && closing_id->value.number == opening_id->value.number))
-				set_number(closing_add, "lyid", closing_id ? closing_id->value.number + 16777215 : NAN);
+				set_number(closing_add, "lyid", closing_id ? closing_id->value.number + GROUP_END_ID_OFFSET : NAN);
 			tree->layer = child;
 			tree->index = (int)index - 1;
 			if (tree->index >= 0)
@@ -332,7 +345,7 @@ gboolean get_valid_document_dimensions(const Document *document, int *width, int
 		return FALSE;
 	double columns = horizontal->value.number, rows = vertical->value.number;
 	if (!isfinite(columns) || !isfinite(rows) || columns != trunc(columns) || rows != trunc(rows) || columns <= 0 ||
-		rows <= 0 || columns > 32768 || rows > 32768 || columns * rows > DOCUMENT_MAX_PIXELS)
+		rows <= 0 || columns > DOCUMENT_LARGEST_SIDE || rows > DOCUMENT_LARGEST_SIDE || columns * rows > DOCUMENT_MAX_PIXELS)
 		return FALSE;
 	*width = (int)columns;
 	*height = (int)rows;
@@ -349,8 +362,10 @@ int document_height(const Document *document) {
 
 Document *create_transparent_document(int width, int height, unsigned depth, DocumentMode mode, const char *name,
 									  GError **error) {
-	if (width <= 0 || height <= 0 || width > 32768 || height > 32768 || (guint64)width * height > DOCUMENT_MAX_PIXELS ||
-		(guint64)width * height * (depth / 2 + 4) > DOCUMENT_MAX_BYTES || (depth != BYTE_DEPTH && depth != WORD_DEPTH && depth != FLOAT_DEPTH)) {
+	/* Each pixel takes its four bytes of display and its samples at the depth */
+	guint64 pixel_bytes = depth / 2 + RGBA_CHANNELS;
+	if (width <= 0 || height <= 0 || width > DOCUMENT_LARGEST_SIDE || height > DOCUMENT_LARGEST_SIDE ||
+		(guint64)width * height > DOCUMENT_MAX_PIXELS || (guint64)width * height * pixel_bytes > DOCUMENT_MAX_BYTES || (depth != BYTE_DEPTH && depth != WORD_DEPTH && depth != FLOAT_DEPTH)) {
 		g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, TEXT_INVALID_SIZE_DEPTH);
 		return NULL;
 	}
@@ -372,7 +387,7 @@ Document *create_transparent_document(int width, int height, unsigned depth, Doc
 		return NULL;
 	}
 
-	Record *composite = create_channels((gsize)width * height * 4, depth);
+	Record *composite = create_channels((gsize)width * height * RGBA_CHANNELS, depth);
 	if (!composite)
 		goto allocation_failure;
 	set_record(document->record, "buffer", composite);

@@ -9,8 +9,9 @@
 
 #define DOCUMENT_MAX_PIXELS (64ULL * 1024 * 1024)
 #define DOCUMENT_MAX_BYTES (512ULL * 1024 * 1024)
-/* New documents are at most this many pixels a side */
-#define NEW_DOCUMENT_LARGEST_SIDE 32768
+/* Documents are at most this many pixels a side, and start at this resolution */
+#define DOCUMENT_LARGEST_SIDE 32768
+#define DEFAULT_RESOLUTION 72
 
 /* Layer flags, the bits saved files keep in a layer record */
 enum {
@@ -22,6 +23,7 @@ enum {
 
 /* Layer locks, where the top bit locks everything */
 enum {
+	LOCK_PIXELS = 2,
 	LOCK_POSITION = 4,
 };
 #define LOCK_ALL_SHIFT 31
