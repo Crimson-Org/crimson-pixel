@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <math.h>
 #include <string.h>
 
@@ -5,19 +6,38 @@
 #include "color-lookup.h"
 #include "color/color-spaces.h"
 
-enum { ICC_TAG_LIMIT = 100 };
+/* Profiles with more tags or process elements than these are refused */
+#define ICC_TAG_LIMIT 100
+#define PROCESS_ELEMENT_LIMIT 256
+/* mft tags keep their tables after a 48 byte header, and mft1 tables always have 256 entries */
+#define MFT_HEADER_SIZE 48
+#define MFT1_ENTRIES 256
+/* mpet tags list their elements after the channel counts and the element count, as offset and size pairs */
+#define PROCESS_COUNT_AT 4
+#define PROCESS_ENTRY_SIZE 8
+/* A curv tag keeps its count and then its values, and a parametric curve has one of five parameter counts */
+#define CURVE_HEADER_SIZE (ICC_TAG_HEAD + ICC_NUMBER_BYTES)
+static const int PARAMETRIC_COUNTS[] = {1, 3, 4, 5, 7};
+/* The colour space tables cover 0 to 2 in this many steps */
+#define COLOR_TABLE_SIZE 8000
+#define COLOR_TABLE_SCALE 4e3
+/* Positions are pulled in a hair, so the last entry is never passed */
+#define LAST_ENTRY_PULL .9999999
+#define GRID_EDGE_PULL 1.000001
+/* Blending a grid cell starts from its four corner pairs */
+#define CELL_CORNERS 4
 
-static const double ICC_WHITE[3] = {.9642, 1, .8249};
-static const double ICC_XYZ_TO_RGB[9] = {3.1338561, -1.6168667, -.4906146, -.9787684, 1.9161415,
+static const double ICC_WHITE[LUT_CHANNELS] = {.9642, 1, .8249};
+static const double ICC_XYZ_TO_RGB[LUT_CHANNELS * LUT_CHANNELS] = {3.1338561, -1.6168667, -.4906146, -.9787684, 1.9161415,
 										 .033454,	.0719453,	-.2289914, 1.4052427};
-static const double ICC_RGB_TO_XYZ[9] = {.4360747, .3850649, .14308038, .2225045, .7168786,
+static const double ICC_RGB_TO_XYZ[LUT_CHANNELS * LUT_CHANNELS] = {.4360747, .3850649, .14308038, .2225045, .7168786,
 										 .0606169, .0139322, .0971045,	.7141733};
 
 /* One parsed tag of an ICC profile, holding the parts the tag's type has */
 typedef struct IccTag IccTag;
 
 struct IccTag {
-	char type[5];
+	char type[ICC_SIGNATURE_BYTES + 1];
 	gsize size;
 	/* curv table or gamma, para parameters and XYZ values */
 	double *values;
@@ -26,7 +46,7 @@ struct IccTag {
 	int inputs, outputs, grid;
 	double *table;
 	gsize table_count;
-	double matrix[12];
+	double matrix[ICC_MATRIX_VALUES];
 	gboolean has_matrix, has_table;
 	/* mAB M curves and mft input and output tables */
 	IccTag **curves;
@@ -39,7 +59,7 @@ struct IccTag {
 };
 
 typedef struct {
-	char space_in[5], space_out[5];
+	char space_in[ICC_SIGNATURE_BYTES + 1], space_out[ICC_SIGNATURE_BYTES + 1];
 	GHashTable *tags;
 } IccProfile;
 
@@ -50,7 +70,7 @@ typedef struct {
 	gboolean failed;
 } IccReader;
 
-static double linear_table[8000], lab_table[8000];
+static double linear_table[COLOR_TABLE_SIZE], lab_table[COLOR_TABLE_SIZE];
 
 /* ============================== Reading ========================================= */
 
@@ -63,22 +83,24 @@ static guint read_byte(IccReader *reader, gsize offset) {
 }
 
 static guint read_u16(IccReader *reader, gsize offset) {
-	return read_byte(reader, offset) << 8 | read_byte(reader, offset + 1);
+	return read_byte(reader, offset) << CHAR_BIT | read_byte(reader, offset + 1);
 }
 
 static gint32 read_i32(IccReader *reader, gsize offset) {
-	return (gint32)(read_byte(reader, offset) << 24 | read_byte(reader, offset + 1) << 16 |
-					read_byte(reader, offset + 2) << 8 | read_byte(reader, offset + 3));
+	guint32 value = 0;
+	for (int index = 0; index < ICC_NUMBER_BYTES; index++)
+		value = value << CHAR_BIT | read_byte(reader, offset + index);
+	return (gint32)value;
 }
 
 static double read_fixed(IccReader *reader, gsize offset) {
-	return (gint16)read_u16(reader, offset) + read_u16(reader, offset + 2) * (1 / 65536.0);
+	return (gint16)read_u16(reader, offset) + read_u16(reader, offset + sizeof(guint16)) * (1 / ICC_FIXED_ONE);
 }
 
-static void read_signature(IccReader *reader, gsize offset, char signature[5]) {
-	for (int index = 0; index < 4; index++)
+static void read_signature(IccReader *reader, gsize offset, char signature[ICC_SIGNATURE_BYTES + 1]) {
+	for (int index = 0; index < ICC_SIGNATURE_BYTES; index++)
 		signature[index] = read_byte(reader, offset + index);
-	signature[4] = 0;
+	signature[ICC_SIGNATURE_BYTES] = 0;
 }
 
 static void free_tag(IccTag *tag) {
@@ -104,15 +126,15 @@ static void free_tag(IccTag *tag) {
 static IccTag *read_tag(IccReader *reader, gsize offset, gsize size);
 
 static void read_ab_tag(IccReader *reader, IccTag *tag, gsize offset) {
-	gsize start = offset - 8;
-	tag->inputs = read_byte(reader, offset);
-	tag->outputs = read_byte(reader, offset + 1);
-	gint32 matrix = read_i32(reader, offset + 8), curves = read_i32(reader, offset + 12);
-	gint32 table = read_i32(reader, offset + 16);
+	gsize start = offset - ICC_TAG_HEAD;
+	tag->inputs = read_byte(reader, start + MAB_INPUT_CHANNELS);
+	tag->outputs = read_byte(reader, start + MAB_OUTPUT_CHANNELS);
+	gint32 matrix = read_i32(reader, start + MAB_MATRIX_OFFSET), curves = read_i32(reader, start + MAB_M_CURVES_OFFSET);
+	gint32 table = read_i32(reader, start + MAB_CLUT_OFFSET);
 	if (matrix) {
 		tag->has_matrix = TRUE;
-		for (int index = 0; index < 12; index++)
-			tag->matrix[index] = read_fixed(reader, start + matrix + index * 4);
+		for (int index = 0; index < ICC_MATRIX_VALUES; index++)
+			tag->matrix[index] = read_fixed(reader, start + matrix + index * ICC_NUMBER_BYTES);
 	}
 	if (curves) {
 		tag->curves = g_new0(IccTag *, tag->outputs);
@@ -130,15 +152,15 @@ static void read_ab_tag(IccReader *reader, IccTag *tag, gsize offset) {
 	gsize count = tag->outputs;
 	for (int index = 0; index < tag->inputs; index++)
 		count *= read_byte(reader, position + index);
-	int precision = read_byte(reader, position + 16);
-	position += 20;
+	int precision = read_byte(reader, position + CLUT_PRECISION);
+	position += CLUT_HEADER_SIZE;
 	tag->has_table = TRUE;
 	tag->table = g_new0(double, MAX(count, 1));
 	tag->table_count = count;
 	for (gsize index = 0; index < count && !reader->failed; index++)
-		tag->table[index] = precision == 1	 ? read_byte(reader, position + index) * (1 / 255.0)
-							: precision == 2 ? read_u16(reader, position + 2 * index) * (1 / 65535.0)
-											 : 0;
+		tag->table[index] = precision == sizeof(guint8)	   ? read_byte(reader, position + index) * BYTE_UNIT
+							: precision == sizeof(guint16) ? read_u16(reader, position + sizeof(guint16) * index) * WORD_UNIT
+														   : 0;
 }
 
 static double **read_mft_tables(IccReader *reader, gsize *offset, int channels, int entries, gboolean wide) {
@@ -146,24 +168,24 @@ static double **read_mft_tables(IccReader *reader, gsize *offset, int channels, 
 	for (int channel = 0; channel < channels; channel++) {
 		tables[channel] = g_new(double, MAX(entries, 1));
 		for (int entry = 0; entry < entries; entry++) {
-			tables[channel][entry] =
-				wide ? read_u16(reader, *offset) * (1 / 65535.0) : read_byte(reader, *offset) * (1 / 255.0);
-			*offset += wide ? 2 : 1;
+			tables[channel][entry] = wide ? read_u16(reader, *offset) * WORD_UNIT : read_byte(reader, *offset) * BYTE_UNIT;
+			*offset += wide ? sizeof(guint16) : sizeof(guint8);
 		}
 	}
 	return tables;
 }
 
 static void read_mft_tag(IccReader *reader, IccTag *tag, gsize offset, gboolean wide) {
+	/* Channels in, out and the grid size come first */
 	tag->inputs = read_byte(reader, offset);
 	tag->outputs = read_byte(reader, offset + 1);
 	tag->grid = read_byte(reader, offset + 2);
-	offset += 40;
-	tag->input_entries = tag->output_entries = 256;
+	offset += MFT_HEADER_SIZE - ICC_TAG_HEAD;
+	tag->input_entries = tag->output_entries = MFT1_ENTRIES;
 	if (wide) {
 		tag->input_entries = read_u16(reader, offset);
-		tag->output_entries = read_u16(reader, offset + 2);
-		offset += 4;
+		tag->output_entries = read_u16(reader, offset + sizeof(guint16));
+		offset += 2 * sizeof(guint16);
 	}
 	tag->input_tables = read_mft_tables(reader, &offset, tag->inputs, tag->input_entries, wide);
 	gsize count = (gsize)round(pow(tag->grid, tag->inputs)) * tag->outputs;
@@ -171,17 +193,17 @@ static void read_mft_tag(IccReader *reader, IccTag *tag, gsize offset, gboolean 
 	tag->table = g_new(double, MAX(count, 1));
 	tag->table_count = count;
 	for (gsize index = 0; index < count; index++) {
-		tag->table[index] = wide ? read_u16(reader, offset) * (1 / 65535.0) : read_byte(reader, offset) * (1 / 255.0);
-		offset += wide ? 2 : 1;
+		tag->table[index] = wide ? read_u16(reader, offset) * WORD_UNIT : read_byte(reader, offset) * BYTE_UNIT;
+		offset += wide ? sizeof(guint16) : sizeof(guint8);
 	}
 	tag->output_tables = read_mft_tables(reader, &offset, tag->outputs, tag->output_entries, wide);
 }
 
 static void read_process_tag(IccReader *reader, IccTag *tag, gsize offset) {
-	gsize start = offset - 8;
-	guint32 count = read_i32(reader, offset + 4);
-	offset += 8;
-	if (count > 256) {
+	gsize start = offset - ICC_TAG_HEAD;
+	guint32 count = read_i32(reader, offset + PROCESS_COUNT_AT);
+	offset += PROCESS_COUNT_AT + ICC_NUMBER_BYTES;
+	if (count > PROCESS_ELEMENT_LIMIT) {
 		reader->failed = TRUE;
 		return;
 	}
@@ -190,24 +212,25 @@ static void read_process_tag(IccReader *reader, IccTag *tag, gsize offset) {
 		IccTag *element = g_new0(IccTag, 1);
 		tag->elements[tag->element_count++] = element;
 		gsize position = start + read_i32(reader, offset);
-		offset += 8;
+		offset += PROCESS_ENTRY_SIZE;
+		/* An element has its type, four zero bytes, and its channels in and out */
 		read_signature(reader, position, element->type);
-		position += 4;
+		position += ICC_SIGNATURE_BYTES;
 		if (read_i32(reader, position) != 0)
 			reader->failed = TRUE;
-		position += 4;
+		position += ICC_NUMBER_BYTES;
 		element->inputs = read_u16(reader, position);
-		element->outputs = read_u16(reader, position + 2);
-		position += 4;
+		element->outputs = read_u16(reader, position + sizeof(guint16));
+		position += 2 * sizeof(guint16);
 		if (strcmp(element->type, "clut"))
 			continue;
 		element->grid = read_byte(reader, position);
-		position += 16;
+		position += CLUT_PRECISION;
 		gsize values = (gsize)element->grid * element->grid * element->grid * element->outputs;
 		element->has_table = TRUE;
 		element->table = g_new(double, MAX(values, 1));
 		element->table_count = values;
-		for (gsize item = 0; item < values; item++, position += 4) {
+		for (gsize item = 0; item < values; item++, position += sizeof(float)) {
 			guint32 bits = (guint32)read_i32(reader, position);
 			float value;
 			memcpy(&value, &bits, sizeof value);
@@ -220,7 +243,7 @@ static IccTag *read_tag(IccReader *reader, gsize offset, gsize size) {
 	IccTag *tag = g_new0(IccTag, 1);
 	tag->size = size;
 	read_signature(reader, offset, tag->type);
-	offset += 8;
+	offset += ICC_TAG_HEAD;
 	if (!strcmp(tag->type, "mAB "))
 		read_ab_tag(reader, tag, offset);
 	else if (!strcmp(tag->type, "mft1"))
@@ -230,20 +253,19 @@ static IccTag *read_tag(IccReader *reader, gsize offset, gsize size) {
 	else if (!strcmp(tag->type, "mpet"))
 		read_process_tag(reader, tag, offset);
 	else if (!strcmp(tag->type, "XYZ ")) {
-		tag->values = g_new(double, 3);
-		tag->value_count = 3;
-		for (int index = 0; index < 3; index++)
-			tag->values[index] = read_fixed(reader, offset + index * 4);
+		tag->values = g_new(double, LUT_CHANNELS);
+		tag->value_count = LUT_CHANNELS;
+		for (int index = 0; index < LUT_CHANNELS; index++)
+			tag->values[index] = read_fixed(reader, offset + index * ICC_NUMBER_BYTES);
 	} else if (!strcmp(tag->type, "para")) {
-		const int counts[] = {1, 3, 4, 5, 7};
 		guint kind = read_u16(reader, offset);
-		if (kind >= G_N_ELEMENTS(counts))
+		if (kind >= G_N_ELEMENTS(PARAMETRIC_COUNTS))
 			reader->failed = TRUE;
 		else {
-			tag->value_count = counts[kind];
+			tag->value_count = PARAMETRIC_COUNTS[kind];
 			tag->values = g_new(double, tag->value_count);
 			for (int index = 0; index < tag->value_count; index++)
-				tag->values[index] = read_fixed(reader, offset + 4 + index * 4);
+				tag->values[index] = read_fixed(reader, offset + (index + 1) * ICC_NUMBER_BYTES);
 		}
 	} else if (!strcmp(tag->type, "curv")) {
 		gint32 count = read_i32(reader, offset);
@@ -252,16 +274,18 @@ static IccTag *read_tag(IccReader *reader, gsize offset, gsize size) {
 		else {
 			tag->value_count = count;
 			tag->values = g_new(double, MAX(count, 1));
+			gsize values = offset + ICC_NUMBER_BYTES;
+			/* One value is a gamma, and more are the curve's points */
 			if (count == 1)
-				tag->values[0] = read_byte(reader, offset + 4) + read_byte(reader, offset + 5) / 256.0;
+				tag->values[0] = read_byte(reader, values) + read_byte(reader, values + 1) / ICC_GAMMA_FIXED_ONE;
 			else
 				for (gint32 index = 0; index < count; index++)
-					tag->values[index] = read_u16(reader, offset + 4 + index * 2) * (1 / 65535.0);
-			tag->size = 12 + 2 * count;
+					tag->values[index] = read_u16(reader, values + index * sizeof(guint16)) * WORD_UNIT;
+			tag->size = CURVE_HEADER_SIZE + sizeof(guint16) * count;
 		}
 	}
-	if (tag->size & 3)
-		tag->size += 4 - (tag->size & 3);
+	if (tag->size % ICC_ALIGNMENT)
+		tag->size += ICC_ALIGNMENT - tag->size % ICC_ALIGNMENT;
 	return tag;
 }
 
@@ -279,13 +303,14 @@ static IccProfile *read_profile(const guint8 *data, gsize length) {
 		return NULL;
 	IccProfile *profile = g_new0(IccProfile, 1);
 	profile->tags = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)free_tag);
-	read_signature(&reader, 16, profile->space_in);
-	read_signature(&reader, 20, profile->space_out);
+	read_signature(&reader, ICC_SPACE_IN_AT, profile->space_in);
+	read_signature(&reader, ICC_SPACE_OUT_AT, profile->space_out);
 	for (gint32 index = 0; index < count && !reader.failed; index++) {
-		gsize entry = ICC_HEADER_SIZE + 4 + index * 12;
-		char signature[5];
+		gsize entry = ICC_HEADER_SIZE + ICC_NUMBER_BYTES + index * ICC_TAG_ENTRY_SIZE;
+		char signature[ICC_SIGNATURE_BYTES + 1];
 		read_signature(&reader, entry, signature);
-		IccTag *tag = read_tag(&reader, read_i32(&reader, entry + 4), read_i32(&reader, entry + 8));
+		IccTag *tag =
+			read_tag(&reader, read_i32(&reader, entry + TAG_ENTRY_OFFSET), read_i32(&reader, entry + TAG_ENTRY_SIZE));
 		g_hash_table_replace(profile->tags, g_strdup(signature), tag);
 	}
 	if (!reader.failed)
@@ -300,8 +325,8 @@ static void fill_tables(void) {
 	static gsize ready;
 	if (!g_once_init_enter(&ready))
 		return;
-	for (int index = 0; index < 8000; index++) {
-		double value = index / 4e3;
+	for (int index = 0; index < COLOR_TABLE_SIZE; index++) {
+		double value = index / COLOR_TABLE_SCALE;
 		linear_table[index] = linearize_srgb(value);
 		lab_table[index] = value > .008856 ? pow(value, 1 / 3.0) : (903.3 * value + 16) * (1 / 116.0);
 	}
@@ -314,24 +339,27 @@ static double read_item(const double *values, gsize count, double index) {
 }
 
 static double read_color_table(const double *table, double position) {
-	return read_item(table, 8000, trunc(.5 + position));
+	return read_item(table, COLOR_TABLE_SIZE, trunc(.5 + position));
 }
 
-static void convert_rgb_to_xyz(const double rgb[3], double xyz[3]) {
-	double red = read_color_table(linear_table, rgb[0] * 4e3), green = read_color_table(linear_table, rgb[1] * 4e3);
-	double blue = read_color_table(linear_table, rgb[2] * 4e3);
-	for (int row = 0; row < 3; row++)
-		xyz[row] =
-			ICC_RGB_TO_XYZ[row * 3] * red + ICC_RGB_TO_XYZ[row * 3 + 1] * green + ICC_RGB_TO_XYZ[row * 3 + 2] * blue;
+static void convert_rgb_to_xyz(const double rgb[LUT_CHANNELS], double xyz[LUT_CHANNELS]) {
+	double red = read_color_table(linear_table, rgb[0] * COLOR_TABLE_SCALE);
+	double green = read_color_table(linear_table, rgb[1] * COLOR_TABLE_SCALE);
+	double blue = read_color_table(linear_table, rgb[2] * COLOR_TABLE_SCALE);
+	for (int row = 0; row < LUT_CHANNELS; row++) {
+		const double *weights = ICC_RGB_TO_XYZ + row * LUT_CHANNELS;
+		xyz[row] = weights[0] * red + weights[1] * green + weights[2] * blue;
+	}
 }
 
-static void convert_xyz_to_fractions(const double xyz[3], const double *white, double *point) {
+/* Lab with the lightness in hundredths, and a and b centered on half a byte, all as fractions */
+static void convert_xyz_to_fractions(const double xyz[LUT_CHANNELS], const double *white, double *point) {
 	double x = xyz[0] * (1 / white[0]), y = xyz[1] * (1 / white[1]), z = xyz[2] < 0 ? 0 : xyz[2] * (1 / white[2]);
-	double fx = read_color_table(lab_table, x * 4e3), fy = read_color_table(lab_table, y * 4e3);
-	double fz = read_color_table(lab_table, z * 4e3);
-	point[0] = (116 * fy - 16) / 100;
-	point[1] = (127.5 + 500 * (fx - fy)) / 255;
-	point[2] = (127.5 + 200 * (fy - fz)) / 255;
+	double fx = read_color_table(lab_table, x * COLOR_TABLE_SCALE), fy = read_color_table(lab_table, y * COLOR_TABLE_SCALE);
+	double fz = read_color_table(lab_table, z * COLOR_TABLE_SCALE);
+	point[0] = from_percent(116 * fy - 16);
+	point[1] = byte_to_unit(127.5 + 500 * (fx - fy));
+	point[2] = byte_to_unit(127.5 + 200 * (fy - fz));
 }
 
 static void convert_lab_to_fractions(double lightness, double a, double b, const double *white, double *point) {
@@ -341,10 +369,11 @@ static void convert_lab_to_fractions(double lightness, double a, double b, const
 	double z = z_cube > epsilon ? z_cube : (116 * fz - 16) / kappa;
 	double y = y_cube > epsilon ? y_cube : (116 * fy - 16) / kappa;
 	double x = x_cube > epsilon ? x_cube : (116 * fx - 16) / kappa;
-	double xyz[3] = {x * white[0], y * white[1], z * white[2]};
-	for (int row = 0; row < 3; row++)
-		point[row] = MAX(0, MIN(1, encode_srgb(ICC_XYZ_TO_RGB[row * 3] * xyz[0] + ICC_XYZ_TO_RGB[row * 3 + 1] * xyz[1] +
-											   ICC_XYZ_TO_RGB[row * 3 + 2] * xyz[2])));
+	double xyz[LUT_CHANNELS] = {x * white[0], y * white[1], z * white[2]};
+	for (int row = 0; row < LUT_CHANNELS; row++) {
+		const double *weights = ICC_XYZ_TO_RGB + row * LUT_CHANNELS;
+		point[row] = MAX(0, MIN(1, encode_srgb(weights[0] * xyz[0] + weights[1] * xyz[1] + weights[2] * xyz[2])));
+	}
 }
 
 static double evaluate_table_curve(double value, const double *values, int count) {
@@ -352,7 +381,7 @@ static double evaluate_table_curve(double value, const double *values, int count
 		return value;
 	if (count == 1)
 		return pow(value, values[0]);
-	double position = value * (count - 1) * .9999999, whole = trunc(position), part = position - whole;
+	double position = value * (count - 1) * LAST_ENTRY_PULL, whole = trunc(position), part = position - whole;
 	return (1 - part) * read_item(values, count, whole) + part * read_item(values, count, whole + 1);
 }
 
@@ -384,12 +413,11 @@ static gboolean is_curve(const IccTag *tag) {
 
 static void blend_entries(const double *from, gsize count, double first, double second, double part, int slot,
 						  double *working) {
-	double one = read_item(from, count, first * 3), two = read_item(from, count, second * 3);
-	double one_green = read_item(from, count, first * 3 + 1), two_green = read_item(from, count, second * 3 + 1);
-	double one_blue = read_item(from, count, first * 3 + 2), two_blue = read_item(from, count, second * 3 + 2);
-	working[slot * 3] = (1 - part) * one + part * two;
-	working[slot * 3 + 1] = (1 - part) * one_green + part * two_green;
-	working[slot * 3 + 2] = (1 - part) * one_blue + part * two_blue;
+	for (int channel = 0; channel < LUT_CHANNELS; channel++) {
+		double one = read_item(from, count, first * LUT_CHANNELS + channel);
+		double two = read_item(from, count, second * LUT_CHANNELS + channel);
+		working[slot * LUT_CHANNELS + channel] = (1 - part) * one + part * two;
+	}
 }
 
 static void interpolate_grid(double red, double green, double blue, int grid, const double *table, gsize count,
@@ -401,14 +429,16 @@ static void interpolate_grid(double red, double green, double blue, int grid, co
 	blend_entries(table, count, far, far + 1, blue - blue_index, 1, working);
 	blend_entries(table, count, near + plane, near + 1 + plane, blue - blue_index, 2, working);
 	blend_entries(table, count, far + plane, far + 1 + plane, blue - blue_index, 3, working);
-	blend_entries(working, 12, 0, 1, green - green_index, 0, working);
-	blend_entries(working, 12, 2, 3, green - green_index, 2, working);
-	blend_entries(working, 12, 0, 2, red - red_index, 0, working);
+	const gsize cells = CELL_CORNERS * LUT_CHANNELS;
+	blend_entries(working, cells, 0, 1, green - green_index, 0, working);
+	blend_entries(working, cells, 2, 3, green - green_index, 2, working);
+	blend_entries(working, cells, 0, 2, red - red_index, 0, working);
 }
 
 static void apply_grid_to_point(const double *table, gsize count, int grid, double *point) {
-	double above[3] = {0, 0, 0}, values[3], working[12], scale = grid - 1.000001;
-	for (int channel = 0; channel < 3; channel++) {
+	double above[LUT_CHANNELS] = {0, 0, 0}, values[LUT_CHANNELS], working[CELL_CORNERS * LUT_CHANNELS];
+	double scale = grid - GRID_EDGE_PULL;
+	for (int channel = 0; channel < LUT_CHANNELS; channel++) {
 		values[channel] = point[channel];
 		if (values[channel] > 1) {
 			above[channel] = values[channel] - 1;
@@ -416,23 +446,24 @@ static void apply_grid_to_point(const double *table, gsize count, int grid, doub
 		}
 	}
 	interpolate_grid(scale * values[0], scale * values[1], scale * values[2], grid, table, count, working);
-	for (int channel = 0; channel < 3; channel++)
+	for (int channel = 0; channel < LUT_CHANNELS; channel++)
 		point[channel] = working[channel] + above[channel];
 }
 
 static gboolean apply_ab_tag(const IccTag *tag, double *point) {
 	if (tag->has_table) {
-		if (tag->outputs != 3 || (tag->inputs && tag->inputs != 3))
+		if (tag->outputs != LUT_CHANNELS || (tag->inputs && tag->inputs != LUT_CHANNELS))
 			return FALSE;
 		apply_grid_to_point(tag->table, tag->table_count, tag->grid, point);
 	}
 	if (tag->curves) {
-		if (tag->curve_count < 3)
+		if (tag->curve_count < LUT_CHANNELS)
 			return FALSE;
-		for (int channel = 0; channel < 3; channel++)
+		for (int channel = 0; channel < LUT_CHANNELS; channel++)
 			point[channel] = evaluate_curve(point[channel], tag->curves[channel]);
 	}
 	if (tag->has_matrix) {
+		/* The three by three part first, then the offsets of the rows */
 		const double *m = tag->matrix, red = point[0], green = point[1], blue = point[2];
 		point[0] = MAX(0, MIN(1, m[0] * red + m[1] * green + m[2] * blue + m[9]));
 		point[1] = MAX(0, MIN(1, m[3] * red + m[4] * green + m[5] * blue + m[10]));
@@ -442,12 +473,12 @@ static gboolean apply_ab_tag(const IccTag *tag, double *point) {
 }
 
 static gboolean apply_mft_tag(const IccTag *tag, double *point) {
-	if (tag->inputs != 3 || tag->outputs != 3)
+	if (tag->inputs != LUT_CHANNELS || tag->outputs != LUT_CHANNELS)
 		return FALSE;
-	for (int channel = 0; channel < 3; channel++)
+	for (int channel = 0; channel < LUT_CHANNELS; channel++)
 		point[channel] = evaluate_table_curve(point[channel], tag->input_tables[channel], tag->input_entries);
 	apply_grid_to_point(tag->table, tag->table_count, tag->grid, point);
-	for (int channel = 0; channel < 3; channel++)
+	for (int channel = 0; channel < LUT_CHANNELS; channel++)
 		point[channel] = evaluate_table_curve(point[channel], tag->output_tables[channel], tag->output_entries);
 	return TRUE;
 }
@@ -459,30 +490,30 @@ static IccTag *find_tag(const IccProfile *profile, const char *signature) {
 static gboolean sample_point(const IccProfile *profile, double *point) {
 	const char *input = profile->space_in, *output = profile->space_out;
 	if (!g_ascii_strcasecmp(input, "lab ")) {
-		double xyz[3];
+		double xyz[LUT_CHANNELS];
 		convert_rgb_to_xyz(point, xyz);
 		convert_xyz_to_fractions(xyz, ICC_WHITE, point);
 	} else if (!g_ascii_strcasecmp(input, "xyz ")) {
-		double xyz[3];
+		double xyz[LUT_CHANNELS];
 		convert_rgb_to_xyz(point, xyz);
 		memcpy(point, xyz, sizeof xyz);
 	} else if (g_ascii_strcasecmp(input, "rgb ") && g_ascii_strcasecmp(input, "gray"))
 		return FALSE;
 	IccTag *curves[] = {find_tag(profile, "rTRC"), find_tag(profile, "gTRC"), find_tag(profile, "bTRC")};
 	if (curves[0]) {
-		for (int channel = 0; channel < 3; channel++)
+		for (int channel = 0; channel < LUT_CHANNELS; channel++)
 			if (!is_curve(curves[channel]))
 				return FALSE;
-		for (int channel = 0; channel < 3; channel++)
+		for (int channel = 0; channel < LUT_CHANNELS; channel++)
 			point[channel] = evaluate_curve(point[channel], curves[channel]);
 	}
 	IccTag *columns[] = {find_tag(profile, "rXYZ"), find_tag(profile, "gXYZ"), find_tag(profile, "bXYZ")};
 	if (columns[0]) {
-		for (int column = 0; column < 3; column++)
-			if (!columns[column] || columns[column]->value_count != 3)
+		for (int column = 0; column < LUT_CHANNELS; column++)
+			if (!columns[column] || columns[column]->value_count != LUT_CHANNELS)
 				return FALSE;
 		double red = point[0], green = point[1], blue = point[2];
-		for (int row = 0; row < 3; row++)
+		for (int row = 0; row < LUT_CHANNELS; row++)
 			point[row] = MAX(0, MIN(1, red * columns[0]->values[row] + green * columns[1]->values[row] +
 										   blue * columns[2]->values[row]));
 	}
@@ -504,13 +535,13 @@ static gboolean sample_point(const IccProfile *profile, double *point) {
 	if (!g_ascii_strcasecmp(output, "rgb "))
 		return TRUE;
 	IccTag *white_tag = find_tag(profile, "wtpt");
-	const double *white = white_tag && white_tag->value_count == 3 ? white_tag->values : ICC_WHITE;
+	const double *white = white_tag && white_tag->value_count == LUT_CHANNELS ? white_tag->values : ICC_WHITE;
 	if (!g_ascii_strcasecmp(output, "xyz ")) {
-		double xyz[3] = {point[0], point[1], point[2]};
+		double xyz[LUT_CHANNELS] = {point[0], point[1], point[2]};
 		convert_xyz_to_fractions(xyz, white, point);
 	} else if (g_ascii_strcasecmp(output, "lab "))
 		return FALSE;
-	convert_lab_to_fractions(point[0] * 100, -127.5 + 255 * point[1], -127.5 + 255 * point[2], white, point);
+	convert_lab_to_fractions(point[0] * PERCENT, -127.5 + 255 * point[1], -127.5 + 255 * point[2], white, point);
 	return TRUE;
 }
 
@@ -550,11 +581,12 @@ static gboolean sample_profile(const guint8 *data, gsize length, double *samples
 	gsize index = 0;
 	for (int red = 0; red < COLOR_LOOKUP_GRID; red++)
 		for (int green = 0; green < COLOR_LOOKUP_GRID; green++)
-			for (int blue = 0; blue < COLOR_LOOKUP_GRID; blue++, index += 3) {
-				double point[4] = {red * step, green * step, blue * step, 0};
+			for (int blue = 0; blue < COLOR_LOOKUP_GRID; blue++, index += LUT_CHANNELS) {
+				/* The fourth place gives room for a gray profile's extra channel */
+				double point[LUT_CHANNELS + 1] = {red * step, green * step, blue * step, 0};
 				if (!sample_point(profile, point))
 					return FALSE;
-				memcpy(samples + index, point, 3 * sizeof *point);
+				memcpy(samples + index, point, LUT_CHANNELS * sizeof *point);
 			}
 	return TRUE;
 }
@@ -567,15 +599,15 @@ static guint8 store_rounded_byte(double value) {
 }
 
 /* Each channel byte always falls in the same grid cell and part of it, so those are worked out once */
-static int cell_of_level[256];
-static double part_of_level[256];
+static int cell_of_level[G_MAXUINT8 + 1];
+static double part_of_level[G_MAXUINT8 + 1];
 
 static void fill_cells(void) {
 	static gsize ready;
 	if (!g_once_init_enter(&ready))
 		return;
-	const double scale = COLOR_LOOKUP_GRID - 1.000001, unit = 1 / 255.0;
-	for (int level = 0; level < 256; level++) {
+	const double scale = COLOR_LOOKUP_GRID - GRID_EDGE_PULL, unit = BYTE_UNIT;
+	for (int level = 0; level <= G_MAXUINT8; level++) {
 		double coordinate = scale * (unit * level);
 		cell_of_level[level] = (int)coordinate;
 		part_of_level[level] = coordinate - cell_of_level[level];
@@ -590,21 +622,19 @@ void lookup_color_pixel(const double *samples, guint8 *pixel) {
 	int red = cell_of_level[pixel[0]], green = cell_of_level[pixel[1]], blue = cell_of_level[pixel[2]];
 	double red_part = part_of_level[pixel[0]], green_part = part_of_level[pixel[1]],
 		   blue_part = part_of_level[pixel[2]];
-	const double *corners[4];
 	int near = blue + grid * green + plane * red, far = blue + grid * (green + 1) + plane * red;
-	corners[0] = samples + near * 3;
-	corners[1] = samples + far * 3;
-	corners[2] = samples + (near + plane) * 3;
-	corners[3] = samples + (far + plane) * 3;
-	double working[12];
-	for (int corner = 0; corner < 4; corner++)
-		for (int channel = 0; channel < 3; channel++)
-			working[corner * 3 + channel] =
-				(1 - blue_part) * corners[corner][channel] + blue_part * corners[corner][channel + 3];
-	for (int channel = 0; channel < 3; channel++) {
-		working[channel] = (1 - green_part) * working[channel] + green_part * working[3 + channel];
-		working[6 + channel] = (1 - green_part) * working[6 + channel] + green_part * working[9 + channel];
+	const double *corners[CELL_CORNERS] = {samples + near * LUT_CHANNELS, samples + far * LUT_CHANNELS,
+										   samples + (near + plane) * LUT_CHANNELS, samples + (far + plane) * LUT_CHANNELS};
+	/* Each corner pair blends along blue, then the pairs along green and the halves along red */
+	double working[CELL_CORNERS][LUT_CHANNELS];
+	for (int corner = 0; corner < CELL_CORNERS; corner++)
+		for (int channel = 0; channel < LUT_CHANNELS; channel++)
+			working[corner][channel] =
+				(1 - blue_part) * corners[corner][channel] + blue_part * corners[corner][channel + LUT_CHANNELS];
+	for (int channel = 0; channel < LUT_CHANNELS; channel++) {
+		working[0][channel] = (1 - green_part) * working[0][channel] + green_part * working[1][channel];
+		working[2][channel] = (1 - green_part) * working[2][channel] + green_part * working[3][channel];
 	}
-	for (int channel = 0; channel < 3; channel++)
-		pixel[channel] = store_rounded_byte((1 - red_part) * working[channel] + red_part * working[6 + channel]);
+	for (int channel = 0; channel < LUT_CHANNELS; channel++)
+		pixel[channel] = store_rounded_byte((1 - red_part) * working[0][channel] + red_part * working[2][channel]);
 }

@@ -6,6 +6,7 @@
 
 /* Byte channels run from 0 to 255, unit values from 0 to 1, percentages to 100 and turns to 360 degrees */
 #define BYTE_UNIT (1 / 255.0)
+#define WORD_UNIT (1 / 65535.0)
 #define PERCENT 100.0
 #define DEGREES_PER_TURN 360.0
 

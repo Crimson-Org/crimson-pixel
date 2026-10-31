@@ -1,10 +1,11 @@
 #pragma once
 
+#include "icc.h"
 #include "lut-files.h"
 
-/* Color Lookup samples its profile at this many points per axis, like ICC.U.sampleLUT with 17 */
+/* Color Lookup samples its profile at this many points per axis */
 #define COLOR_LOOKUP_GRID 17
-#define COLOR_LOOKUP_SAMPLES (COLOR_LOOKUP_GRID * COLOR_LOOKUP_GRID * COLOR_LOOKUP_GRID * 3)
+#define COLOR_LOOKUP_SAMPLES (COLOR_LOOKUP_GRID * COLOR_LOOKUP_GRID * COLOR_LOOKUP_GRID * LUT_CHANNELS)
 
 gboolean sample_color_lookup(const guint8 *profile, gsize length, double *samples);
 

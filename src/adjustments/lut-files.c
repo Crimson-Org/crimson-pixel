@@ -2,6 +2,7 @@
 #include <math.h>
 #include <string.h>
 
+#include "icc.h"
 #include "lut-files.h"
 
 static const guint8 LINK_PROFILE_HEADER[] = {
@@ -11,12 +12,6 @@ static const guint8 LINK_PROFILE_HEADER[] = {
 	0,	 0, 0,	211, 45, 65, 68, 66, 69, 219, 126, 245, 21,	 206, 223, 186, 23, 165, 212, 201, 219, 250, 10, 33, 62};
 static const char LINK_PROFILE_NAME[] = "ICC by CrimsonPix";
 
-/* The ICC layout: big endian four byte numbers and signatures, and twelve byte tag entries of signature, offset, size */
-#define ICC_NUMBER_BYTES 4
-#define ICC_SIGNATURE_BYTES 4
-#define ICC_TAG_ENTRY_SIZE 12
-#define TAG_ENTRY_OFFSET 4
-#define TAG_ENTRY_SIZE 8
 /* A link profile holds two tags, its description and its lookup */
 #define LINK_TAG_COUNT 2
 /* The description is an mluc tag with one English record, its name stored as UTF-16 after the record */
@@ -28,16 +23,7 @@ static const char LINK_PROFILE_NAME[] = "ICC by CrimsonPix";
 #define MLUC_NAME_OFFSET 24
 #define MLUC_HEADER_SIZE 28
 #define UTF16_UNIT_BYTES 2
-/* The lookup is an mAB tag of three channels in and out, its colour table right after its header */
-#define LUT_CHANNELS 3
-#define MAB_INPUT_CHANNELS 8
-#define MAB_OUTPUT_CHANNELS 9
-#define MAB_CLUT_OFFSET 24
-#define MAB_HEADER_SIZE 32
-/* The colour table header gives the grid size of each channel and then how many bytes each value takes */
-#define CLUT_PRECISION 16
-#define CLUT_HEADER_SIZE 20
-#define LUT_VALUE_BYTES 2
+/* The lookup is an mAB tag with its colour table right after its header */
 #define LUT_TABLE_HEADER_SIZE (MAB_HEADER_SIZE + CLUT_HEADER_SIZE)
 
 /* Reads the longest decimal number at the start after white space, or NaN */
