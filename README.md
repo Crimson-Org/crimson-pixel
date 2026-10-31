@@ -4,8 +4,7 @@
 
 <h1 align="center">Crimson Pixel</h1>
 <p align="center">A native Linux workspace for image editing, illustration and <a href="https://en.wikipedia.org/wiki/Pixel_art">pixel art</a>.<br>
-Reads and writes layered <a href="https://www.adobe.com/devnet-apps/photoshop/fileformatashtml/">Photoshop files</a>.<br>
-Perfect for pixel art.</p>
+Reads and writes layered <a href="https://www.adobe.com/devnet-apps/photoshop/fileformatashtml/">Photoshop files</a>.</p>
 
 <p align="center">
   <a href="https://gtk.org">
@@ -28,7 +27,7 @@ Perfect for pixel art.</p>
 Pixel art, illustration and photo editing usually need separate programs.\
 Crimson Pixel puts them in one workspace.
 
-## Features
+## About
 
 ### Layers and adjustments
 
