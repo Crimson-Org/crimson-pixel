@@ -6,19 +6,30 @@
 #include "gradient.h"
 #include "selection/pixel-selection.h"
 
+/* Stops sit halfway to their neighbours unless moved, and a full opacity is 100 percent */
+#define DEFAULT_MIDPOINT (PERCENT / 2)
+/* Lookup entries round a hair under half */
+#define LOOKUP_ROUNDING .499
+/* Gradients shorter than this are not drawn */
+#define SHORTEST_GRADIENT 2
+/* The dither starts at a random place among this many times the pixel count */
+#define DITHER_OFFSET_SPREAD 100
 
-static const GradientColorStop DEFAULT_COLORS[] = {{0, 50, GRADIENT_FOREGROUND, 0, 0, 0},
-												   {4096, 50, GRADIENT_BACKGROUND, 0, 0, 0}};
-static const GradientOpacityStop DEFAULT_OPACITIES[] = {{0, 50, 100}, {4096, 50, 100}};
-static const Gradient DEFAULT_GRADIENT = {4096, DEFAULT_COLORS, 2, DEFAULT_OPACITIES, 2};
+static const GradientColorStop DEFAULT_COLORS[] = {{0, DEFAULT_MIDPOINT, GRADIENT_FOREGROUND, 0, 0, 0},
+												   {GRADIENT_LOCATION_RANGE, DEFAULT_MIDPOINT, GRADIENT_BACKGROUND, 0, 0, 0}};
+static const GradientOpacityStop DEFAULT_OPACITIES[] = {{0, DEFAULT_MIDPOINT, PERCENT}, {GRADIENT_LOCATION_RANGE, DEFAULT_MIDPOINT, PERCENT}};
+static const Gradient DEFAULT_GRADIENT = {GRADIENT_LOCATION_RANGE, DEFAULT_COLORS, G_N_ELEMENTS(DEFAULT_COLORS),
+										  DEFAULT_OPACITIES, G_N_ELEMENTS(DEFAULT_OPACITIES)};
 
 typedef struct {
-	double value[3], location, midpoint;
+	double value[RGB_CHANNELS], location, midpoint;
 } ResolvedStop;
 
-static const GradientColorStop TWO_COLORS[] = {{0, 50, GRADIENT_USER_COLOR, 0, 0, 0},
-											   {4096, 50, GRADIENT_USER_COLOR, 255, 255, 255}};
-static const Gradient TWO_COLOR_GRADIENT = {4096, TWO_COLORS, 2, DEFAULT_OPACITIES, 2};
+static const GradientColorStop TWO_COLORS[] = {
+	{0, DEFAULT_MIDPOINT, GRADIENT_USER_COLOR, 0, 0, 0},
+	{GRADIENT_LOCATION_RANGE, DEFAULT_MIDPOINT, GRADIENT_USER_COLOR, G_MAXUINT8, G_MAXUINT8, G_MAXUINT8}};
+static const Gradient TWO_COLOR_GRADIENT = {GRADIENT_LOCATION_RANGE, TWO_COLORS, G_N_ELEMENTS(TWO_COLORS),
+											DEFAULT_OPACITIES, G_N_ELEMENTS(DEFAULT_OPACITIES)};
 
 const Gradient *get_default_gradient(void) {
 	return &DEFAULT_GRADIENT;
@@ -61,7 +72,7 @@ Gradient *read_gradient_record(const Record *record) {
 		target->kind = !g_strcmp0(kind, "FrgC")	  ? GRADIENT_FOREGROUND
 					   : !g_strcmp0(kind, "BckC") ? GRADIENT_BACKGROUND
 												  : GRADIENT_USER_COLOR;
-		double rgb[3] = {0};
+		double rgb[RGB_CHANNELS] = {0};
 		if (target->kind == GRADIENT_USER_COLOR &&
 			!read_descriptor_color(get_record(get_record(stop, "Clr"), "v"), rgb)) {
 			g_free(gradient);
@@ -137,23 +148,24 @@ static void resolve_gradient_stops(const Gradient *gradient, guint32 foreground,
 			resolved->value[1] = MAX(stop->green, 0);
 			resolved->value[2] = MAX(stop->blue, 0);
 		} else
-			for (int channel = 0; channel < 3; channel++)
-				resolved->value[channel] = color >> (16 - channel * 8) & 255;
-		resolved->location = stop->location / 4096.0;
-		resolved->midpoint = stop->midpoint / 100.0;
+			for (int channel = 0; channel < RGB_CHANNELS; channel++)
+				resolved->value[channel] = color >> (WORD_RED_SHIFT - channel * CHAR_BIT) & G_MAXUINT8;
+		resolved->location = stop->location / (double)GRADIENT_LOCATION_RANGE;
+		resolved->midpoint = from_percent(stop->midpoint);
 	}
-	double lowest = 255;
+	double lowest = G_MAXUINT8;
 	for (int index = 0; index < gradient->opacity_count; index++) {
 		const GradientOpacityStop *stop = &gradient->opacities[index];
-		opacities[index].value[0] = stop->opacity * (255.0 / 100);
-		opacities[index].location = stop->location / 4096.0;
-		opacities[index].midpoint = stop->midpoint / 100.0;
+		opacities[index].value[0] = stop->opacity * (255.0 / PERCENT);
+		opacities[index].location = stop->location / (double)GRADIENT_LOCATION_RANGE;
+		opacities[index].midpoint = from_percent(stop->midpoint);
 		lowest = MIN(lowest, opacities[index].value[0]);
 	}
-	*opaque = lowest > 254;
+	*opaque = lowest > G_MAXUINT8 - 1;
 }
 
 static double weigh_left_stop(const ResolvedStop *stops, int count, int index, double position, double smoothness) {
+	/* Two stops bend half as much */
 	if (count == 2)
 		smoothness *= .5;
 	double left = stops[index].location, right = stops[index + 1].location;
@@ -174,7 +186,7 @@ static int find_left_stop(const ResolvedStop *stops, int count, double position)
 
 static void sample_gradient(const ResolvedStop *colors, int color_count, const ResolvedStop *opacities,
 							int opacity_count, gboolean opaque, double smoothness, double position, float *entry) {
-	double alpha = 255;
+	double alpha = G_MAXUINT8;
 	if (!opaque) {
 		int index = find_left_stop(opacities, opacity_count, position);
 		if (index == -1)
@@ -186,34 +198,35 @@ static void sample_gradient(const ResolvedStop *colors, int color_count, const R
 			alpha = weight * opacities[index].value[0] + (1 - weight) * opacities[index + 1].value[0];
 		}
 	}
-	double channels[3];
+	double channels[RGB_CHANNELS];
 	int index = find_left_stop(colors, color_count, position);
 	if (index == -1 || index == color_count - 1)
-		for (int channel = 0; channel < 3; channel++)
+		for (int channel = 0; channel < RGB_CHANNELS; channel++)
 			channels[channel] = colors[MAX(index, 0)].value[channel];
 	else {
 		double weight = weigh_left_stop(colors, color_count, index, position, smoothness);
-		for (int channel = 0; channel < 3; channel++)
+		for (int channel = 0; channel < RGB_CHANNELS; channel++)
 			channels[channel] =
-				MIN(255, weight * colors[index].value[channel] + (1 - weight) * colors[index + 1].value[channel]);
+				MIN(G_MAXUINT8, weight * colors[index].value[channel] + (1 - weight) * colors[index + 1].value[channel]);
 	}
-	for (int channel = 0; channel < 3; channel++)
-		entry[channel] = (float)(channels[channel] * (1.0 / 255));
-	entry[3] = (float)(alpha * (1.0 / 255));
+	for (int channel = 0; channel < RGB_CHANNELS; channel++)
+		entry[channel] = (float)(channels[channel] * BYTE_UNIT);
+	entry[ALPHA_CHANNEL] = (float)(alpha * BYTE_UNIT);
 }
 
 static void convert_stop_colors(ResolvedStop *colors, int count, GradientInterpolation interpolation) {
 	for (int index = 0; index < count; index++) {
 		double *value = colors[index].value;
 		if (interpolation == GRADIENT_LINEAR_LIGHT)
-			for (int channel = 0; channel < 3; channel++)
-				value[channel] = 255 * linearize_srgb(value[channel] / 255);
+			for (int channel = 0; channel < RGB_CHANNELS; channel++)
+				value[channel] = 255 * linearize_srgb(byte_to_unit(value[channel]));
 		else if (interpolation == GRADIENT_PERCEPTUAL || interpolation == GRADIENT_SMOOTH) {
-			double lab[3];
+			double lab[RGB_CHANNELS];
 			convert_rgb_to_lab(value[0], value[1], value[2], lab);
-			value[0] = lab[0] * 2.55;
-			value[1] = 127.5 + lab[1];
-			value[2] = 127.5 + lab[2];
+			/* Lab in byte ranges, with a and b centered on half a byte */
+			value[0] = lab[0] * (255 / PERCENT);
+			value[1] = G_MAXUINT8 / 2.0 + lab[1];
+			value[2] = G_MAXUINT8 / 2.0 + lab[2];
 		}
 	}
 }
@@ -224,23 +237,23 @@ static void fill_stripe_entry(const ResolvedStop *colors, int color_count, const
 	int left = 0;
 	while (left < color_count - 1 && colors[left + 1].location * GRADIENT_LOOKUP_SIZE < index)
 		left++;
-	for (int channel = 0; channel < 3; channel++)
-		entry[channel] = colors[left].value[channel] * (1.0 / 255);
+	for (int channel = 0; channel < RGB_CHANNELS; channel++)
+		entry[channel] = colors[left].value[channel] * BYTE_UNIT;
 	left = 0;
 	while (left < opacity_count - 1 && opacities[left + 1].location * GRADIENT_LOOKUP_SIZE < index)
 		left++;
-	entry[3] = opacities[left].value[0] * (1.0 / 255);
+	entry[ALPHA_CHANNEL] = opacities[left].value[0] * BYTE_UNIT;
 }
 
 static void convert_lookup_entry(GradientInterpolation interpolation, float *entry) {
 	if (interpolation == GRADIENT_LINEAR_LIGHT)
-		for (int channel = 0; channel < 3; channel++)
+		for (int channel = 0; channel < RGB_CHANNELS; channel++)
 			entry[channel] = encode_srgb(entry[channel]);
 	else if (interpolation == GRADIENT_PERCEPTUAL || interpolation == GRADIENT_SMOOTH) {
-		double rgb[3];
-		convert_lab_to_rgb(entry[0] * 100, (entry[1] - .5) * 255, (entry[2] - .5) * 255, rgb);
-		for (int channel = 0; channel < 3; channel++)
-			entry[channel] = rgb[channel] * (1.0 / 255);
+		double rgb[RGB_CHANNELS];
+		convert_lab_to_rgb(entry[0] * PERCENT, unit_to_byte(entry[1] - .5), unit_to_byte(entry[2] - .5), rgb);
+		for (int channel = 0; channel < RGB_CHANNELS; channel++)
+			entry[channel] = rgb[channel] * BYTE_UNIT;
 	}
 }
 
@@ -251,10 +264,10 @@ void build_gradient_lookup(const Gradient *gradient, gboolean reverse, GradientI
 	gboolean opaque;
 	resolve_gradient_stops(gradient, foreground, background, colors, opacities, &opaque);
 	convert_stop_colors(colors, gradient->color_count, interpolation);
-	double smoothness = gradient->smoothness * (1.0 / 4096), step = 1.0 / GRADIENT_LOOKUP_SIZE;
+	double smoothness = gradient->smoothness * (1.0 / GRADIENT_LOCATION_RANGE), step = 1.0 / GRADIENT_LOOKUP_SIZE;
 	for (int index = 0; index < GRADIENT_LOOKUP_SIZE; index++) {
 		double position = (reverse ? GRADIENT_LOOKUP_SIZE - 1 - index : index) * step;
-		float *entry = lookup + index * 4;
+		float *entry = lookup + index * RGBA_CHANNELS;
 		sample_gradient(colors, gradient->color_count, opacities, gradient->opacity_count, opaque, smoothness, position,
 						entry);
 		if (interpolation == GRADIENT_STRIPES)
@@ -293,13 +306,15 @@ static double measure_edge_distance(double direction_x, double direction_y, Rast
 static void store_gradient_points(double *start_x, double *start_y, double *end_x, double *end_y, RasterExtent area) {
 	double across = *end_x - *start_x, up = -(*end_y - *start_y), length = sqrt(across * across + up * up);
 	double angle = atan2(up, across), scale = length / measure_edge_distance(cos(angle), -sin(angle), area);
-	double angle_degrees = 180 * angle / G_PI, scale_percent = scale * 100;
-	double offset_x = (*start_x - area.x - area.width / 2.0) / area.width * 100;
-	double offset_y = (*start_y - area.y - area.height / 2.0) / area.height * 100;
-	double radians = G_PI * angle_degrees / 180, direction_x = cos(radians), direction_y = -sin(radians);
-	double reach = measure_edge_distance(direction_x, direction_y, area) * (scale_percent / 100);
-	*start_x = area.x + area.width / 2.0 + offset_x / 100 * area.width;
-	*start_y = area.y + area.height / 2.0 + offset_y / 100 * area.height;
+	/* The points go through degrees and percents and back, as a saved gradient keeps them */
+	const double half_turn = DEGREES_PER_TURN / 2;
+	double angle_degrees = half_turn * angle / G_PI, scale_percent = scale * PERCENT;
+	double offset_x = (*start_x - area.x - area.width / 2.0) / area.width * PERCENT;
+	double offset_y = (*start_y - area.y - area.height / 2.0) / area.height * PERCENT;
+	double radians = G_PI * angle_degrees / half_turn, direction_x = cos(radians), direction_y = -sin(radians);
+	double reach = measure_edge_distance(direction_x, direction_y, area) * (scale_percent / PERCENT);
+	*start_x = area.x + area.width / 2.0 + offset_x / PERCENT * area.width;
+	*start_y = area.y + area.height / 2.0 + offset_y / PERCENT * area.height;
 	*end_x = *start_x + direction_x * reach;
 	*end_y = *start_y + direction_y * reach;
 }
@@ -320,16 +335,17 @@ static double get_shape_position(GradientType type, double along, double sideway
 }
 
 static int find_lookup_entry(double position) {
-	gint32 entry = wrap_int32(.499 + position * (GRADIENT_LOOKUP_SIZE - 1));
-	return CLAMP(entry, 0, GRADIENT_LOOKUP_SIZE - 1) * 4;
+	gint32 entry = wrap_int32(LOOKUP_ROUNDING + position * (GRADIENT_LOOKUP_SIZE - 1));
+	return CLAMP(entry, 0, GRADIENT_LOOKUP_SIZE - 1) * RGBA_CHANNELS;
 }
 
 /* ============================== Rendering ============================== */
 
 static void write_dithered_pixel(const float *entry, guint32 noise, guint8 *pixel) {
-	for (int channel = 0; channel < 4; channel++) {
+	for (int channel = 0; channel < RGBA_CHANNELS; channel++) {
+		/* Each channel rounds up when its byte of the noise is below the part that was cut off */
 		double value = entry[channel] * 255.0, rounded = floor(value);
-		if ((noise >> (channel * 8) & 255) < (value - rounded) * 255)
+		if ((noise >> (channel * CHAR_BIT) & G_MAXUINT8) < (value - rounded) * 255)
 			rounded++;
 		pixel[channel] = (guint8)rounded;
 	}
@@ -339,7 +355,7 @@ static void render_gradient(const float *lookup, GradientType type, gboolean dit
 							double end_x, double end_y, RasterExtent area, guint32 dither_offset, guint8 *pixels) {
 	double across = end_x - start_x, down = end_y - start_y, length = sqrt(across * across + down * down);
 	double factor = 1 / (2 * length * length);
-	double matrix[4] = {across * factor, down * factor, -down * factor, across * factor};
+	double matrix[2 * 2] = {across * factor, down * factor, -down * factor, across * factor};
 	double left = area.x - start_x, top = area.y - start_y;
 	gint64 pixel = 0;
 	for (int row = 0; row < area.height; row++)
@@ -347,12 +363,12 @@ static void render_gradient(const float *lookup, GradientType type, gboolean dit
 			double x = column + left, y = row + top;
 			double along = matrix[0] * x + matrix[1] * y, sideways = matrix[2] * x + matrix[3] * y;
 			const float *entry = lookup + find_lookup_entry(get_shape_position(type, along, sideways));
-			guint8 *target = pixels + pixel * 4;
+			guint8 *target = pixels + pixel * RGBA_CHANNELS;
 			if (dither) {
 				write_dithered_pixel(entry, hash_whole_number(pixel + dither_offset), target);
 				continue;
 			}
-			for (int channel = 0; channel < 4; channel++)
+			for (int channel = 0; channel < RGBA_CHANNELS; channel++)
 				target[channel] = (guint8)(int)(entry[channel] * 255.0);
 		}
 }
@@ -365,27 +381,27 @@ void fill_gradient_pixels(const Gradient *gradient, const GradientOptions *optio
 		start_y = (start_y + end_y) / 2;
 	}
 	store_gradient_points(&start_x, &start_y, &end_x, &end_y, area);
-	g_autofree float *lookup = g_new(float, GRADIENT_LOOKUP_SIZE * 4);
+	g_autofree float *lookup = g_new(float, GRADIENT_LOOKUP_SIZE * RGBA_CHANNELS);
 	build_gradient_lookup(gradient, options->reverse, options->interpolation, foreground, background, lookup);
 	render_gradient(lookup, options->type, options->dither, start_x, start_y, end_x, end_y, area, dither_offset,
 					pixels);
-	if (options->opacity == 100)
+	if (options->opacity == PERCENT)
 		return;
-	double opacity = options->opacity / 100;
-	gsize length = (gsize)area.width * area.height * 4;
-	for (gsize index = 3; index < length; index += 4)
+	double opacity = from_percent(options->opacity);
+	gsize length = (gsize)area.width * area.height * RGBA_CHANNELS;
+	for (gsize index = ALPHA_CHANNEL; index < length; index += RGBA_CHANNELS)
 		pixels[index] = (guint8)round_half_up(pixels[index] * opacity);
 }
 
 gboolean draw_gradient(PaintTool *tool, Document *document, const GradientOptions *options, guint32 foreground,
 					   guint32 background, double start_x, double start_y, double end_x, double end_y, GError **error) {
-	if (sqrt((end_x - start_x) * (end_x - start_x) + (end_y - start_y) * (end_y - start_y)) <= 2)
+	if (sqrt((end_x - start_x) * (end_x - start_x) + (end_y - start_y) * (end_y - start_y)) <= SHORTEST_GRADIENT)
 		return TRUE;
 	Record *selection = get_document_selection(document);
 	RasterExtent area = selection ? read_extent(get_record(selection, "V"))
 								  : (RasterExtent){0, 0, document_width(document), document_height(document)};
-	g_autoptr(Record) pixels = create_channels((gsize)area.width * area.height * 4, 8);
-	guint32 offset = wrap_uint32(round_half_up(g_random_double() * area.width * area.height * 100));
+	g_autoptr(Record) pixels = create_channels((gsize)area.width * area.height * RGBA_CHANNELS, BYTE_DEPTH);
+	guint32 offset = wrap_uint32(round_half_up(g_random_double() * area.width * area.height * DITHER_OFFSET_SPREAD));
 	fill_gradient_pixels(get_default_gradient(), options, foreground, background, start_x, start_y, end_x, end_y, area,
 						 offset, pixels->value.buffer.data);
 	return draw_paint_bitmap(tool, document, pixels, area, error);
