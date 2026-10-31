@@ -525,7 +525,7 @@ static void switch_document(GtkNotebook *notebook, GtkWidget *page, guint index,
 
 void refresh_document_status(Editor *editor, Document *document) {
 	g_autofree char *status =
-		g_strdup_printf("%d × %d px · %u-bit", document_width(document), document_height(document),
+		g_strdup_printf(TEXT_DOCUMENT_STATUS, document_width(document), document_height(document),
 						(unsigned)get_number(document->record, "depth"));
 	if (document->preview) {
 		GPtrArray *features = document->unsupported_features;
@@ -534,7 +534,7 @@ void refresh_document_status(Editor *editor, Document *document) {
 			g_string_append_printf(names, "%s%s", index ? ", " : "", (char *)g_ptr_array_index(features, index));
 		g_autofree char *preview =
 			names->len ? g_strdup_printf(TEXT_PREVIEW_FEATURES, names->str) : g_strdup(TEXT_PREVIEW_PROPERTIES);
-		g_autofree char *combined = g_strdup_printf("%s · %s", status, preview);
+		g_autofree char *combined = g_strdup_printf(TEXT_DOCUMENT_STATUS_PREVIEW, status, preview);
 		gtk_label_set_text(GTK_LABEL(editor->status), combined);
 		return;
 	}
