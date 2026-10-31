@@ -45,7 +45,7 @@ typedef struct {
 	/* The regions changed since the display last took them */
 	GArray *dirty;
 	double opacity, last_x, last_y, anchor_x, anchor_y;
-	int axis;
+	LockedAxis axis;
 	gboolean has_last, coverage_masked;
 	/* Native wrap painting while Tile Preview shows: the stroke covers three by three copies of the image, offset so
 	 * the press falls in the middle one, and maps back onto the image */

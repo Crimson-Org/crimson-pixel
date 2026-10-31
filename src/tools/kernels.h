@@ -9,6 +9,9 @@ typedef struct {
 	int x, y, width, height;
 } RasterExtent;
 
+/* A drag with Shift held keeps to the axis it started along: moving up and down keeps x, and sideways keeps y */
+typedef enum { AXIS_FREE, AXIS_VERTICAL, AXIS_HORIZONTAL } LockedAxis;
+
 /* Called for each pixel of a one pixel line in drawing order */
 typedef void (*PixelVisitor)(int x, int y, gpointer data);
 
@@ -22,6 +25,9 @@ RasterExtent intersect_region(RasterExtent first, RasterExtent second);
 RasterExtent union_region(RasterExtent first, RasterExtent second);
 gboolean equal_region(RasterExtent first, RasterExtent second);
 double step_zoom_level(double zoom, gboolean in);
+/* Moves a point to the nearest eighth turn around a start, keeping its distance; a point closer to an axis than
+ * half the other way snaps to the axis, and others to the diagonal */
+void constrain_to_eighth_turns(double start_x, double start_y, double *x, double *y);
 double clamp_zoom_level(double zoom);
 
 /* Colours keep red in their high byte, while stored pixel words keep it in the low one, and this turns one order into

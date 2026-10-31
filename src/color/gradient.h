@@ -55,7 +55,6 @@ Record *create_gradient_record(const Gradient *gradient, const char *name);
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(Gradient, free_gradient)
 void build_gradient_lookup(const Gradient *gradient, gboolean reverse, GradientInterpolation interpolation,
 						   guint32 foreground, guint32 background, float *lookup);
-void constrain_gradient_point(double start_x, double start_y, double *x, double *y);
 void fill_gradient_pixels(const Gradient *gradient, const GradientOptions *options, guint32 foreground,
 						  guint32 background, double start_x, double start_y, double end_x, double end_y,
 						  RasterExtent area, guint32 dither_offset, guint8 *pixels);

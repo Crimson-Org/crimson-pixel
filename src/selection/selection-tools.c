@@ -70,7 +70,7 @@ static void move_polygon_point(DocumentView *view, double x, double y, gboolean 
 	if (freehand)
 		add_path_point(points, x, y);
 	else if (view->modifiers.shift && points->len >= 4)
-		constrain_polygon_angle(g_array_index(points, double, points->len - 4),
+		constrain_to_eighth_turns(g_array_index(points, double, points->len - 4),
 								g_array_index(points, double, points->len - 3), &x, &y);
 	g_array_index(points, double, points->len - 2) = x;
 	g_array_index(points, double, points->len - 1) = y;

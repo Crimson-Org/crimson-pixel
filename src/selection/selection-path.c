@@ -7,6 +7,11 @@
 #define CURVE_TOLERANCE 0.01
 #define MAXIMUM_CURVE_LINES 4096
 #define ELLIPSE_HANDLE 0.5522848
+/* Moves and lines take one point, and curves two handles and an end point, each as x and y */
+#define POINT_VALUES 2
+#define CURVE_VALUES (3 * POINT_VALUES)
+/* A sixteen bit sample is a byte times this */
+#define BYTE_TO_WORD (G_MAXUINT16 / G_MAXUINT8)
 
 /* One straight piece of the outline in mask coordinates */
 typedef struct {
@@ -38,30 +43,30 @@ SelectionPath *create_ellipse_path(RasterExtent box) {
 	double center_x = (left + right) / 2, center_y = (top + bottom) / 2;
 	double across = (left - right) / 2, down = (top - bottom) / 2, handle = ELLIPSE_HANDLE;
 	SelectionPath *path = create_selection_path();
-	add_path_points(path, 'M', (double[]){center_x, center_y - down}, 2);
+	add_path_points(path, 'M', (double[]){center_x, center_y - down}, POINT_VALUES);
 	add_path_points(path, 'C',
 					(double[]){center_x + handle * across, center_y - down, center_x + across, center_y - handle * down,
 							   center_x + across, center_y},
-					6);
+					CURVE_VALUES);
 	add_path_points(path, 'C',
 					(double[]){center_x + across, center_y + handle * down, center_x + handle * across, center_y + down,
 							   center_x, center_y + down},
-					6);
+					CURVE_VALUES);
 	add_path_points(path, 'C',
 					(double[]){center_x - handle * across, center_y + down, center_x - across, center_y + handle * down,
 							   center_x - across, center_y},
-					6);
+					CURVE_VALUES);
 	add_path_points(path, 'C',
 					(double[]){center_x - across, center_y - handle * down, center_x - handle * across, center_y - down,
 							   center_x, center_y - down},
-					6);
+					CURVE_VALUES);
 	return path;
 }
 
 SelectionPath *create_polygon_path(const double *points, guint count) {
 	SelectionPath *path = create_selection_path();
 	for (guint index = 0; index < count; index++)
-		add_path_points(path, index ? 'L' : 'M', points + index * 2, 2);
+		add_path_points(path, index ? 'L' : 'M', points + index * POINT_VALUES, POINT_VALUES);
 	return path;
 }
 
@@ -122,17 +127,17 @@ static GArray *flatten_selection_path(const SelectionPath *path, RasterExtent bo
 			add_path_line(lines, current[0], current[1], start[0], start[1]);
 			start[0] = current[0] = values[position];
 			start[1] = current[1] = values[position + 1];
-			position += 2;
+			position += POINT_VALUES;
 		} else if (command == 'L') {
 			add_path_line(lines, current[0], current[1], values[position], values[position + 1]);
 			current[0] = values[position];
 			current[1] = values[position + 1];
-			position += 2;
+			position += POINT_VALUES;
 		} else {
 			add_curve_lines(lines, current, values + position);
-			current[0] = values[position + 4];
-			current[1] = values[position + 5];
-			position += 6;
+			current[0] = values[position + CURVE_VALUES - POINT_VALUES];
+			current[1] = values[position + CURVE_VALUES - 1];
+			position += CURVE_VALUES;
 		}
 	}
 	add_path_line(lines, current[0], current[1], start[0], start[1]);
@@ -181,7 +186,7 @@ static void accumulate_line_row(float *row, int width, const PathLine *line, int
 }
 
 static double widen_alpha(int alpha, unsigned depth) {
-	return depth == WORD_DEPTH ? alpha * 257 : depth == FLOAT_DEPTH ? alpha / 255.0 : alpha;
+	return depth == WORD_DEPTH ? alpha * BYTE_TO_WORD : depth == FLOAT_DEPTH ? alpha / 255.0 : alpha;
 }
 
 static double round_alpha(double value, unsigned depth) {
@@ -227,25 +232,11 @@ Record *rasterize_selection_path(const SelectionPath *path, unsigned depth, gboo
 	return mask;
 }
 
-void constrain_polygon_angle(double start_x, double start_y, double *x, double *y) {
-	if (*x == start_x && *y == start_y)
-		return;
-	double across = *x - start_x, down = *y - start_y, width = fabs(across), height = fabs(down);
-	if (width > height)
-		height = width / 2 > height ? 0 : width;
-	if (height > width)
-		width = height / 2 > width ? 0 : height;
-	width = across > 0 ? width : -width;
-	height = down > 0 ? height : -height;
-	double scale = sqrt(across * across + down * down) / sqrt(width * width + height * height);
-	*x = start_x + width * scale;
-	*y = start_y + height * scale;
-}
-
 /* ============================== Modifiers ============================== */
 
 void begin_modifier_tracking(ModifierTracker *tracker, gboolean shift, gboolean alt) {
-	*tracker = (ModifierTracker){TRUE, FALSE, shift, alt, shift, alt, shift ? 0 : 1, alt ? 0 : 1};
+	ModifierStage shift_stage = shift ? MODIFIER_HELD : MODIFIER_LET_GO, alt_stage = alt ? MODIFIER_HELD : MODIFIER_LET_GO;
+	*tracker = (ModifierTracker){TRUE, FALSE, shift, alt, shift, alt, shift_stage, alt_stage};
 }
 
 void update_modifier_tracking(ModifierTracker *tracker, gboolean shift, gboolean alt) {
@@ -253,14 +244,14 @@ void update_modifier_tracking(ModifierTracker *tracker, gboolean shift, gboolean
 	tracker->alt = alt;
 	if (!tracker->dragged)
 		return;
-	if (tracker->shift_stage == 0 && !shift)
-		tracker->shift_stage++;
-	if (tracker->shift_stage == 1 && shift)
-		tracker->shift_stage++;
-	if (tracker->alt_stage == 0 && !alt)
-		tracker->alt_stage++;
-	if (tracker->alt_stage == 1 && alt)
-		tracker->alt_stage++;
+	if (tracker->shift_stage == MODIFIER_HELD && !shift)
+		tracker->shift_stage = MODIFIER_LET_GO;
+	if (tracker->shift_stage == MODIFIER_LET_GO && shift)
+		tracker->shift_stage = MODIFIER_PRESSED_AGAIN;
+	if (tracker->alt_stage == MODIFIER_HELD && !alt)
+		tracker->alt_stage = MODIFIER_LET_GO;
+	if (tracker->alt_stage == MODIFIER_LET_GO && alt)
+		tracker->alt_stage = MODIFIER_PRESSED_AGAIN;
 }
 
 gboolean is_shift_held(const ModifierTracker *tracker) {
@@ -272,9 +263,9 @@ gboolean is_alt_held(const ModifierTracker *tracker) {
 }
 
 gboolean was_shift_pressed_again(const ModifierTracker *tracker) {
-	return tracker->dragged && tracker->shift_stage == 2;
+	return tracker->dragged && tracker->shift_stage == MODIFIER_PRESSED_AGAIN;
 }
 
 gboolean was_alt_pressed_again(const ModifierTracker *tracker) {
-	return tracker->dragged && tracker->alt_stage == 2;
+	return tracker->dragged && tracker->alt_stage == MODIFIER_PRESSED_AGAIN;
 }

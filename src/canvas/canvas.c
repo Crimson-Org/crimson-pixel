@@ -451,7 +451,7 @@ static void update_gradient_drag(DocumentView *view, double x, double y, GdkModi
 	get_document_point(view, x, y, &view->gradient_end_x, &view->gradient_end_y);
 	snap_view_point(view, &view->gradient_end_x, &view->gradient_end_y);
 	if (modifiers & GDK_SHIFT_MASK)
-		constrain_gradient_point(view->gradient_x, view->gradient_y, &view->gradient_end_x, &view->gradient_end_y);
+		constrain_to_eighth_turns(view->gradient_x, view->gradient_y, &view->gradient_end_x, &view->gradient_end_y);
 	gtk_widget_queue_draw(view->canvas);
 }
 

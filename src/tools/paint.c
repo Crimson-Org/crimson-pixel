@@ -414,18 +414,18 @@ gboolean begin_paint_stroke(PaintTool *tool, Document *document, const PaintOpti
 	tool->last_x = tool->anchor_x = x;
 	tool->last_y = tool->anchor_y = y;
 	tool->has_last = TRUE;
-	tool->axis = 0;
+	tool->axis = AXIS_FREE;
 	composite_stroke(tool);
 	return TRUE;
 }
 
 static void constrain_point(PaintTool *tool, double *x, double *y, gboolean constrain) {
 	double offset_x = *x - tool->anchor_x, offset_y = *y - tool->anchor_y;
-	if (tool->axis == 0 && !(*x == tool->anchor_x && *y == tool->anchor_y))
-		tool->axis = fabs(offset_x) < fabs(offset_y) ? 1 : 2;
-	if (constrain && tool->axis == 1)
+	if (tool->axis == AXIS_FREE && !(*x == tool->anchor_x && *y == tool->anchor_y))
+		tool->axis = fabs(offset_x) < fabs(offset_y) ? AXIS_VERTICAL : AXIS_HORIZONTAL;
+	if (constrain && tool->axis == AXIS_VERTICAL)
 		offset_x = 0;
-	if (constrain && tool->axis == 2)
+	if (constrain && tool->axis == AXIS_HORIZONTAL)
 		offset_y = 0;
 	*x = tool->anchor_x + offset_x;
 	*y = tool->anchor_y + offset_y;

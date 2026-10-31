@@ -16,9 +16,6 @@ typedef struct TransformSession TransformSession;
 #include "document/tiled-image.h"
 #include "canvas/move-preview.h"
 
-/* A move with Shift held keeps to the axis it started along: moving up and down keeps x, and sideways keeps y */
-typedef enum { AXIS_FREE, AXIS_VERTICAL, AXIS_HORIZONTAL } LockedAxis;
-
 /* A file request carries a decoded model and its derived presentation together */
 typedef struct {
 	Document *document;

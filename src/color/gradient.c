@@ -279,22 +279,6 @@ void build_gradient_lookup(const Gradient *gradient, gboolean reverse, GradientI
 
 /* ============================== Geometry ============================== */
 
-void constrain_gradient_point(double start_x, double start_y, double *x, double *y) {
-	if (*x == start_x && *y == start_y)
-		return;
-	double across = *x - start_x, down = *y - start_y;
-	double width = fabs(across), height = fabs(down);
-	if (width > height)
-		height = width / 2 > height ? 0 : width;
-	if (height > width)
-		width = height / 2 > width ? 0 : height;
-	width = across > 0 ? width : -width;
-	height = down > 0 ? height : -height;
-	double scale = sqrt(across * across + down * down) / sqrt(width * width + height * height);
-	*x = start_x + width * scale;
-	*y = start_y + height * scale;
-}
-
 static double measure_edge_distance(double direction_x, double direction_y, RasterExtent area) {
 	double half_height = .5 * area.height, across = half_height * (direction_x / direction_y);
 	double vertical = sqrt(half_height * half_height + across * across);

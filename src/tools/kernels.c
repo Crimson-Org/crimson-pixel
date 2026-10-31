@@ -113,3 +113,18 @@ double step_zoom_level(double zoom, gboolean in) {
 double clamp_zoom_level(double zoom) {
 	return CLAMP(zoom, ZOOM_LEVELS[G_N_ELEMENTS(ZOOM_LEVELS) - 1], ZOOM_LEVELS[0]);
 }
+
+void constrain_to_eighth_turns(double start_x, double start_y, double *x, double *y) {
+	if (*x == start_x && *y == start_y)
+		return;
+	double across = *x - start_x, down = *y - start_y, width = fabs(across), height = fabs(down);
+	if (width > height)
+		height = width / 2 > height ? 0 : width;
+	if (height > width)
+		width = height / 2 > width ? 0 : height;
+	width = across > 0 ? width : -width;
+	height = down > 0 ? height : -height;
+	double scale = sqrt(across * across + down * down) / sqrt(width * width + height * height);
+	*x = start_x + width * scale;
+	*y = start_y + height * scale;
+}
