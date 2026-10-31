@@ -21,7 +21,7 @@ typedef struct {
 
 typedef enum { TRIM_TOP_LEFT, TRIM_BOTTOM_RIGHT, TRIM_TRANSPARENT } TrimColor;
 
-enum { TRIM_TOP, TRIM_LEFT, TRIM_BOTTOM, TRIM_RIGHT };
+enum { TRIM_TOP, TRIM_LEFT, TRIM_BOTTOM, TRIM_RIGHT, TRIM_SIDES };
 
 RasterExtent get_crop_rectangle(const double quad[QUAD_VALUES], double *angle);
 RasterExtent constrain_crop_drag(double start_x, double start_y, double end_x, double end_y, const CropOptions *options,
@@ -35,6 +35,6 @@ gboolean crop_document(Document *document, const double quad[QUAD_VALUES], const
 gboolean resize_image(Document *document, int width, int height, double resolution, ResampleMode mode,
 					  gboolean extended_history);
 gboolean resize_canvas(Document *document, int width, int height, int anchor, gboolean extended_history);
-RasterExtent find_trim_bounds(const Record *pixels, int width, int height, TrimColor color, const gboolean sides[4]);
-gboolean trim_document(Document *document, TrimColor color, const gboolean sides[4], gboolean extended_history);
+RasterExtent find_trim_bounds(const Record *pixels, int width, int height, TrimColor color, const gboolean sides[TRIM_SIDES]);
+gboolean trim_document(Document *document, TrimColor color, const gboolean sides[TRIM_SIDES], gboolean extended_history);
 gboolean reveal_all(Document *document, gboolean extended_history);

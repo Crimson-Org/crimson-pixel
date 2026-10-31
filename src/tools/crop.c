@@ -7,6 +7,9 @@
 
 /* A matrix this close to the identity changes nothing */
 #define IDENTITY_TOLERANCE 1e-12
+/* Matrix values closer to zero than these count as zero */
+#define FLAT_PROJECTIVE 1e-18
+#define NEAR_ZERO 1e-9
 
 static const char *CROP_OPERATION = "crop";
 static const CropOptions FREE_CROP = {CROP_FREE, 0, 0, 0, FALSE};
@@ -109,18 +112,19 @@ gboolean plan_crop(const double quad[QUAD_VALUES], int width, int height, const 
 	}
 	if (rectangle.width < 1 || rectangle.height < 1)
 		return FALSE;
-	Projective box = {{1, 0, 0, 0, 1, 0, 0, 0}};
+	Projective box = IDENTITY_PROJECTIVE;
 	projective_from_rectangle(quad, rectangle.x, rectangle.y, rectangle.width, rectangle.height, &box);
 	Projective straighten = invert_projective(box);
 	const double *m = straighten.m;
-	gboolean affine = fabs(m[6]) < 1e-18 && fabs(m[7]) < 1e-18, turned = fabs(atan2(m[3], m[0])) > 1e-9;
+	gboolean affine = fabs(m[6]) < FLAT_PROJECTIVE && fabs(m[7]) < FLAT_PROJECTIVE;
+	gboolean turned = fabs(atan2(m[3], m[0])) > NEAR_ZERO;
 	gboolean whole = rectangle.x == 0 && rectangle.y == 0 && rectangle.width == width && rectangle.height == height;
 	if (!turned && affine && !resized && whole && !options->delete_pixels)
 		return FALSE;
 	*plan = (CropPlan){
 		rectangle, bound_quad(quad),	straighten,		  turned || !affine || resized || options->delete_pixels,
 		FALSE,	   options->resolution, RESAMPLE_BILINEAR};
-	plan->clips = plan->changes_layers && !(fabs(m[3] * m[1]) > 1e-9 && affine);
+	plan->clips = plan->changes_layers && !(fabs(m[3] * m[1]) > NEAR_ZERO && affine);
 	return TRUE;
 }
 
@@ -141,8 +145,8 @@ static gboolean is_identity(Projective matrix) {
 static Record *clip_layer_pixels(const Record *pixels, RasterExtent extent, RasterExtent clip, RasterExtent *kept) {
 	*kept = intersect_region(extent, clip);
 	unsigned depth = pixels->value.buffer.depth;
-	gsize pixel_bytes = 4 * (depth / CHAR_BIT);
-	Record *copy = create_channels((gsize)MAX(0, kept->width) * MAX(0, kept->height) * 4, depth);
+	gsize pixel_bytes = RGBA_CHANNELS * (depth / CHAR_BIT);
+	Record *copy = create_channels((gsize)MAX(0, kept->width) * MAX(0, kept->height) * RGBA_CHANNELS, depth);
 	for (int row = 0; row < kept->height; row++)
 		memcpy((guint8 *)copy->value.buffer.data + (gsize)row * kept->width * pixel_bytes,
 			   (const guint8 *)pixels->value.buffer.data +
@@ -180,8 +184,8 @@ static Record *crop_pixel_layer(Record *layer, const CropPlan *plan) {
  * them */
 static void swap_crop(Record *data, Document *document) {
 	Record *record = document->record;
-	const char *numbers[3] = {"s", "T", "Qf"};
-	for (int index = 0; index < 3; index++) {
+	const char *numbers[] = {"s", "T", "Qf"};
+	for (guint index = 0; index < G_N_ELEMENTS(numbers); index++) {
 		double value = get_number(data, numbers[index]);
 		set_number(data, numbers[index], get_number(record, numbers[index]));
 		set_number(record, numbers[index], value);
@@ -271,41 +275,43 @@ gboolean resize_canvas(Document *document, int width, int height, int anchor, gb
 		return FALSE;
 	int spare_x = old_width - width, spare_y = old_height - height;
 	RasterExtent rectangle = {0, 0, width, height};
-	if (anchor % 3 == 1)
+	/* The anchor is a place on the three by three handle grid, and the canvas grows or shrinks away from it */
+	int column = anchor % HANDLE_GRID_SIZE, row = anchor / HANDLE_GRID_SIZE;
+	if (column == 1)
 		rectangle.x = (int)round_half_up(spare_x / 2.0);
-	if (anchor % 3 == 2)
+	if (column == 2)
 		rectangle.x = spare_x;
-	if (anchor / 3 == 1)
+	if (row == 1)
 		rectangle.y = (int)round_half_up(spare_y / 2.0);
-	if (anchor / 3 == 2)
+	if (row == 2)
 		rectangle.y = spare_y;
-	CropPlan plan = {rectangle, rectangle, {{1, 0, 0, 0, 1, 0, 0, 0}}, FALSE, FALSE, 0, RESAMPLE_BILINEAR};
+	CropPlan plan = {rectangle, rectangle, IDENTITY_PROJECTIVE, FALSE, FALSE, 0, RESAMPLE_BILINEAR};
 	return apply_crop_plan(document, &plan, create_history_name(HISTORY_CANVAS_SIZE), FALSE, extended_history);
 }
 
-static gboolean differs_from_trim_color(const Record *pixels, gsize pixel, const guint8 reference[4]) {
+static gboolean differs_from_trim_color(const Record *pixels, gsize pixel, const guint8 reference[RGBA_CHANNELS]) {
 	for (int channel = 0; channel < RGBA_CHANNELS; channel++)
 		if (read_channel_byte(pixels, pixel * RGBA_CHANNELS + channel) != reference[channel])
 			return TRUE;
 	return FALSE;
 }
 
-static gboolean is_row_plain(const Record *pixels, int width, int y, const guint8 reference[4]) {
+static gboolean is_row_plain(const Record *pixels, int width, int y, const guint8 reference[RGBA_CHANNELS]) {
 	for (int x = 0; x < width; x++)
 		if (differs_from_trim_color(pixels, (gsize)y * width + x, reference))
 			return FALSE;
 	return TRUE;
 }
 
-static gboolean is_column_plain(const Record *pixels, int width, int height, int x, const guint8 reference[4]) {
+static gboolean is_column_plain(const Record *pixels, int width, int height, int x, const guint8 reference[RGBA_CHANNELS]) {
 	for (int y = 0; y < height; y++)
 		if (differs_from_trim_color(pixels, (gsize)y * width + x, reference))
 			return FALSE;
 	return TRUE;
 }
 
-RasterExtent find_trim_bounds(const Record *pixels, int width, int height, TrimColor color, const gboolean sides[4]) {
-	guint8 reference[4] = {0};
+RasterExtent find_trim_bounds(const Record *pixels, int width, int height, TrimColor color, const gboolean sides[TRIM_SIDES]) {
+	guint8 reference[RGBA_CHANNELS] = {0};
 	gsize reference_pixel = color == TRIM_TOP_LEFT ? 0 : (gsize)width * height - 1;
 	for (int channel = 0; color != TRIM_TRANSPARENT && channel < RGBA_CHANNELS; channel++)
 		reference[channel] = read_channel_byte(pixels, reference_pixel * RGBA_CHANNELS + channel);
@@ -330,15 +336,15 @@ static gboolean change_canvas_to(Document *document, RasterExtent rectangle, His
 	RasterExtent canvas = {0, 0, document_width(document), document_height(document)};
 	if (empty_extent(rectangle) || !memcmp(&rectangle, &canvas, sizeof(rectangle)))
 		return FALSE;
-	CropPlan plan = {rectangle, rectangle, {{1, 0, 0, 0, 1, 0, 0, 0}}, FALSE, FALSE, 0, RESAMPLE_BILINEAR};
+	CropPlan plan = {rectangle, rectangle, IDENTITY_PROJECTIVE, FALSE, FALSE, 0, RESAMPLE_BILINEAR};
 	Record *name = create_history_name(step);
 	return apply_crop_plan(document, &plan, name, FALSE, extended_history);
 }
 
-gboolean trim_document(Document *document, TrimColor color, const gboolean sides[4], gboolean extended_history) {
+gboolean trim_document(Document *document, TrimColor color, const gboolean sides[TRIM_SIDES], gboolean extended_history) {
 	Record *composite = get_record(document->record, "buffer");
 	int width = document_width(document), height = document_height(document);
-	if (!composite || composite->type != RECORD_BUFFER || composite->value.buffer.length < (gsize)width * height * 4)
+	if (!composite || composite->type != RECORD_BUFFER || composite->value.buffer.length < (gsize)width * height * RGBA_CHANNELS)
 		return FALSE;
 	return change_canvas_to(document, find_trim_bounds(composite, width, height, color, sides), HISTORY_TRIM, extended_history);
 }
