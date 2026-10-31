@@ -94,8 +94,8 @@ static guint32 hsv_to_color(double hue, double saturation, double value) {
 	double t = value * (1 - saturation * (1 - fraction));
 	double rgb[6][3] = {{value, t, p}, {q, value, p}, {p, value, t}, {p, q, value}, {t, p, value}, {value, p, q}};
 	double *channel = rgb[(int)floor(sector) % 6];
-	return (guint32)lround(channel[0] * 255) << 16 | (guint32)lround(channel[1] * 255) << 8 |
-		   (guint32)lround(channel[2] * 255);
+	return (guint32)lround(channel[0] * G_MAXUINT8) << 16 | (guint32)lround(channel[1] * G_MAXUINT8) << 8 |
+		   (guint32)lround(channel[2] * G_MAXUINT8);
 }
 
 /* Grey colors keep the previous hue so the square does not jump to red */

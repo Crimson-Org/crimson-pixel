@@ -166,7 +166,7 @@ gboolean change_layer_fill_opacity(Document *document, int layer_index, double o
 		for (guint index = 0; index < count_records(indices); index++) {
 			Record *layer = get_item(layers, get_item(indices, index)->value.number);
 			Record *fill = get_record(get_record(layer, "add"), "iOpa");
-			append_record(before, create_number(!fill || fill->type == RECORD_NULL ? 255 : fill->value.number));
+			append_record(before, create_number(!fill || fill->type == RECORD_NULL ? G_MAXUINT8 : fill->value.number));
 		}
 		entry = create_history_entry(create_string("Fill Opacity Change"), "233", FALSE, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
 		data = create_object(RECORD_PLAIN);
@@ -261,7 +261,7 @@ gboolean change_layer_opacity(Document *document, int layer_index, double opacit
 		append_record(after, create_number(opacity));
 	set_record(data, "zQ", after);
 	Record *unit = get_record(get_record(get_record(get_record(get_record(data, "ajJ"), "T"), "v"), "Opct"), "v");
-	set_number(unit, "val", round(opacity * 100 / 255));
+	set_number(unit, "val", round(opacity * 100 / G_MAXUINT8));
 	redo_layer_command(data, document);
 	return TRUE;
 }
@@ -778,7 +778,7 @@ gboolean rename_layer(Document *document, int layer_index, const char *name, gbo
 		g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, TEXT_INVALID_LAYER_SELECTION);
 		return FALSE;
 	}
-	g_autofree char *trimmed = g_utf8_substring(name, 0, MIN(g_utf8_strlen(name, -1), 255));
+	g_autofree char *trimmed = g_utf8_substring(name, 0, MIN(g_utf8_strlen(name, -1), G_MAXUINT8));
 	if (!g_strcmp0(get_layer_name(layer), trimmed))
 		return FALSE;
 	set_boolean(record, "di", TRUE);

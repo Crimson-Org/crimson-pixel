@@ -1,3 +1,4 @@
+#include "blend.h"
 #include "document.h"
 
 static void set_null_fields(Record *record, const char *names) {
@@ -29,7 +30,7 @@ Record *create_layer_record(void) {
 	Record *layer = create_object(RECORD_LAYER);
 	set_null_fields(layer, "V buffer name tc kz yy E_ LB ava aj3 a9$ dp");
 	set_string(layer, "qu", "norm");
-	set_number(layer, "nv", 255);
+	set_number(layer, "nv", G_MAXUINT8);
 	set_boolean(layer, "jl", FALSE);
 	set_boolean(layer, "Xu", FALSE);
 	set_record(layer, "wJ", create_numbers((double[]){79, 128, 255}, 3));
@@ -37,11 +38,12 @@ Record *create_layer_record(void) {
 	set_number(layer, "kr", 0);
 	set_boolean(layer, "nQ", TRUE);
 	Record *ranges = create_array();
-	for (guint index = 0; index < 10; index++) {
+	/* Every range runs from black to white */
+	for (guint index = 0; index < BLEND_RANGE_VALUES / RANGE_VALUES; index++) {
 		append_record(ranges, create_number(0));
 		append_record(ranges, create_number(0));
-		append_record(ranges, create_number(255));
-		append_record(ranges, create_number(255));
+		append_record(ranges, create_number(G_MAXUINT8));
+		append_record(ranges, create_number(G_MAXUINT8));
 	}
 	set_record(layer, "hu", ranges);
 	set_boolean(layer, "Zd", FALSE);
@@ -67,17 +69,17 @@ Record *create_mask(unsigned depth) {
 	set_string(mask, "name", "Mask");
 	set_boolean(mask, "Hl", FALSE);
 	Record *color = create_object(RECORD_PLAIN);
-	set_number(color, "l", 255);
+	set_number(color, "l", G_MAXUINT8);
 	set_number(color, "f", 0);
 	set_number(color, "c", 0);
 	set_record(mask, "wJ", color);
 	set_number(mask, "P2", 50);
 	set_number(mask, "hq", 1);
-	set_number(mask, "color", 255);
+	set_number(mask, "color", G_MAXUINT8);
 	set_boolean(mask, "WE", TRUE);
 	set_boolean(mask, "isEnabled", TRUE);
 	set_boolean(mask, "L7", FALSE);
-	set_number(mask, "mU", 255);
+	set_number(mask, "mU", G_MAXUINT8);
 	set_number(mask, "O1", 0);
 	set_record(mask, "V", create_extent(0, 0, 0, 0));
 	set_record(mask, "C", create_channels(0, depth));
@@ -90,7 +92,7 @@ Record *create_vector_mask(void) {
 	Record *mask = create_object(RECORD_VECTOR_MASK);
 	set_boolean(mask, "WE", TRUE);
 	set_boolean(mask, "isEnabled", TRUE);
-	set_number(mask, "mU", 255);
+	set_number(mask, "mU", G_MAXUINT8);
 	set_number(mask, "O1", 0);
 	set_number(mask, "jP", 0);
 	set_number(mask, "d2", 1);

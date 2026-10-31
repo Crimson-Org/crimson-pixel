@@ -135,13 +135,13 @@ double next_layer_id(Document *document) {
 		}
 		guint32 value = isfinite(maximum) ? (guint32)fmod(maximum, 4294967296.0) : 0;
 		for (guint index = 0; index < 4; index++)
-			write_channel(counter, index, (value >> (24 - index * 8)) & 255);
+			write_channel(counter, index, (value >> (24 - index * 8)) & G_MAXUINT8);
 	}
 	double next = read_channel(counter, 0) * 16777216 + read_channel(counter, 1) * 65536 +
 				  read_channel(counter, 2) * 256 + read_channel(counter, 3) + 1;
 	guint32 value = (guint32)fmod(next, 4294967296.0);
 	for (guint index = 0; index < 4; index++)
-		write_channel(counter, index, (value >> (24 - index * 8)) & 255);
+		write_channel(counter, index, (value >> (24 - index * 8)) & G_MAXUINT8);
 	return next;
 }
 

@@ -46,9 +46,9 @@ bool prepare_blend_ranges(const double *layer_ranges, double *prepared) {
 	if (!custom)
 		return false;
 	for (int index = 0; index < BLEND_RANGE_VALUES; index += RANGE_VALUES) {
-		double low = layer_ranges[index + RANGE_BLACK_FROM] / 255, low_end = layer_ranges[index + RANGE_BLACK_TO] / 255;
-		double high_start = layer_ranges[index + RANGE_WHITE_FROM] / 255;
-		double high = layer_ranges[index + RANGE_WHITE_TO] / 255;
+		double low = layer_ranges[index + RANGE_BLACK_FROM] / G_MAXUINT8, low_end = layer_ranges[index + RANGE_BLACK_TO] / G_MAXUINT8;
+		double high_start = layer_ranges[index + RANGE_WHITE_FROM] / G_MAXUINT8;
+		double high = layer_ranges[index + RANGE_WHITE_TO] / G_MAXUINT8;
 		prepared[index] = low - RANGE_EDGE;
 		prepared[index + 1] = low == low_end ? STEEP_SLOPE : 1 / (low_end - low);
 		prepared[index + 2] = high_start == high ? -STEEP_SLOPE : 1 / (high_start - high);
@@ -331,12 +331,12 @@ static uint32_t blend_normal_pixel(const BlendKernel *kernel, uint32_t source, u
 
 static uint32_t blend_dissolve_pixel(const BlendKernel *kernel, uint32_t source, uint32_t destination, uint32_t index) {
 	double preserve = kernel->options.preserve_alpha ? 1 : 0;
-	double scale = floor(kernel->opacity * ((double)(1 << DISSOLVE_BITS) / 255) + .5);
-	double share = preserve * 255 + (1 - preserve) * (source >> WORD_ALPHA_SHIFT);
+	double scale = floor(kernel->opacity * ((double)(1 << DISSOLVE_BITS) / G_MAXUINT8) + .5);
+	double share = preserve * G_MAXUINT8 + (1 - preserve) * (source >> WORD_ALPHA_SHIFT);
 	if ((hash_whole_number(index) & DISSOLVE_MASK) >= share * scale)
 		return destination;
 	return (source & WORD_COLOR_MASK) |
-		   (uint32_t)wrap_int32(preserve * (destination >> WORD_ALPHA_SHIFT) + (1 - preserve) * 255) << WORD_ALPHA_SHIFT;
+		   (uint32_t)wrap_int32(preserve * (destination >> WORD_ALPHA_SHIFT) + (1 - preserve) * G_MAXUINT8) << WORD_ALPHA_SHIFT;
 }
 
 static uint32_t blend_separable_pixel(const BlendKernel *kernel, uint32_t source, uint32_t destination,
@@ -355,7 +355,7 @@ static uint32_t blend_separable_pixel(const BlendKernel *kernel, uint32_t source
 	if (kernel->options.ranges)
 		top_alpha *= measure_blend_ranges(top, bottom, bottom_alpha, kernel->options.ranges);
 	double below = bottom_alpha * (1 - top_alpha), total = top_alpha + below;
-	double scale = total == 0 ? 0 : 255 / total, weight = kernel->options.style ? 1 : top_alpha;
+	double scale = total == 0 ? 0 : G_MAXUINT8 / total, weight = kernel->options.style ? 1 : top_alpha;
 	double mixed_fill = (1 + top_alpha - weight) * fill;
 	uint32_t pixel = 0;
 	for (int channel = 0; channel < RGB_CHANNELS; channel++) {
@@ -381,7 +381,7 @@ static uint32_t blend_color_pixel(const BlendKernel *kernel, uint32_t source, ui
 	}
 	if (kernel->options.ranges)
 		top_alpha *= measure_blend_ranges(top, bottom, bottom_alpha, kernel->options.ranges);
-	double below = bottom_alpha * (1 - top_alpha), total = top_alpha + below, scale = 255 / total;
+	double below = bottom_alpha * (1 - top_alpha), total = top_alpha + below, scale = G_MAXUINT8 / total;
 	kernel->color(top, bottom, mixed);
 	uint32_t pixel = 0;
 	for (int channel = 0; channel < RGB_CHANNELS; channel++) {

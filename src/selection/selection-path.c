@@ -185,7 +185,7 @@ static double widen_alpha(int alpha, unsigned depth) {
 }
 
 static double round_alpha(double value, unsigned depth) {
-	double full = depth == 16 ? 65535 : depth == 32 ? 1 : 255;
+	double full = depth == 16 ? 65535 : depth == 32 ? 1 : G_MAXUINT8;
 	double half = depth == 32 ? 0.5 : floor(full / 2);
 	return value < half ? 0 : full;
 }
@@ -194,7 +194,7 @@ static void write_mask_row(Record *mask, const float *row, int width, int y, uns
 	double sum = 0;
 	for (int x = 0; x < width; x++) {
 		sum += row[x];
-		int alpha = (int)(MIN(1, fabs(sum)) * 255 + 0.5);
+		int alpha = (int)(MIN(1, fabs(sum)) * G_MAXUINT8 + 0.5);
 		double value = widen_alpha(alpha, depth);
 		write_channel(mask, (gsize)y * width + x, anti_alias ? value : round_alpha(value, depth));
 	}

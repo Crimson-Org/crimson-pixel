@@ -219,12 +219,12 @@ static void convert_stop_colors(ResolvedStop *colors, int count, GradientInterpo
 		double *value = colors[index].value;
 		if (interpolation == GRADIENT_LINEAR_LIGHT)
 			for (int channel = 0; channel < RGB_CHANNELS; channel++)
-				value[channel] = 255 * linearize_srgb(byte_to_unit(value[channel]));
+				value[channel] = G_MAXUINT8 * linearize_srgb(byte_to_unit(value[channel]));
 		else if (interpolation == GRADIENT_PERCEPTUAL || interpolation == GRADIENT_SMOOTH) {
 			double lab[RGB_CHANNELS];
 			convert_rgb_to_lab(value[0], value[1], value[2], lab);
 			/* Lab in byte ranges, with a and b centered on half a byte */
-			value[0] = lab[0] * (255 / PERCENT);
+			value[0] = lab[0] * (G_MAXUINT8 / PERCENT);
 			value[1] = G_MAXUINT8 / 2.0 + lab[1];
 			value[2] = G_MAXUINT8 / 2.0 + lab[2];
 		}
@@ -345,7 +345,7 @@ static void write_dithered_pixel(const float *entry, guint32 noise, guint8 *pixe
 	for (int channel = 0; channel < RGBA_CHANNELS; channel++) {
 		/* Each channel rounds up when its byte of the noise is below the part that was cut off */
 		double value = entry[channel] * 255.0, rounded = floor(value);
-		if ((noise >> (channel * CHAR_BIT) & G_MAXUINT8) < (value - rounded) * 255)
+		if ((noise >> (channel * CHAR_BIT) & G_MAXUINT8) < (value - rounded) * G_MAXUINT8)
 			rounded++;
 		pixel[channel] = (guint8)rounded;
 	}

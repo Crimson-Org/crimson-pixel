@@ -5,6 +5,9 @@
 #include "selection/selection-modify.h"
 #include "lang/en.h"
 
+/* Selections grow, shrink, border or feather by at most this many pixels */
+#define LARGEST_MODIFY_AMOUNT 255
+
 /* Modify, Fill and Stroke inputs after the shared dialog */
 typedef struct {
 	CommandDialog base;
@@ -79,7 +82,8 @@ void show_modify_dialog(Editor *editor, int modification) {
 	dialog->base.accept = accept_modification;
 	dialog->base.cancel = cancel_modification;
 	dialog->amount =
-		add_number_input(&dialog->base, titles[modification], TEXT_PIXEL_UNIT, 0, 255, modify_amounts[modification], 0);
+		add_number_input(&dialog->base, titles[modification], TEXT_PIXEL_UNIT, 0, LARGEST_MODIFY_AMOUNT,
+						 modify_amounts[modification], 0);
 	if (modification != MODIFY_BORDER) {
 		dialog->bounds = gtk_check_button_new_with_label(TEXT_APPLY_AT_CANVAS_BOUNDS);
 		gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->bounds), modify_bounds[modification]);

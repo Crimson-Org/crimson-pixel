@@ -66,7 +66,7 @@ static Record *create_cleared_layer(const Record *layer, const Record *selection
 														overlap.x - mask_extent.x + x);
 			double value = read_channel(cleared, at) * keep;
 			write_channel(cleared, at,
-						  full == 255 ? (double)(((guint)value + 1 + ((guint)value >> 8)) >> 8) : value / full);
+						  full == G_MAXUINT8 ? (double)(((guint)value + 1 + ((guint)value >> 8)) >> 8) : value / full);
 		}
 	return source;
 }

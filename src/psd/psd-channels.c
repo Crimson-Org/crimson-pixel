@@ -76,7 +76,7 @@ static void undo_prediction(guint8 *bytes, gsize length, gsize width, gsize heig
 			guint value = bytes[start - 1];
 			for (gsize index = start; index < end && index < length; index++) {
 				value += bytes[index];
-				bytes[index] = value & 255;
+				bytes[index] = value & G_MAXUINT8;
 			}
 		}
 	} else if (depth == 16) {
@@ -87,8 +87,8 @@ static void undo_prediction(guint8 *bytes, gsize length, gsize width, gsize heig
 				if (byte + 1 >= length)
 					break;
 				value += bytes[byte] << 8 | bytes[byte + 1];
-				bytes[byte] = value & 255;
-				bytes[byte + 1] = (value >> 8) & 255;
+				bytes[byte] = value & G_MAXUINT8;
+				bytes[byte + 1] = (value >> 8) & G_MAXUINT8;
 			}
 		}
 	} else {
@@ -99,7 +99,7 @@ static void undo_prediction(guint8 *bytes, gsize length, gsize width, gsize heig
 			guint value = line[0];
 			for (gsize index = 1; index < row_bytes; index++) {
 				value += line[index];
-				line[index] = value & 255;
+				line[index] = value & G_MAXUINT8;
 			}
 			for (gsize index = 0; index < width; index++) {
 				planes[4 * index + 3] = line[index];

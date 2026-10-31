@@ -28,7 +28,7 @@ guint32 get_fill_content_color(FillContent content, guint32 foreground, guint32 
 gboolean fill_document(Document *document, const char *operation, guint32 color, int opacity_percent,
 					   gboolean preserve_transparency, GError **error) {
 	PaintTool tool = {.tool = operation};
-	int alpha = round_half_up(255 * (opacity_percent / 100.0));
+	int alpha = round_half_up(G_MAXUINT8 * (opacity_percent / 100.0));
 	gboolean filled = fill_paint_region(&tool, document, get_document_selection(document), color, alpha,
 										preserve_transparency, 2, 3, error);
 	cancel_paint_tool(&tool);

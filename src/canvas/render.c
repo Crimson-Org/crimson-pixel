@@ -8,17 +8,17 @@
 
 guint32 premultiply_pixel(guint32 pixel) {
 	guint alpha = pixel >> WORD_ALPHA_SHIFT;
-	return (alpha << WORD_ALPHA_SHIFT) | (((((pixel >> WORD_RED_SHIFT) & G_MAXUINT8) * alpha + 127) / 255) << 16) |
-		   (((((pixel >> 8) & 255) * alpha + 127) / 255) << 8) | (((pixel & 255) * alpha + 127) / 255);
+	return (alpha << WORD_ALPHA_SHIFT) | (((((pixel >> WORD_RED_SHIFT) & G_MAXUINT8) * alpha + 127) / G_MAXUINT8) << 16) |
+		   (((((pixel >> 8) & G_MAXUINT8) * alpha + 127) / G_MAXUINT8) << 8) | (((pixel & G_MAXUINT8) * alpha + 127) / G_MAXUINT8);
 }
 
 guint32 unpremultiply_pixel(guint32 pixel) {
 	guint alpha = pixel >> WORD_ALPHA_SHIFT;
 	if (!alpha)
 		return 0;
-	return (alpha << WORD_ALPHA_SHIFT) | (MIN(255, (((pixel >> WORD_RED_SHIFT) & G_MAXUINT8) * 255 + alpha / 2) / alpha) << 16) |
-		   (MIN(255, (((pixel >> 8) & 255) * 255 + alpha / 2) / alpha) << 8) |
-		   MIN(255, ((pixel & 255) * 255 + alpha / 2) / alpha);
+	return (alpha << WORD_ALPHA_SHIFT) | (MIN(G_MAXUINT8, (((pixel >> WORD_RED_SHIFT) & G_MAXUINT8) * G_MAXUINT8 + alpha / 2) / alpha) << 16) |
+		   (MIN(G_MAXUINT8, (((pixel >> 8) & G_MAXUINT8) * G_MAXUINT8 + alpha / 2) / alpha) << 8) |
+		   MIN(G_MAXUINT8, ((pixel & G_MAXUINT8) * G_MAXUINT8 + alpha / 2) / alpha);
 }
 
 static guint32 read_display_pixel(const Record *channels, gsize pixel) {
@@ -49,7 +49,7 @@ static void convert_display_rows(int first, int last, gpointer data) {
 			}
 			const guint8 *source = (const guint8 *)buffer->value.buffer.data + index * 4;
 			guint32 pixel = (guint32)source[3] << WORD_ALPHA_SHIFT | (guint32)source[0] << 16 | (guint32)source[1] << 8 | source[2];
-			row[x] = source[3] == 255 ? pixel : premultiply_pixel(pixel);
+			row[x] = source[3] == G_MAXUINT8 ? pixel : premultiply_pixel(pixel);
 		}
 	}
 }
@@ -147,9 +147,9 @@ GdkPixbuf *create_document_pixbuf(Document *document, gboolean opaque, GError **
 			guint8 *target = pixels + y * stride + x * channels;
 			guint alpha = pixel >> WORD_ALPHA_SHIFT;
 			for (int channel = 0; channel < 3; channel++) {
-				guint value = pixel >> (16 - channel * 8) & 255;
+				guint value = pixel >> (16 - channel * 8) & G_MAXUINT8;
 				/* Opaque formats show transparent areas over white */
-				target[channel] = opaque ? (value * alpha + 255 * (255 - alpha) + 127) / 255 : value;
+				target[channel] = opaque ? (value * alpha + G_MAXUINT8 * (G_MAXUINT8 - alpha) + 127) / G_MAXUINT8 : value;
 			}
 			if (!opaque)
 				target[3] = alpha;

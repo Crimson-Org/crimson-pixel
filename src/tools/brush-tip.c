@@ -131,7 +131,7 @@ BrushLevel create_computed_tip(double diameter, double hardness, double scale) {
 		int after = MIN(PROFILE_SAMPLES - 1, index + blur), far_after = MIN(PROFILE_SAMPLES - 1, index + blur + blur);
 		const double *values = profile->values;
 		int value =
-			(int)(.5 + 255 * (1.0 / 5) *
+			(int)(.5 + G_MAXUINT8 * (1.0 / 5) *
 						   (values[index] + values[far_before] + values[before] + values[after] + values[far_after]));
 		falloff[index] = value;
 		if (value == 0)
@@ -146,7 +146,7 @@ BrushLevel create_computed_tip(double diameter, double hardness, double scale) {
 				continue;
 			if (distance < solid) {
 				for (; column < half; column++)
-					set_symmetric_values(tip, size, row, column, 255);
+					set_symmetric_values(tip, size, row, column, G_MAXUINT8);
 				break;
 			}
 			set_symmetric_values(tip, size, row, column, distance < PROFILE_SAMPLES ? falloff[distance] : 0);

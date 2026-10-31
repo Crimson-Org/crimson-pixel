@@ -206,7 +206,7 @@ Record *lift_pixels(Document *document, Record *layer, gboolean copy, GError **e
 				((gsize)(overlap.y - layer_extent.y + y) * layer_extent.width + overlap.x - layer_extent.x + x) * 4 + 3;
 			double covered = read_channel(mask, (gsize)(overlap.y - mask_extent.y + y) * mask_extent.width + overlap.x -
 													mask_extent.x + x);
-			guint8 value = (guint8)trunc(covered * read_channel(buffer, at) / 255);
+			guint8 value = (guint8)trunc(covered * read_channel(buffer, at) / G_MAXUINT8);
 			alpha[(gsize)y * overlap.width + x] = value;
 			if (!value)
 				continue;
@@ -241,7 +241,7 @@ Record *lift_pixels(Document *document, Record *layer, gboolean copy, GError **e
 						4 +
 					3;
 				guint keep =
-					255 - (guint)read_channel(mask, (gsize)(overlap.y - mask_extent.y + y) * mask_extent.width +
+					G_MAXUINT8 - (guint)read_channel(mask, (gsize)(overlap.y - mask_extent.y + y) * mask_extent.width +
 														overlap.x - mask_extent.x + x);
 				guint value = ((guint8 *)base->value.buffer.data)[at] * keep;
 				((guint8 *)base->value.buffer.data)[at] = (value + 1 + (value >> 8)) >> 8;

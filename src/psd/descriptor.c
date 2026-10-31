@@ -205,13 +205,13 @@ void write_u8(GByteArray *output, guint value) {
 }
 
 void write_u16(GByteArray *output, guint value) {
-	guint8 bytes[2] = {value >> 8 & 255, value & 255};
+	guint8 bytes[2] = {value >> 8 & G_MAXUINT8, value & G_MAXUINT8};
 	g_byte_array_append(output, bytes, 2);
 }
 
 void write_u32(GByteArray *output, double value) {
 	guint32 bits = (guint32)(gint64)value;
-	guint8 bytes[4] = {bits >> 24 & 255, bits >> 16 & 255, bits >> 8 & 255, bits & 255};
+	guint8 bytes[4] = {bits >> 24 & G_MAXUINT8, bits >> 16 & G_MAXUINT8, bits >> 8 & G_MAXUINT8, bits & G_MAXUINT8};
 	g_byte_array_append(output, bytes, 4);
 }
 
@@ -219,7 +219,7 @@ void write_double(GByteArray *output, double value) {
 	guint64 bits;
 	memcpy(&bits, &value, sizeof bits);
 	for (int shift = 56; shift >= 0; shift -= 8)
-		write_u8(output, bits >> shift & 255);
+		write_u8(output, bits >> shift & G_MAXUINT8);
 }
 
 void write_ascii(GByteArray *output, const char *text) {

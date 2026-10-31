@@ -47,7 +47,7 @@ static Document *convert_pixels(GdkPixbuf *pixels, GCancellable *cancellable, GE
 			const guint8 *pixel = source + y * stride + x * channels;
 			gsize offset = ((gsize)y * width + x) * 4;
 			memcpy(destination + offset, pixel, 3);
-			destination[offset + 3] = channels == 4 ? pixel[3] : 255;
+			destination[offset + 3] = channels == 4 ? pixel[3] : G_MAXUINT8;
 		}
 	}
 	if (!replace_document_layers(document, layers, error)) {

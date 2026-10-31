@@ -223,7 +223,7 @@ void set_string(Record *object, const char *key, const char *value) {
 }
 
 double channel_maximum(unsigned depth) {
-	return depth == 8 ? 255 : depth == 16 ? 65535 : 1;
+	return depth == 8 ? G_MAXUINT8 : depth == 16 ? 65535 : 1;
 }
 
 double read_channel_slow(const Record *buffer, gsize index) {
@@ -476,12 +476,12 @@ double convert_channel_depth(double value, unsigned from, unsigned to) {
 	if (to == 8 && from == 16)
 		return (guint32)value >> 8;
 	if (to == 8)
-		return MIN(255, wrap_int32(.5 + 255 * value));
+		return MIN(G_MAXUINT8, wrap_int32(.5 + G_MAXUINT8 * value));
 	if (to == 16 && from == 8)
 		return (guint32)value << 8 | (guint32)value;
 	if (to == 16)
 		return MIN(65535, 65535 * value);
-	return value * (1.0 / (from == 8 ? 255 : 65535));
+	return value * (1.0 / (from == 8 ? G_MAXUINT8 : 65535));
 }
 
 /* The channel value stored as a byte, wrapping and truncating */
@@ -490,5 +490,5 @@ guint8 read_channel_byte(const Record *buffer, gsize index) {
 	if (buffer->value.buffer.depth == 8)
 		return value;
 	value = convert_channel_depth(value, buffer->value.buffer.depth, 8);
-	return isfinite(value) ? (guint8)((gint64)value & 255) : 0;
+	return isfinite(value) ? (guint8)((gint64)value & G_MAXUINT8) : 0;
 }

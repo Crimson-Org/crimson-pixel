@@ -215,8 +215,8 @@ static void show_group_tools(GtkGestureClick *gesture, int presses, double x, do
 
 guint32 read_color_button(GtkWidget *button) {
 	const GdkRGBA *color = gtk_color_dialog_button_get_rgba(GTK_COLOR_DIALOG_BUTTON(button));
-	return (guint32)round(color->red * 255) << 16 | (guint32)round(color->green * 255) << 8 |
-		   (guint32)round(color->blue * 255);
+	return (guint32)round(color->red * G_MAXUINT8) << 16 | (guint32)round(color->green * G_MAXUINT8) << 8 |
+		   (guint32)round(color->blue * G_MAXUINT8);
 }
 
 void write_color_button(GtkWidget *button, guint32 color) {
@@ -428,7 +428,7 @@ static GtkWidget *create_fill_options(Editor *editor) {
 	editor->fill_options = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_WIDE);
 	GtkWidget *box = editor->fill_options;
 	gtk_box_append(GTK_BOX(box), create_option(editor, TEXT_OPTION_OPACITY, "%", 0, 100, &editor->fill_opacity));
-	gtk_box_append(GTK_BOX(box), create_option(editor, TEXT_OPTION_TOLERANCE, "", 0, 255, &editor->fill_tolerance));
+	gtk_box_append(GTK_BOX(box), create_option(editor, TEXT_OPTION_TOLERANCE, "", 0, G_MAXUINT8, &editor->fill_tolerance));
 	gtk_box_append(GTK_BOX(box), create_fill_switch(editor, TEXT_OPTION_ANTI_ALIAS, &editor->fill_smooth));
 	gtk_box_append(GTK_BOX(box), create_fill_switch(editor, TEXT_OPTION_CONTIGUOUS, &editor->fill_contiguous));
 	gtk_box_append(GTK_BOX(box), create_fill_switch(editor, TEXT_OPTION_ALL_LAYERS, &editor->fill_all_layers));

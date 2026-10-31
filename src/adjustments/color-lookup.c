@@ -513,7 +513,7 @@ static gboolean sample_point(const IccProfile *profile, double *point) {
 		convert_xyz_to_fractions(xyz, white, point);
 	} else if (g_ascii_strcasecmp(output, "lab "))
 		return FALSE;
-	convert_lab_to_fractions(point[0] * PERCENT, -127.5 + 255 * point[1], -127.5 + 255 * point[2], white, point);
+	convert_lab_to_fractions(point[0] * PERCENT, -127.5 + G_MAXUINT8 * point[1], -127.5 + G_MAXUINT8 * point[2], white, point);
 	return TRUE;
 }
 

@@ -115,6 +115,6 @@ void sample_spline(const CurvePoint *points, int count, float *curve, int length
 			value = evaluate_spline_run(position, x + run_start[found], y + run_start[found],
 										run_slopes + found * count, run_count[found]);
 		}
-		curve[index] = (1 / 255.0) * (isnan(value) ? value : MAX(0, MIN(255, value)));
+		curve[index] = (1 / 255.0) * (isnan(value) ? value : MAX(0, MIN(G_MAXUINT8, value)));
 	}
 }

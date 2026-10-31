@@ -14,9 +14,9 @@ static const guint8 *read_area_pixel(const guint8 *pixels, RasterExtent extent, 
 
 static int measure_color_distance(const guint8 *pixel, const guint8 *color) {
 	if (color[3] == 0)
-		return pixel[3] < 5 ? 0 : 255;
+		return pixel[3] < 5 ? 0 : G_MAXUINT8;
 	if (pixel[3] == 0)
-		return 255;
+		return G_MAXUINT8;
 	return MAX(abs(pixel[0] - color[0]), MAX(abs(pixel[1] - color[1]), abs(pixel[2] - color[2])));
 }
 
@@ -24,7 +24,7 @@ static guint8 get_edge_value(int distance, WandSettings settings) {
 	if (!settings.smooth_edges || settings.tolerance <= 0)
 		return 0;
 	double beyond = CLAMP((distance - settings.tolerance) * (1.0 / settings.tolerance), 0, 1);
-	return (guint8)(255 * (1 - beyond));
+	return (guint8)(G_MAXUINT8 * (1 - beyond));
 }
 
 static void fill_contiguous(const guint8 *pixels, RasterExtent extent, RasterExtent area, int start_x, int start_y,
@@ -43,7 +43,7 @@ static void fill_contiguous(const guint8 *pixels, RasterExtent extent, RasterExt
 			mask[index] = get_edge_value(distance, settings);
 			continue;
 		}
-		mask[index] = 255;
+		mask[index] = G_MAXUINT8;
 		const gboolean open[4] = {y != area.height - 1, y != 0, x != area.width - 1, x != 0};
 		const gint64 offsets[4] = {area.width, -area.width, 1, -1};
 		for (int side = 0; side < 4; side++) {
@@ -58,7 +58,7 @@ static void fill_contiguous(const guint8 *pixels, RasterExtent extent, RasterExt
 static gboolean touches_full_pixel(const guint8 *mask, RasterExtent area, int x, int y) {
 	for (int row = MAX(0, y - 1); row <= MIN(area.height - 1, y + 1); row++)
 		for (int column = MAX(0, x - 1); column <= MIN(area.width - 1, x + 1); column++)
-			if ((row != y || column != x) && mask[(gsize)row * area.width + column] == 255)
+			if ((row != y || column != x) && mask[(gsize)row * area.width + column] == G_MAXUINT8)
 				return TRUE;
 	return FALSE;
 }
@@ -69,7 +69,7 @@ static void fill_matching(const guint8 *pixels, RasterExtent extent, RasterExten
 		for (int x = 0; x < area.width; x++)
 			if (measure_color_distance(read_area_pixel(pixels, extent, area.x + x, area.y + y), color) <=
 				settings.tolerance)
-				mask[(gsize)y * area.width + x] = 255;
+				mask[(gsize)y * area.width + x] = G_MAXUINT8;
 	for (int y = 0; y < area.height; y++)
 		for (int x = 0; x < area.width; x++) {
 			gsize index = (gsize)y * area.width + x;

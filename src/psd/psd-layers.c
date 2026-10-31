@@ -65,7 +65,7 @@ static gsize read_layer_mask(PsdReader *reader, Record *layer, gsize offset) {
 		}
 		gsize parameter_start = offset;
 		int present = read_psd_byte(reader, offset++);
-		double values[4] = {255, 0, 255, 0};
+		double values[4] = {G_MAXUINT8, 0, G_MAXUINT8, 0};
 		if (present & 1)
 			values[0] = read_psd_byte(reader, offset++);
 		if (present >> 1 & 1) {

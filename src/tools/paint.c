@@ -186,7 +186,7 @@ static Record *get_target_layer(PaintTool *tool) {
 }
 
 static guint32 erase_pixel(guint32 coverage, guint32 pixel, double opacity) {
-	guint keep = ~(guint)round_half_up((coverage >> WORD_ALPHA_SHIFT) * opacity) & 255;
+	guint keep = ~(guint)round_half_up((coverage >> WORD_ALPHA_SHIFT) * opacity) & G_MAXUINT8;
 	guint alpha = (pixel >> WORD_ALPHA_SHIFT) * keep;
 	alpha = (alpha + 1 + (alpha >> 8)) >> 8;
 	return (pixel & WORD_COLOR_MASK) | alpha << WORD_ALPHA_SHIFT;
@@ -510,7 +510,7 @@ gboolean fill_paint_region(PaintTool *tool, Document *document, const Record *se
 		for (int column = 0; column < region.width; column++) {
 			guint32 covered = source;
 			if (mask) {
-				guint value = (double)alpha * read_channel(mask, (gsize)row * region.width + column) * (1.0 / 255);
+				guint value = (double)alpha * read_channel(mask, (gsize)row * region.width + column) * (1.0 / G_MAXUINT8);
 				covered = (source & WORD_COLOR_MASK) | value << WORD_ALPHA_SHIFT;
 			}
 			gsize at =
@@ -532,7 +532,7 @@ gboolean draw_paint_bitmap(PaintTool *tool, Document *document, Record *pixels, 
 	Record *selection = get_document_selection(document), *mask = selection ? get_record(selection, "C") : NULL;
 	guint8 *values = pixels->value.buffer.data;
 	for (gsize pixel = 0; mask && pixel < (gsize)extent.width * extent.height; pixel++)
-		values[pixel * 4 + 3] = (guint8)(values[pixel * 4 + 3] * read_channel(mask, pixel) * (1.0 / 255));
+		values[pixel * 4 + 3] = (guint8)(values[pixel * 4 + 3] * read_channel(mask, pixel) * (1.0 / G_MAXUINT8));
 	tool->opacity = 1;
 	tool->coverage_masked = TRUE;
 	prepare_paint_target(tool, document, (RasterExtent){0});
@@ -567,13 +567,13 @@ guint32 sample_document_color(Document *document, double x, double y, int size, 
 		for (int sample_y = top; sample_y < bottom; sample_y++)
 			for (int channel = 0; channel < 3; channel++)
 				sums[channel] += read_channel(pixels, 4 * ((gsize)sample_y * extent.width + sample_x) + channel);
-	double scale = 255 / (channel_maximum(pixels->value.buffer.depth) * count);
+	double scale = G_MAXUINT8 / (channel_maximum(pixels->value.buffer.depth) * count);
 	if (pixels->value.buffer.depth == 32)
-		scale = 255 / count;
+		scale = G_MAXUINT8 / count;
 	guint32 color = 0;
 	for (int channel = 0; channel < 3; channel++) {
 		double value = round_half_up(sums[channel] * scale);
-		color |= (guint32)(isfinite(value) ? (gint64)value & 255 : 0) << (16 - channel * 8);
+		color |= (guint32)(isfinite(value) ? (gint64)value & G_MAXUINT8 : 0) << (16 - channel * 8);
 	}
 	return color;
 }

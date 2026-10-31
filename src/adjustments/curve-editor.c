@@ -33,14 +33,14 @@ static double get_graph_size(GtkWidget *widget) {
 
 static void get_level(GtkWidget *widget, double x, double y, double *input, double *output) {
 	double size = get_graph_size(widget);
-	*input = (x - CURVE_EDITOR_MARGIN) / size * 255;
-	*output = 255 - (y - CURVE_EDITOR_MARGIN) / size * 255;
+	*input = (x - CURVE_EDITOR_MARGIN) / size * G_MAXUINT8;
+	*output = G_MAXUINT8 - (y - CURVE_EDITOR_MARGIN) / size * G_MAXUINT8;
 }
 
 static graphene_point_t get_position(GtkWidget *widget, double input, double output) {
 	double size = get_graph_size(widget);
-	return GRAPHENE_POINT_INIT(CURVE_EDITOR_MARGIN + input / 255 * size,
-							   CURVE_EDITOR_MARGIN + (255 - output) / 255 * size);
+	return GRAPHENE_POINT_INIT(CURVE_EDITOR_MARGIN + input / G_MAXUINT8 * size,
+							   CURVE_EDITOR_MARGIN + (G_MAXUINT8 - output) / G_MAXUINT8 * size);
 }
 
 /* ============================== Drawing ========================================= */
@@ -89,7 +89,7 @@ static void draw_curve_editor(GtkWidget *widget, GtkSnapshot *snapshot, int widt
 	g_autoptr(GskPathBuilder) builder = gsk_path_builder_new();
 	for (int index = 0; index < CURVE_EDITOR_SIZE; index++) {
 		double value = isnan(curve[index]) ? 0 : curve[index];
-		graphene_point_t point = get_position(widget, index * 255.0 / (CURVE_EDITOR_SIZE - 1), value * 255);
+		graphene_point_t point = get_position(widget, index * 255.0 / (CURVE_EDITOR_SIZE - 1), value * G_MAXUINT8);
 		if (index)
 			gsk_path_builder_line_to(builder, point.x, point.y);
 		else
@@ -129,10 +129,10 @@ static void report_change(GtkWidget *widget, CurveEditor *editor) {
 static void place_point(CurveEditor *editor, int index, double input, double output) {
 	double low = index > 0 ? g_array_index(editor->points, CurvePoint, index - 1).input + 1 : 0;
 	double high =
-		index + 1 < (int)editor->points->len ? g_array_index(editor->points, CurvePoint, index + 1).input - 1 : 255;
+		index + 1 < (int)editor->points->len ? g_array_index(editor->points, CurvePoint, index + 1).input - 1 : G_MAXUINT8;
 	CurvePoint *point = &g_array_index(editor->points, CurvePoint, index);
 	point->input = CLAMP(round(input), low, MAX(low, high));
-	point->output = CLAMP(round(output), 0, 255);
+	point->output = CLAMP(round(output), 0, G_MAXUINT8);
 }
 
 static void begin_drag(GtkGestureDrag *gesture, double x, double y, GtkWidget *widget) {

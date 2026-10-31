@@ -102,7 +102,7 @@ static float *measure_edge_distances(const guint8 *mask, int width, int height) 
 			squares[index] = (gint32)(guint32)((double)nearest[slot] * nearest[slot]);
 			coverages[index] = nearest[slot + 1];
 		}
-		double offset = .5 - nearest[((gint64)vertices[top] << 1) + 1] * (1.0 / 255);
+		double offset = .5 - nearest[((gint64)vertices[top] << 1) + 1] * (1.0 / G_MAXUINT8);
 		for (gint64 point = end - 1; point >= start; point--) {
 			distances[point] =
 				nan_max(0, sqrt((double)(point - vertex) * (point - vertex) + vertex_square) + offset);
@@ -111,7 +111,7 @@ static float *measure_edge_distances(const guint8 *mask, int width, int height) 
 			boundary = boundaries[--top];
 			vertex = vertices[top];
 			vertex_square = squares[top];
-			offset = .5 - coverages[top] * (1.0 / 255);
+			offset = .5 - coverages[top] * (1.0 / G_MAXUINT8);
 		}
 	}
 	g_free(nearest);
@@ -126,7 +126,7 @@ static void draw_distance_coverage(const Record *source, Record *target, RasterE
 	float *distances = measure_edge_distances(source->value.buffer.data, extent.width, extent.height);
 	guint8 *values = target->value.buffer.data;
 	for (gsize index = 0; index < count_extent(extent); index++) {
-		double value = round_half_up(nan_max(0, nan_min(1, radius + .5 - distances[index])) * 255);
+		double value = round_half_up(nan_max(0, nan_min(1, radius + .5 - distances[index])) * G_MAXUINT8);
 		values[index] = isnan(value) ? 0 : value;
 	}
 	g_free(distances);
@@ -319,7 +319,7 @@ Record *create_selection_border(const Record *selection, double inner, double ou
 	guint8 *band = outside->value.buffer.data;
 	const guint8 *kept = inside->value.buffer.data;
 	for (gsize index = 0; index < count; index++)
-		band[index] = (double)band[index] * kept[index] * (1.0 / 255);
+		band[index] = (double)band[index] * kept[index] * (1.0 / G_MAXUINT8);
 	Record *mask = convert_mask_depth(outside, source->value.buffer.depth);
 	free_record(bytes);
 	free_record(area);

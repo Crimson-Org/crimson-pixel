@@ -134,7 +134,7 @@ void convert_xyz_to_lab(double x, double y, double z, double lab[RGB_CHANNELS]) 
 
 void convert_rgb_to_lab(double red, double green, double blue, double lab[RGB_CHANNELS]) {
 	fill_color_tables();
-	const double scale = COLOR_TABLE_SCALE / 255;
+	const double scale = COLOR_TABLE_SCALE / G_MAXUINT8;
 	red = read_table(linear_table, red * scale);
 	green = read_table(linear_table, green * scale);
 	blue = read_table(linear_table, blue * scale);

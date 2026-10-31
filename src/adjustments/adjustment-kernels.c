@@ -10,7 +10,7 @@
 static guint8 round_to_byte(float value) {
 	if (isnan(value))
 		return 0;
-	return MIN(G_MAXUINT8, (gint32)(0.5 + 255 * (double)value));
+	return MIN(G_MAXUINT8, (gint32)(0.5 + G_MAXUINT8 * (double)value));
 }
 
 static double sample_curve(const float *curve, int length, double position) {

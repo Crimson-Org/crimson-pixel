@@ -151,9 +151,9 @@ static void build_legacy_brightness(Adjustment *adjustment, double brightness, d
 static void build_brightness(Adjustment *adjustment, double brightness, double contrast) {
 	const int length = ADJUSTMENT_CURVE_LIMIT;
 	double bend = -30 + 60 * (contrast + 100) / 200, amount = from_percent(fabs(brightness));
-	const double contrast_x[] = {0, 64, 192, 255}, contrast_y[] = {0, 64 - bend, 192 + bend, 255};
-	const double lift_x[] = {0, 130 - amount * 26, 233 - amount * 48, 255};
-	const double lift_y[] = {0, 130 + amount * 51, 233 + amount * 10, 255};
+	const double contrast_x[] = {0, 64, 192, G_MAXUINT8}, contrast_y[] = {0, 64 - bend, 192 + bend, G_MAXUINT8};
+	const double lift_x[] = {0, 130 - amount * 26, 233 - amount * 48, G_MAXUINT8};
+	const double lift_y[] = {0, 130 + amount * 51, 233 + amount * 10, G_MAXUINT8};
 	float lift[ADJUSTMENT_CURVE_LIMIT];
 	/* The contrast curve waits in the blue curve until the chained result replaces it */
 	sample_smooth_spline(contrast_x, contrast_y, adjustment->blue, length);

@@ -28,7 +28,7 @@ static void change_layer_value(GtkWidget *field, double percent, gpointer data) 
 	PresentedDocument *presented = get_page_document(page);
 	if (!presented || !gtk_widget_get_sensitive(field))
 		return;
-	double value = round(percent * 255 / 100);
+	double value = round(percent * G_MAXUINT8 / 100);
 	g_autoptr(GError) error = NULL;
 	gboolean changed = field == editor->opacity
 						   ? change_layer_opacity(presented->document, -1, value, FALSE, &error)
@@ -69,7 +69,7 @@ void type_layer_opacity_digit(Editor *editor, int digit) {
 	if (!presented || !can_edit_layer_values(presented->document))
 		return;
 	Record *layer = get_active_layer(presented->document);
-	int percent = type_percent_digit((int)round(100 * get_number(layer, "nv") / 255), digit);
+	int percent = type_percent_digit((int)round(100 * get_number(layer, "nv") / G_MAXUINT8), digit);
 	g_autoptr(GError) error = NULL;
 	if (!change_layer_opacity(presented->document, -1, round(255.0 * percent / 100), FALSE, &error)) {
 		gtk_label_set_text(GTK_LABEL(editor->status), error->message);
@@ -169,7 +169,7 @@ static GdkTexture *create_layer_thumbnail(Document *document, Record *layer) {
 			gsize index = ((gsize)source_y * extent.width + source_x) * 4;
 			for (int channel = 0; channel < 4; channel++)
 				pixels[((gsize)y * width + x) * 4 + channel] =
-					CLAMP(read_channel(buffer, index + channel) / maximum * 255 + 0.5, 0, 255);
+					CLAMP(read_channel(buffer, index + channel) / maximum * G_MAXUINT8 + 0.5, 0, G_MAXUINT8);
 		}
 	g_autoptr(GBytes) bytes = g_bytes_new_take(pixels, (gsize)width * height * 4);
 	return gdk_memory_texture_new(width, height, GDK_MEMORY_R8G8B8A8, bytes, (gsize)width * 4);
@@ -289,7 +289,7 @@ GtkWidget *create_layers_panel(Editor *editor) {
 
 static void set_percent_value(Editor *editor, GtkWidget *field, double value, gboolean supported) {
 	gtk_widget_set_sensitive(field, supported);
-	set_value_field(field, round(value * 100 / 255));
+	set_value_field(field, round(value * 100 / G_MAXUINT8));
 }
 
 static void toggle_visibility(GtkButton *button, Editor *editor) {
@@ -792,8 +792,8 @@ void refresh_layers_panel(Editor *editor) {
 		gtk_list_box_remove_all(GTK_LIST_BOX(editor->layer_list));
 	}
 	if (!presented) {
-		set_percent_value(editor, editor->opacity, 255, FALSE);
-		set_percent_value(editor, editor->fill, 255, FALSE);
+		set_percent_value(editor, editor->opacity, G_MAXUINT8, FALSE);
+		set_percent_value(editor, editor->fill, G_MAXUINT8, FALSE);
 		refresh_blend_mode(editor, NULL, FALSE);
 		return;
 	}
@@ -829,8 +829,8 @@ void refresh_layers_panel(Editor *editor) {
 	Record *layer = get_active_layer(document);
 	gboolean editable = can_edit_layer_values(document);
 	Record *fill = get_record(get_record(layer, "add"), "iOpa");
-	set_percent_value(editor, editor->opacity, layer ? get_number(layer, "nv") : 255, editable);
-	set_percent_value(editor, editor->fill, !fill || fill->type == RECORD_NULL ? 255 : fill->value.number,
+	set_percent_value(editor, editor->opacity, layer ? get_number(layer, "nv") : G_MAXUINT8, editable);
+	set_percent_value(editor, editor->fill, !fill || fill->type == RECORD_NULL ? G_MAXUINT8 : fill->value.number,
 					  editable && !is_layer_group(layer));
 	refresh_blend_mode(editor, layer, editable);
 }
