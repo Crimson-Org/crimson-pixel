@@ -49,6 +49,15 @@ crimson_each() {
 		crimson_all="$crimson_all $crimson_to"
 		printf '%s: %s%s\n\t@mkdir -p "$(dir $@)"\n\t@echo "==> %s"\n\t%s\n\n' "$crimson_to" "$crimson_from" "$crimson_extra" "$crimson_from" "$crimson_command" >> "$crimson_rules"
 	done
+	crimson_dir=$(dirname "${2%%\{id\}*}x")
+	crimson_list="$crimson_dir/.crimson-each-$(printf '%s|%s' "$1" "$2" | cksum | cut -d' ' -f1)"
+	if [ -f "$crimson_list" ]; then
+		while IFS= read -r crimson_old; do
+			case " $crimson_all " in *" $crimson_old "*) ;; *) rm -f "$crimson_old" ;; esac
+		done < "$crimson_list"
+	fi
+	mkdir -p "$crimson_dir"
+	printf '%s\n' $crimson_all > "$crimson_list"
 	{ printf 'all:%s\n\n' "$crimson_all"; cat "$crimson_rules"; } > "$crimson_make"
 	crimson_status=0
 	make -s -f "$crimson_make" -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" all || crimson_status=$?
