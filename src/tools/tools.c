@@ -8,6 +8,39 @@
 
 #define TOOL_HAND "59"
 
+/* Each tool button has room for a group of up to three tools, and an icon this size, with a corner marker when the
+ * group has more than one tool */
+#define GROUP_TOOLS 3
+#define TOOL_ICON_SIZE 22
+#define GROUP_MARKER_SIZE 5
+#define GROUP_MARKER_ALPHA .7
+#define OPTIONS_BAR_HEIGHT 34
+/* Brushes stay between these diameters */
+#define SMALLEST_BRUSH 1
+#define LARGEST_BRUSH 2500
+/* The bracket keys change hardness in quarters */
+#define HARDNESS_STEP 25
+/* Arrow keys nudge by one pixel, or by this many with Shift */
+#define LARGE_NUDGE 10
+#define BLACK 0x000000
+#define WHITE 0xffffff
+
+/* Brush sizes step by one up to 10, by 5 up to 50, by 10 up to 100, by 25 up to 200, by 50 up to 400, then by 100 */
+static const struct {
+	double below, step;
+} SIZE_STEPS[] = {{10, 1}, {50, 5}, {100, 10}, {200, 25}, {400, 50}, {G_MAXDOUBLE, 100}};
+/* The eyedropper averages squares of these sizes */
+static const int SAMPLE_SIZES[] = {1, 3, 5, 11, 31};
+
+static const PaintOptions DEFAULT_PAINT_OPTIONS = {
+	.shape = {.diameter = 15, .hardness = PERCENT, .angle = 0, .roundness = PERCENT, .spacing = 25},
+	.opacity = 1,
+	.flow = 1,
+	.smooth_edges = TRUE};
+/* The bucket and the wand look for colours this close, out of 255 */
+#define BUCKET_TOLERANCE 40
+#define WAND_TOLERANCE 16
+
 /* One tool with its icon, label and the identifier the editor selects it by */
 typedef struct {
 	const char *identifier, *icon, *name;
@@ -15,7 +48,7 @@ typedef struct {
 
 typedef struct {
 	guint key;
-	const ToolEntry tools[3];
+	const ToolEntry tools[GROUP_TOOLS];
 } ToolGroup;
 
 /* The tool groups in column order with their selection key */
@@ -38,7 +71,7 @@ static const ToolGroup TOOL_GROUPS[] = {
 
 static int count_group_tools(const ToolGroup *group) {
 	int count = 0;
-	while (count < 3 && group->tools[count].identifier)
+	while (count < GROUP_TOOLS && group->tools[count].identifier)
 		count++;
 	return count;
 }
@@ -101,7 +134,7 @@ PaintOptions *get_tool_options(Editor *editor) {
 static GtkWidget *create_tool_icon(const char *name) {
 	g_autofree char *icon_name = g_strdup_printf("crimson-tool-%s-symbolic", name);
 	GtkWidget *image = gtk_image_new_from_icon_name(icon_name);
-	gtk_image_set_pixel_size(GTK_IMAGE(image), 22);
+	gtk_image_set_pixel_size(GTK_IMAGE(image), TOOL_ICON_SIZE);
 	return image;
 }
 
@@ -116,7 +149,7 @@ static char *describe_tool(const ToolEntry *tool, guint key) {
 static void draw_group_marker(GtkWidget *widget, GtkSnapshot *snapshot, int width, int height, gpointer data) {
 	GdkRGBA color;
 	gtk_widget_get_color(widget, &color);
-	color.alpha *= .7;
+	color.alpha *= GROUP_MARKER_ALPHA;
 	g_autoptr(GskPathBuilder) builder = gsk_path_builder_new();
 	gsk_path_builder_move_to(builder, width, 0);
 	gsk_path_builder_line_to(builder, width, height);
@@ -134,7 +167,7 @@ static GtkWidget *create_group_icon(const ToolGroup *group, const ToolEntry *too
 		return icon;
 	GtkWidget *overlay = gtk_overlay_new(), *marker = create_snapshot_area(draw_group_marker, NULL, NULL);
 	gtk_overlay_set_child(GTK_OVERLAY(overlay), icon);
-	gtk_widget_set_size_request(marker, 5, 5);
+	gtk_widget_set_size_request(marker, GROUP_MARKER_SIZE, GROUP_MARKER_SIZE);
 	gtk_widget_set_halign(marker, GTK_ALIGN_END);
 	gtk_widget_set_valign(marker, GTK_ALIGN_END);
 	gtk_widget_set_can_target(marker, FALSE);
@@ -214,9 +247,7 @@ static void show_group_tools(GtkGestureClick *gesture, int presses, double x, do
 }
 
 guint32 read_color_button(GtkWidget *button) {
-	const GdkRGBA *color = gtk_color_dialog_button_get_rgba(GTK_COLOR_DIALOG_BUTTON(button));
-	return (guint32)round(color->red * G_MAXUINT8) << 16 | (guint32)round(color->green * G_MAXUINT8) << 8 |
-		   (guint32)round(color->blue * G_MAXUINT8);
+	return rgba_to_color(gtk_color_dialog_button_get_rgba(GTK_COLOR_DIALOG_BUTTON(button)));
 }
 
 void write_color_button(GtkWidget *button, guint32 color) {
@@ -239,8 +270,8 @@ static void swap_colors(Editor *editor) {
 }
 
 static void reset_colors(Editor *editor) {
-	write_color_button(editor->foreground, 0x000000);
-	write_color_button(editor->background, 0xffffff);
+	write_color_button(editor->foreground, BLACK);
+	write_color_button(editor->background, WHITE);
 }
 
 static void click_swap_colors(GtkButton *button, Editor *editor) {
@@ -307,11 +338,11 @@ static void change_tool_option(GtkWidget *field, double value, gpointer data) {
 	if (field == editor->tool_hardness)
 		options->shape.hardness = value;
 	if (field == editor->tool_opacity)
-		options->opacity = value / 100;
+		options->opacity = from_percent(value);
 	if (field == editor->tool_flow)
-		options->flow = value / 100;
+		options->flow = from_percent(value);
 	if (field == editor->fill_opacity)
-		get_fill_options(editor)->opacity = value / 100;
+		get_fill_options(editor)->opacity = from_percent(value);
 	if (field == editor->fill_tolerance)
 		get_fill_options(editor)->wand.tolerance = value;
 	if (field == editor->gradient_opacity)
@@ -326,7 +357,7 @@ static GtkWidget *create_option(Editor *editor, const char *label_text, const ch
 
 static void refresh_fill_options(Editor *editor) {
 	FillOptions *options = get_fill_options(editor);
-	set_value_field(editor->fill_opacity, round(options->opacity * 100));
+	set_value_field(editor->fill_opacity, round(options->opacity * PERCENT));
 	set_value_field(editor->fill_tolerance, options->wand.tolerance);
 	gtk_check_button_set_active(GTK_CHECK_BUTTON(editor->fill_smooth), options->wand.smooth_edges);
 	gtk_check_button_set_active(GTK_CHECK_BUTTON(editor->fill_contiguous), options->wand.contiguous);
@@ -359,8 +390,8 @@ static void refresh_options_bar(Editor *editor) {
 	PaintOptions *options = get_tool_options(editor);
 	set_value_field(editor->tool_size, options->shape.diameter);
 	set_value_field(editor->tool_hardness, options->shape.hardness);
-	set_value_field(editor->tool_opacity, round(options->opacity * 100));
-	set_value_field(editor->tool_flow, round(options->flow * 100));
+	set_value_field(editor->tool_opacity, round(options->opacity * PERCENT));
+	set_value_field(editor->tool_flow, round(options->flow * PERCENT));
 	gboolean eraser = !g_strcmp0(editor->tool, PAINT_TOOL_ERASER), soft = uses_soft_tip(editor);
 	gtk_widget_set_visible(editor->hardness_row, soft);
 	gtk_widget_set_visible(editor->flow_row, soft);
@@ -379,7 +410,7 @@ static void refresh_options_bar(Editor *editor) {
 }
 
 static void initialize_paint_options(PaintOptions *options) {
-	*options = (PaintOptions){{15, 100, 0, 100, 25}, 1, 1, 0, 0, TRUE, FALSE, FALSE};
+	*options = DEFAULT_PAINT_OPTIONS;
 }
 
 /* Native pixel art option: the Pencil's tip is round square */
@@ -422,12 +453,12 @@ static GtkWidget *create_fill_switch(Editor *editor, const char *label, GtkWidge
 }
 
 static GtkWidget *create_fill_options(Editor *editor) {
-	editor->bucket_options = (FillOptions){1, {40, TRUE, TRUE}, FALSE};
+	editor->bucket_options = (FillOptions){1, {BUCKET_TOLERANCE, TRUE, TRUE}, FALSE};
 	editor->magic_eraser_options = editor->bucket_options;
-	editor->wand_options = (FillOptions){1, {16, TRUE, TRUE}, FALSE};
+	editor->wand_options = (FillOptions){1, {WAND_TOLERANCE, TRUE, TRUE}, FALSE};
 	editor->fill_options = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_WIDE);
 	GtkWidget *box = editor->fill_options;
-	gtk_box_append(GTK_BOX(box), create_option(editor, TEXT_OPTION_OPACITY, "%", 0, 100, &editor->fill_opacity));
+	gtk_box_append(GTK_BOX(box), create_option(editor, TEXT_OPTION_OPACITY, "%", 0, PERCENT, &editor->fill_opacity));
 	gtk_box_append(GTK_BOX(box), create_option(editor, TEXT_OPTION_TOLERANCE, "", 0, G_MAXUINT8, &editor->fill_tolerance));
 	gtk_box_append(GTK_BOX(box), create_fill_switch(editor, TEXT_OPTION_ANTI_ALIAS, &editor->fill_smooth));
 	gtk_box_append(GTK_BOX(box), create_fill_switch(editor, TEXT_OPTION_CONTIGUOUS, &editor->fill_contiguous));
@@ -457,7 +488,7 @@ static GtkWidget *create_gradient_switch(Editor *editor, const char *label, gboo
 }
 
 static GtkWidget *create_gradient_options(Editor *editor) {
-	editor->gradient_options = (GradientOptions){GRADIENT_LINEAR, GRADIENT_CLASSIC, 100, FALSE, FALSE};
+	editor->gradient_options = (GradientOptions){GRADIENT_LINEAR, GRADIENT_CLASSIC, PERCENT, FALSE, FALSE};
 	editor->gradient_bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_WIDE);
 	editor->gradient_type =
 		gtk_drop_down_new_from_strings((const char *[]){TEXT_GRADIENT_LINEAR, TEXT_GRADIENT_RADIAL, TEXT_GRADIENT_ANGLE,
@@ -468,8 +499,8 @@ static GtkWidget *create_gradient_options(Editor *editor) {
 	g_signal_connect(editor->gradient_type, "notify::selected", G_CALLBACK(change_gradient_type), editor);
 	gtk_box_append(GTK_BOX(editor->gradient_bar), editor->gradient_type);
 	gtk_box_append(GTK_BOX(editor->gradient_bar),
-				   create_option(editor, TEXT_OPTION_OPACITY, "%", 0, 100, &editor->gradient_opacity));
-	set_value_field(editor->gradient_opacity, 100);
+				   create_option(editor, TEXT_OPTION_OPACITY, "%", 0, PERCENT, &editor->gradient_opacity));
+	set_value_field(editor->gradient_opacity, PERCENT);
 	gtk_box_append(GTK_BOX(editor->gradient_bar),
 				   create_gradient_switch(editor, TEXT_OPTION_REVERSE, &editor->gradient_options.reverse));
 	GtkWidget *dither = create_gradient_switch(editor, TEXT_OPTION_DITHER, &editor->gradient_options.dither);
@@ -537,7 +568,7 @@ GtkWidget *create_options_bar(Editor *editor) {
 	gtk_widget_set_margin_end(editor->options_bar, SPACING_SNUG);
 	gtk_widget_set_margin_top(editor->options_bar, SPACING_TIGHT);
 	gtk_widget_set_margin_bottom(editor->options_bar, SPACING_TIGHT);
-	gtk_widget_set_size_request(editor->options_bar, -1, 34);
+	gtk_widget_set_size_request(editor->options_bar, -1, OPTIONS_BAR_HEIGHT);
 	GtkWidget *paint = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_WIDE);
 	editor->eraser_mode = gtk_drop_down_new_from_strings((const char *[]){TEXT_ERASER_BRUSH, TEXT_ERASER_PENCIL, NULL});
 	gtk_widget_set_tooltip_text(editor->eraser_mode, TEXT_ERASER_MODE);
@@ -551,11 +582,11 @@ GtkWidget *create_options_bar(Editor *editor) {
 	gtk_widget_set_tooltip_text(editor->pixel_perfect, TEXT_PIXEL_PERFECT_HELP);
 	g_signal_connect(editor->pixel_perfect, "toggled", G_CALLBACK(toggle_pixel_perfect), editor);
 	gtk_box_append(GTK_BOX(paint), editor->pixel_perfect);
-	gtk_box_append(GTK_BOX(paint), create_option(editor, TEXT_OPTION_SIZE, "px", 1, 2500, &editor->tool_size));
-	editor->hardness_row = create_option(editor, TEXT_OPTION_HARDNESS, "%", 0, 100, &editor->tool_hardness);
+	gtk_box_append(GTK_BOX(paint), create_option(editor, TEXT_OPTION_SIZE, "px", SMALLEST_BRUSH, LARGEST_BRUSH, &editor->tool_size));
+	editor->hardness_row = create_option(editor, TEXT_OPTION_HARDNESS, "%", 0, PERCENT, &editor->tool_hardness);
 	gtk_box_append(GTK_BOX(paint), editor->hardness_row);
-	gtk_box_append(GTK_BOX(paint), create_option(editor, TEXT_OPTION_OPACITY, "%", 0, 100, &editor->tool_opacity));
-	editor->flow_row = create_option(editor, TEXT_OPTION_FLOW, "%", 0, 100, &editor->tool_flow);
+	gtk_box_append(GTK_BOX(paint), create_option(editor, TEXT_OPTION_OPACITY, "%", 0, PERCENT, &editor->tool_opacity));
+	editor->flow_row = create_option(editor, TEXT_OPTION_FLOW, "%", 0, PERCENT, &editor->tool_flow);
 	gtk_box_append(GTK_BOX(paint), editor->flow_row);
 	GtkWidget *symmetry = gtk_drop_down_new_from_strings((const char *[]){
 		TEXT_SYMMETRY_OFF, TEXT_SYMMETRY_VERTICAL, TEXT_SYMMETRY_HORIZONTAL, TEXT_SYMMETRY_DUAL, NULL});
@@ -615,10 +646,9 @@ GtkWidget *create_options_bar(Editor *editor) {
 }
 
 void pick_editor_color(Editor *editor, Document *document, double x, double y, gboolean background) {
-	const int sizes[] = {1, 3, 5, 11, 31};
-	guint size = gtk_drop_down_get_selected(GTK_DROP_DOWN(editor->sample_size));
+	guint size = MIN(gtk_drop_down_get_selected(GTK_DROP_DOWN(editor->sample_size)), G_N_ELEMENTS(SAMPLE_SIZES) - 1);
 	gboolean active_layer = gtk_drop_down_get_selected(GTK_DROP_DOWN(editor->sample_source)) == 0;
-	set_editor_color(editor, sample_document_color(document, x, y, sizes[MIN(size, 4)], active_layer), background);
+	set_editor_color(editor, sample_document_color(document, x, y, SAMPLE_SIZES[size], active_layer), background);
 }
 
 void initialize_editor_tools(Editor *editor) {
@@ -628,45 +658,28 @@ void initialize_editor_tools(Editor *editor) {
 /* Shared by the bracket keys and the canvas drag gesture, keeping the option fields in step */
 void set_brush_shape(Editor *editor, double diameter, double hardness) {
 	PaintOptions *options = get_tool_options(editor);
-	options->shape.diameter = CLAMP(round(diameter), 1, 2500);
-	options->shape.hardness = CLAMP(round(hardness), 0, 100);
+	options->shape.diameter = CLAMP(round(diameter), SMALLEST_BRUSH, LARGEST_BRUSH);
+	options->shape.hardness = CLAMP(round(hardness), 0, PERCENT);
 	refresh_options_bar(editor);
 }
 
 /* ============================== Tool keys ======================================== */
 
+/* The next size on the step of the range the size is in, where a range's top belongs to it when shrinking */
 static double step_brush_size(double size, gboolean larger) {
-	if (!larger) {
-		if (size <= 10)
-			return MAX(1, size - 1);
-		if (size <= 50)
-			return 5 * floor((size - 1) / 5);
-		if (size <= 100)
-			return 10 * floor((size - 1) / 10);
-		if (size <= 200)
-			return 25 * floor((size - 1) / 25);
-		if (size <= 400)
-			return 50 * floor((size - 1) / 50);
-		return 100 * floor((size - 1) / 100);
-	}
-	if (size < 10)
-		return size + 1;
-	if (size < 50)
-		return 5 * ceil((size + 1) / 5);
-	if (size < 100)
-		return 10 * ceil((size + 1) / 10);
-	if (size < 200)
-		return 25 * ceil((size + 1) / 25);
-	if (size < 400)
-		return 50 * ceil((size + 1) / 50);
-	return 100 * ceil((size + 1) / 100);
+	guint index = 0;
+	while (larger ? size >= SIZE_STEPS[index].below : size > SIZE_STEPS[index].below)
+		index++;
+	double step = SIZE_STEPS[index].step;
+	return larger ? step * ceil((size + 1) / step) : step * floor((size - 1) / step);
 }
 
 void step_brush(Editor *editor, gboolean larger, gboolean hardness) {
 	PaintOptions *options = get_tool_options(editor);
 	double next_hardness = options->shape.hardness, diameter = options->shape.diameter;
 	if (hardness)
-		next_hardness = larger ? 25 * ceil((next_hardness + 1) / 25) : 25 * floor((next_hardness - 1) / 25);
+		next_hardness = larger ? HARDNESS_STEP * ceil((next_hardness + 1) / HARDNESS_STEP)
+							   : HARDNESS_STEP * floor((next_hardness - 1) / HARDNESS_STEP);
 	else
 		diameter = step_brush_size(diameter, larger);
 	set_brush_shape(editor, diameter, next_hardness);
@@ -674,7 +687,7 @@ void step_brush(Editor *editor, gboolean larger, gboolean hardness) {
 }
 
 static gboolean press_nudge_key(Editor *editor, guint key, GdkModifierType modifiers) {
-	int step = (modifiers & GDK_SHIFT_MASK) ? 10 : 1, x = 0, y = 0;
+	int step = (modifiers & GDK_SHIFT_MASK) ? LARGE_NUDGE : 1, x = 0, y = 0;
 	if (key == GDK_KEY_Left || key == GDK_KEY_KP_Left)
 		x = -step;
 	else if (key == GDK_KEY_Right || key == GDK_KEY_KP_Right)
@@ -712,8 +725,8 @@ gboolean press_tool_key(Editor *editor, guint key, GdkModifierType modifiers) {
 															 : -1;
 	if (digit >= 0 && is_paint_tool(editor->tool)) {
 		PaintOptions *options = get_tool_options(editor);
-		options->opacity = type_percent_digit((int)round(options->opacity * 100), digit) / 100.0;
-		set_value_field(editor->tool_opacity, round(options->opacity * 100));
+		options->opacity = from_percent(type_percent_digit((int)round(options->opacity * PERCENT), digit));
+		set_value_field(editor->tool_opacity, round(options->opacity * PERCENT));
 		return TRUE;
 	}
 	if (digit >= 0) {

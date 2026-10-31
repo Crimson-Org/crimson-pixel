@@ -110,6 +110,11 @@ static void color_to_hsv(guint32 color, ColorPanel *panel) {
 		panel->hue = hsv[0];
 }
 
+guint32 rgba_to_color(const GdkRGBA *rgba) {
+	return (guint32)round(rgba->red * G_MAXUINT8) << WORD_RED_SHIFT |
+		   (guint32)round(rgba->green * G_MAXUINT8) << WORD_GREEN_SHIFT | (guint32)round(rgba->blue * G_MAXUINT8);
+}
+
 GdkRGBA color_to_rgba(guint32 color, double alpha) {
 	return (GdkRGBA){(color >> WORD_RED_SHIFT & G_MAXUINT8) / 255.0, (color >> WORD_GREEN_SHIFT & G_MAXUINT8) / 255.0,
 					 (color & G_MAXUINT8) / 255.0, alpha};
