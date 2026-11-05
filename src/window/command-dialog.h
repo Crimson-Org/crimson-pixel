@@ -10,9 +10,12 @@ struct CommandDialog {
 	GtkWidget *window, *grid, *message;
 	gboolean (*accept)(CommandDialog *dialog);
 	void (*cancel)(CommandDialog *dialog);
+	/* OK closed the dialog, so closing keeps the result */
+	gboolean accepted;
 };
 
 CommandDialog *create_command_dialog(Editor *editor, const char *title, gsize size);
+void present_command_dialog(CommandDialog *dialog);
 GtkWidget *add_number_input(CommandDialog *dialog, const char *name, const char *unit, double minimum, double maximum,
 							double value);
 void show_dialog_message(CommandDialog *dialog, const GError *error);

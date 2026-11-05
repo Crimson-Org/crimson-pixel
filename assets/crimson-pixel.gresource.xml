@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gresources>
   <gresource prefix="/io/github/CrimsonOrg/CrimsonPixel">
+    <file>style.css</file>
+    <file>icons/scalable/actions/crimson-swap-colors-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-adjustment-symbolic.svg</file>
+    <file>icons/scalable/actions/crimson-snap-symbolic.svg</file>
     <file>icons/scalable/apps/io.github.CrimsonOrg.CrimsonPixel.svg</file>
     <file>icons/scalable/actions/crimson-tool-brush-symbolic.svg</file>
     <file>icons/scalable/actions/crimson-tool-eraser-symbolic.svg</file>

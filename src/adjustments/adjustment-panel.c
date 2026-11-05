@@ -6,6 +6,7 @@
 #include "curve-editor.h"
 #include "psd/descriptor.h"
 #include "window/editor.h"
+#include "window/value-field.h"
 #include "document/layer-commands.h"
 #include "canvas/snapshot-area.h"
 #include "lang/en.h"
@@ -16,13 +17,15 @@ enum { LEVEL_INPUT_BLACK, LEVEL_GAMMA, LEVEL_INPUT_WHITE, LEVEL_OUTPUT_BLACK, LE
 
 /* The most sliders one adjustment shows, which Black & White needs for its six hue ranges */
 #define ADJUSTMENT_SLOTS GRAY_WEIGHTS_COUNT
-#define SLIDER_WIDTH 220
 /* Clicking beside a slider moves it this many steps */
 #define PAGE_STEPS 10
-/* The histogram shows one column per level, with the Levels markers under it */
+/* The histogram shows one column per level, with the Levels markers under it. The columns keep half a marker's width
+ * from each side, so a marker at either end stays whole inside the histogram's width */
 #define HISTOGRAM_HEIGHT 112
 #define MARKER_HEIGHT 8
 #define MARKER_HALF_WIDTH 4
+/* The markers keep this gap below the columns, so a tall column never runs into one */
+#define MARKER_GAP SPACING_TIGHT
 #define MARKER_BORDER 1
 #define HISTOGRAM_BAR_ALPHA .75
 #define GRADIENT_PREVIEW_HEIGHT 24
@@ -140,6 +143,38 @@ static double get_marker_level(AdjustmentPanel *panel, int marker) {
 	return black + (white - black) * pow(.5, gtk_adjustment_get_value(panel->values[LEVEL_GAMMA]));
 }
 
+static double get_histogram_travel(int width) {
+	return MAX(1, width - 2 * MARKER_HALF_WIDTH);
+}
+
+/* Where a level lies across the histogram, on a whole pixel so columns and markers stay sharp */
+static double place_histogram_level(double level, int width) {
+	return round(MARKER_HALF_WIDTH + byte_to_unit(level) * get_histogram_travel(width));
+}
+
+/* Where a level's column starts, with the columns sharing the histogram's width equally */
+static double place_histogram_column(int level, int width) {
+	return round(MARKER_HALF_WIDTH + (double)level / CURVE_LEVELS * get_histogram_travel(width));
+}
+
+/* The marks under the histogram: Levels shows its black, gamma and white points, and Threshold its one level */
+static int get_histogram_markers(AdjustmentPanel *panel, double levels[], GdkRGBA shades[]) {
+	const GdkRGBA black = {0, 0, 0, 1}, gray = {.5, .5, .5, 1}, white = {1, 1, 1, 1};
+	if (!strcmp(panel->key, "thrs")) {
+		levels[0] = gtk_adjustment_get_value(panel->values[0]);
+		shades[0] = gray;
+		return 1;
+	}
+	if (strcmp(panel->key, "levl"))
+		return 0;
+	const GdkRGBA level_shades[] = {black, gray, white};
+	for (int marker = LEVEL_INPUT_BLACK; marker <= LEVEL_INPUT_WHITE; marker++) {
+		levels[marker] = get_marker_level(panel, marker);
+		shades[marker] = level_shades[marker];
+	}
+	return LEVEL_INPUT_WHITE + 1;
+}
+
 static void draw_histogram(GtkWidget *widget, GtkSnapshot *snapshot, int width, int height, gpointer data) {
 	AdjustmentPanel *panel = data;
 	GdkRGBA color;
@@ -148,22 +183,25 @@ static void draw_histogram(GtkWidget *widget, GtkSnapshot *snapshot, int width, 
 	guint32 peak = 1;
 	for (int level = 0; level < CURVE_LEVELS; level++)
 		peak = MAX(peak, counts[level]);
-	const int marker_height = panel->values[LEVEL_INPUT_BLACK] ? MARKER_HEIGHT : 0;
-	double bar_height = height - marker_height, column = (double)width / CURVE_LEVELS;
+	double levels[LEVEL_INPUT_WHITE + 1];
+	GdkRGBA shades[LEVEL_INPUT_WHITE + 1];
+	int markers = get_histogram_markers(panel, levels, shades);
+	const int marker_height = markers ? MARKER_HEIGHT : 0;
+	double bar_height = height - marker_height - (markers ? MARKER_GAP : 0);
 	GdkRGBA bar = color;
 	bar.alpha *= HISTOGRAM_BAR_ALPHA;
 	for (int level = 0; level < CURVE_LEVELS; level++) {
-		/* A square root scale keeps small counts visible beside large peaks */
+		/* A square root scale keeps small counts visible beside large peaks, and each column starts and ends on
+		 * whole pixels */
 		double size = round(sqrt((double)counts[level] / peak) * bar_height);
+		double left = place_histogram_column(level, width), right = place_histogram_column(level + 1, width);
 		gtk_snapshot_append_color(snapshot, &bar,
-								  &GRAPHENE_RECT_INIT(level * column, bar_height - size, ceil(column), size));
+								  &GRAPHENE_RECT_INIT(left, bar_height - size, MAX(1, right - left), size));
 	}
-	if (!marker_height)
-		return;
-	const GdkRGBA shades[] = {{0, 0, 0, 1}, {.5, .5, .5, 1}, {1, 1, 1, 1}};
-	for (int marker = LEVEL_INPUT_BLACK; marker <= LEVEL_INPUT_WHITE; marker++) {
-		double x = byte_to_unit(get_marker_level(panel, marker)) * width;
-		graphene_rect_t box = GRAPHENE_RECT_INIT(x - MARKER_HALF_WIDTH, bar_height, 2 * MARKER_HALF_WIDTH, marker_height);
+	for (int marker = 0; marker < markers; marker++) {
+		double x = place_histogram_level(levels[marker], width);
+		graphene_rect_t box =
+			GRAPHENE_RECT_INIT(x - MARKER_HALF_WIDTH, height - marker_height, 2 * MARKER_HALF_WIDTH, marker_height);
 		GskRoundedRect outline;
 		gsk_rounded_rect_init_from_rect(&outline, &box, MARKER_BORDER);
 		gtk_snapshot_push_rounded_clip(snapshot, &outline);
@@ -176,7 +214,8 @@ static void draw_histogram(GtkWidget *widget, GtkSnapshot *snapshot, int width, 
 }
 
 static double get_histogram_level(GtkWidget *histogram, double x) {
-	return CLAMP(unit_to_byte(x / MAX(1, gtk_widget_get_width(histogram))), 0, G_MAXUINT8);
+	double travel = get_histogram_travel(gtk_widget_get_width(histogram));
+	return CLAMP(unit_to_byte((x - MARKER_HALF_WIDTH) / travel), 0, G_MAXUINT8);
 }
 
 static void move_marker(AdjustmentPanel *panel, double level) {
@@ -491,7 +530,7 @@ static void add_slider(AdjustmentPanel *panel, const SliderSpec *spec) {
 	panel->values[slot] = adjustment;
 	GtkWidget *scale = gtk_scale_new(GTK_ORIENTATION_HORIZONTAL, adjustment);
 	gtk_scale_set_draw_value(GTK_SCALE(scale), FALSE);
-	gtk_widget_set_size_request(scale, SLIDER_WIDTH, -1);
+	gtk_widget_set_size_request(scale, POPOVER_SLIDER_LENGTH, -1);
 	gtk_widget_set_hexpand(scale, TRUE);
 	add_dialog_input(panel->grid, spec->label, scale);
 	GtkWidget *number = gtk_spin_button_new(adjustment, spec->step, spec->digits);
@@ -781,6 +820,23 @@ static void free_panel(AdjustmentPanel *panel) {
 	g_free(panel);
 }
 
+/* The panel opens beside its layer's row. A row made for a new layer only gets its place in the next layout, so until
+ * then each frame looks again, and the panel opens once, already pointing at the row */
+static gboolean open_at_layer_row(GtkWidget *anchor, GdkFrameClock *clock, gpointer data) {
+	GtkWidget *popover = data;
+	AdjustmentPanel *panel = g_object_get_data(G_OBJECT(popover), "adjustment-panel");
+	if (!gtk_widget_get_parent(popover))
+		return G_SOURCE_REMOVE;
+	GdkRectangle bounds;
+	gboolean found = get_layer_row_bounds(panel->editor, panel->layer_index, anchor, &bounds);
+	if (found && bounds.height <= 0 && gtk_widget_get_mapped(anchor))
+		return G_SOURCE_CONTINUE;
+	if (found)
+		gtk_popover_set_pointing_to(GTK_POPOVER(popover), &bounds);
+	gtk_popover_popup(GTK_POPOVER(popover));
+	return G_SOURCE_REMOVE;
+}
+
 void show_adjustment_panel(Editor *editor, int layer_index) {
 	PresentedDocument *presented = get_page_document(get_current_page(editor));
 	Document *document = presented ? presented->document : NULL;
@@ -808,6 +864,7 @@ void show_adjustment_panel(Editor *editor, int layer_index) {
 	gtk_label_set_xalign(GTK_LABEL(title), 0);
 	gtk_box_append(GTK_BOX(box), title);
 	panel->grid = gtk_grid_new();
+	gtk_widget_add_css_class(panel->grid, "form-grid");
 	gtk_grid_set_row_spacing(GTK_GRID(panel->grid), SPACING_SNUG);
 	gtk_grid_set_column_spacing(GTK_GRID(panel->grid), SPACING_NORMAL);
 	gtk_box_append(GTK_BOX(box), panel->grid);
@@ -827,10 +884,8 @@ void show_adjustment_panel(Editor *editor, int layer_index) {
 	GtkWidget *anchor = gtk_widget_get_ancestor(editor->layer_list, GTK_TYPE_SCROLLED_WINDOW);
 	gtk_widget_set_parent(panel->popover, anchor);
 	gtk_popover_set_position(GTK_POPOVER(panel->popover), GTK_POS_LEFT);
-	GdkRectangle bounds;
-	if (get_layer_row_bounds(editor, layer_index, anchor, &bounds))
-		gtk_popover_set_pointing_to(GTK_POPOVER(panel->popover), &bounds);
 	g_signal_connect(panel->popover, "closed", G_CALLBACK(close_panel), panel);
 	g_object_set_data_full(G_OBJECT(panel->popover), "adjustment-panel", panel, (GDestroyNotify)free_panel);
-	gtk_popover_popup(GTK_POPOVER(panel->popover));
+	if (open_at_layer_row(anchor, NULL, panel->popover) == G_SOURCE_CONTINUE)
+		gtk_widget_add_tick_callback(anchor, open_at_layer_row, g_object_ref(panel->popover), g_object_unref);
 }

@@ -12,7 +12,7 @@
 static const GdkRGBA TIP_LIGHT = {1, 1, 1, .9}, TIP_DARK = {0, 0, 0, .9};
 #define CROSSHAIR_ARM 4
 /* A fitted view leaves this much room around the document, and stays between these zooms */
-#define FIT_MARGIN 32.0
+#define FIT_MARGIN 64.0
 #define FIT_ZOOM_LOWEST 0.01
 #define FIT_ZOOM_HIGHEST 64
 /* Brush smoothing follows the zoom, so it feels the same at any zoom */
@@ -26,6 +26,10 @@ static const GdkRGBA TIP_LIGHT = {1, 1, 1, .9}, TIP_DARK = {0, 0, 0, .9};
 /* Square tips show at least this many pixels wide, and rings at least this many from their middle */
 #define SMALLEST_TIP_SQUARE 3
 #define SMALLEST_TIP_RING 1.5
+/* The document lifts off the pasteboard on a soft shadow inside a thin edge, like a sheet of paper */
+static const GdkRGBA DOCUMENT_SHADOW = {0, 0, 0, .35}, DOCUMENT_EDGE = {0, 0, 0, .25};
+#define DOCUMENT_SHADOW_DROP 3
+#define DOCUMENT_SHADOW_BLUR 18
 
 /* A paint stroke begins, moves and ends, and Shift begins it from the last point or moves it along one axis */
 typedef enum { STROKE_BEGIN, STROKE_MOVE, STROKE_END, STROKE_BEGIN_FROM_LAST, STROKE_MOVE_ALONG_AXIS } StrokePhase;
@@ -201,7 +205,8 @@ static void draw_brush_outline(GtkSnapshot *snapshot, DocumentView *view) {
 	}
 }
 
-/* One line per visible pixel edge, snapped to whole screen pixels */
+/* One line between each pair of visible pixels, snapped to whole screen pixels. The document's own edges get no
+ * line, so all four sides look the same */
 static void draw_pixel_grid(GtkSnapshot *snapshot, DocumentView *view, double x, double y,
 							const graphene_rect_t *bounds) {
 	Document *document = view->presented->document;
@@ -212,11 +217,11 @@ static void draw_pixel_grid(GtkSnapshot *snapshot, DocumentView *view, double x,
 	int top = MAX(0, (int)floor((bounds->origin.y - y) / view->zoom));
 	int right = MIN(image_width, (int)ceil((bounds->origin.x + bounds->size.width - x) / view->zoom));
 	int bottom = MIN(image_height, (int)ceil((bounds->origin.y + bounds->size.height - y) / view->zoom));
-	for (int column = left; column <= right; column++)
+	for (int column = MAX(left, 1); column <= MIN(right, image_width - 1); column++)
 		gtk_snapshot_append_color(
 			snapshot, &color,
 			&GRAPHENE_RECT_INIT(floor(x + column * view->zoom), bounds->origin.y, 1, bounds->size.height));
-	for (int row = top; row <= bottom; row++)
+	for (int row = MAX(top, 1); row <= MIN(bottom, image_height - 1); row++)
 		gtk_snapshot_append_color(
 			snapshot, &color,
 			&GRAPHENE_RECT_INIT(bounds->origin.x, floor(y + row * view->zoom), bounds->size.width, 1));
@@ -258,6 +263,15 @@ static void draw_document(GtkWidget *widget, GtkSnapshot *snapshot, int width, i
 	if (!graphene_rect_intersection(&image, &GRAPHENE_RECT_INIT(0, 0, width, height), &visible)) {
 		draw_brush_outline(snapshot, view);
 		return;
+	}
+	if (!view->tiled) {
+		GskRoundedRect sheet;
+		gsk_rounded_rect_init_from_rect(&sheet, &image, 0);
+		gtk_snapshot_append_outset_shadow(snapshot, &sheet, &DOCUMENT_SHADOW, 0, DOCUMENT_SHADOW_DROP, 0,
+										  DOCUMENT_SHADOW_BLUR);
+		graphene_rect_t edge;
+		graphene_rect_inset_r(&image, -1, -1, &edge);
+		append_outline(snapshot, edge, 0, 1, &DOCUMENT_EDGE);
 	}
 	/* The checkerboard and grid are viewing aids outside the document record */
 	const Settings *settings = get_view_settings(view);
@@ -823,6 +837,7 @@ GtkWidget *create_document_view(PresentedDocument *presented) {
 	DocumentView *view = g_new0(DocumentView, 1);
 	view->presented = presented;
 	view->canvas = create_snapshot_area(draw_document, resize_view, view);
+	gtk_widget_add_css_class(view->canvas, "canvas");
 	view->zoom = 1;
 	view->fitted = view->grid = TRUE;
 	gtk_widget_set_hexpand(view->canvas, TRUE);

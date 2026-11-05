@@ -238,24 +238,22 @@ GtkWidget *create_swatches_panel(Editor *editor) {
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
 	gtk_widget_set_vexpand(scroll, TRUE);
 	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), editor->swatch_grid);
-	/* An empty library says so quietly in the middle of the swatch area */
-	editor->swatch_empty = gtk_label_new(TEXT_SWATCHES_EMPTY);
-	gtk_widget_add_css_class(editor->swatch_empty, "dim-label");
-	gtk_widget_set_halign(editor->swatch_empty, GTK_ALIGN_CENTER);
-	gtk_widget_set_valign(editor->swatch_empty, GTK_ALIGN_CENTER);
-	gtk_widget_set_can_target(editor->swatch_empty, FALSE);
+	editor->swatch_empty = create_panel_note(TEXT_SWATCHES_EMPTY);
 	GtkWidget *area = gtk_overlay_new();
 	gtk_overlay_set_child(GTK_OVERLAY(area), scroll);
 	gtk_overlay_add_overlay(GTK_OVERLAY(area), editor->swatch_empty);
 	gtk_box_append(GTK_BOX(panel), area);
 	GtkWidget *actions_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_HAIRLINE);
+	gtk_widget_add_css_class(actions_row, "panel-footer");
 	gtk_widget_set_halign(actions_row, GTK_ALIGN_END);
-	gtk_box_append(GTK_BOX(actions_row), create_footer_button("document-open-symbolic", TEXT_LOAD_SWATCHES,
+	gtk_box_append(GTK_BOX(actions_row), create_footer_button("folder-open-symbolic", TEXT_LOAD_SWATCHES,
 															  G_CALLBACK(show_swatch_dialog), editor));
 	gtk_box_append(GTK_BOX(actions_row), create_footer_button("list-add-symbolic", TEXT_NEW_SWATCH,
 															  G_CALLBACK(add_foreground_swatch), editor));
-	gtk_box_append(GTK_BOX(panel), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-	gtk_box_append(GTK_BOX(panel), actions_row);
+	GtkWidget *footer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_box_append(GTK_BOX(footer), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+	gtk_box_append(GTK_BOX(footer), actions_row);
+	gtk_box_append(GTK_BOX(panel), footer);
 	refresh_swatch_grid(editor);
 	return panel;
 }

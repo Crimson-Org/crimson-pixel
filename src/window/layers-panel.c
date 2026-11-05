@@ -17,8 +17,11 @@
 #define DECIMAL_BASE 10
 /* Nested layers move in this far for each group around them */
 #define NESTING_INDENT 16
-/* Thumbnails show their checkerboard in small cells */
+/* Adjustment layers and the button that adds them share one icon, a half filled circle */
+#define ADJUSTMENT_ICON "crimson-adjustment-symbolic"
+/* Thumbnails show their checkerboard in small cells, inside a faint edge */
 #define THUMBNAIL_CHECKER 4
+#define THUMBNAIL_EDGE_ALPHA 0.2
 
 static void press_layer_list(GtkGestureClick *gesture, int presses, double x, double y, Editor *editor);
 static void press_eye(GtkGestureDrag *gesture, double x, double y, Editor *editor);
@@ -48,6 +51,7 @@ static void change_layer_value(GtkWidget *field, double percent, gpointer data) 
 
 static GtkWidget *create_percent_control(Editor *editor, const char *label_text, GtkWidget **field) {
 	*field = create_value_field(label_text, "%", 0, PERCENT, change_layer_value, editor);
+	set_value_field_expands(*field);
 	return *field;
 }
 
@@ -165,12 +169,14 @@ static GdkTexture *create_layer_thumbnail(Document *document, Record *layer) {
 		return NULL;
 	double scale = MIN((double)THUMBNAIL_SIZE / document_w, (double)THUMBNAIL_SIZE / document_h);
 	int width = MAX(1, (int)round(document_w * scale)), height = MAX(1, (int)round(document_h * scale));
+	/* The whole document fills the whole thumbnail, so rounding its size never leaves an empty row or column */
+	double scale_x = (double)width / document_w, scale_y = (double)height / document_h;
 	RasterExtent extent = read_extent(get_record(layer, "V"));
 	double maximum = channel_maximum(buffer->value.buffer.depth);
 	guint8 *pixels = g_malloc0((gsize)width * height * RGBA_CHANNELS);
 	for (int y = 0; y < height; y++)
 		for (int x = 0; x < width; x++) {
-			int source_x = (int)((x + 0.5) / scale) - extent.x, source_y = (int)((y + 0.5) / scale) - extent.y;
+			int source_x = (int)((x + 0.5) / scale_x) - extent.x, source_y = (int)((y + 0.5) / scale_y) - extent.y;
 			if (source_x < 0 || source_y < 0 || source_x >= extent.width || source_y >= extent.height)
 				continue;
 			gsize index = ((gsize)source_y * extent.width + source_x) * RGBA_CHANNELS;
@@ -190,6 +196,12 @@ static void draw_layer_thumbnail(GtkWidget *widget, GtkSnapshot *snapshot, int w
 	graphene_rect_t bounds = GRAPHENE_RECT_INIT(round((width - w) / 2), round((height - h) / 2), w, h);
 	snapshot_checkerboard(snapshot, &bounds, get_default_settings()->checker_colors, THUMBNAIL_CHECKER);
 	gtk_snapshot_append_scaled_texture(snapshot, texture, GSK_SCALING_FILTER_LINEAR, &bounds);
+	GdkRGBA edge;
+	gtk_widget_get_color(widget, &edge);
+	edge.alpha *= THUMBNAIL_EDGE_ALPHA;
+	graphene_rect_t outside;
+	graphene_rect_inset_r(&bounds, -1, -1, &outside);
+	append_outline(snapshot, outside, 0, 1, &edge);
 }
 
 static GtkWidget *create_thumbnail_widget(Document *document, Record *layer) {
@@ -209,7 +221,7 @@ static void edit_adjustment(GtkButton *button, Editor *editor) {
 
 /* An adjustment layer has no pixels to show, so its row offers its settings in the thumbnail's place */
 static GtkWidget *create_adjustment_button(Editor *editor, int layer_index) {
-	GtkWidget *button = gtk_button_new_from_icon_name("display-brightness-symbolic");
+	GtkWidget *button = gtk_button_new_from_icon_name(ADJUSTMENT_ICON);
 	gtk_widget_add_css_class(button, "flat");
 	gtk_widget_set_size_request(button, THUMBNAIL_SIZE, THUMBNAIL_SIZE);
 	gtk_widget_set_valign(button, GTK_ALIGN_CENTER);
@@ -223,17 +235,30 @@ static GtkWidget *create_adjustment_button(Editor *editor, int layer_index) {
 /* ============================== Layer list ============================== */
 
 /* The layer tree with the blend mode, Opacity and Fill above it and the layer buttons below */
+/* The layer controls slide out from the edge they sit on with the first open document and back with the last, so an
+ * empty panel stays plain and takes no room for them */
+static GtkWidget *create_layer_controls(GtkWidget *content, GtkRevealerTransitionType transition) {
+	GtkWidget *revealer = gtk_revealer_new();
+	gtk_revealer_set_transition_type(GTK_REVEALER(revealer), transition);
+	gtk_revealer_set_child(GTK_REVEALER(revealer), content);
+	return revealer;
+}
+
 GtkWidget *create_layers_panel(Editor *editor) {
-	GtkWidget *layers = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_SMALL);
-	gtk_box_append(GTK_BOX(layers), create_blend_mode_list(editor));
+	GtkWidget *layers = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	GtkWidget *controls = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_SMALL);
+	gtk_widget_set_margin_bottom(controls, SPACING_SMALL);
+	gtk_box_append(GTK_BOX(controls), create_blend_mode_list(editor));
+	/* The two fields share the spare width equally, so they match whatever their labels */
 	GtkWidget *values = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_NORMAL);
-	gtk_box_set_homogeneous(GTK_BOX(values), TRUE);
 	gtk_box_append(GTK_BOX(values), create_percent_control(editor, TEXT_OPACITY, &editor->opacity));
 	gtk_box_append(GTK_BOX(values), create_percent_control(editor, TEXT_FILL, &editor->fill));
-	gtk_box_append(GTK_BOX(layers), values);
+	gtk_box_append(GTK_BOX(controls), values);
+	editor->layer_controls = create_layer_controls(controls, GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN);
+	gtk_box_append(GTK_BOX(layers), editor->layer_controls);
 	editor->layer_list = gtk_list_box_new();
 	gtk_list_box_set_selection_mode(GTK_LIST_BOX(editor->layer_list), GTK_SELECTION_NONE);
-	gtk_widget_add_css_class(editor->layer_list, "boxed-list");
+	gtk_widget_add_css_class(editor->layer_list, "layer-list");
 	GtkGesture *click = gtk_gesture_click_new();
 	g_signal_connect(click, "pressed", G_CALLBACK(press_layer_list), editor);
 	gtk_widget_add_controller(editor->layer_list, GTK_EVENT_CONTROLLER(click));
@@ -256,8 +281,18 @@ GtkWidget *create_layers_panel(Editor *editor) {
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
 	gtk_widget_set_vexpand(scroll, TRUE);
 	gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), editor->layer_list);
-	gtk_box_append(GTK_BOX(layers), scroll);
+	/* The list empties itself with every rebuild, so the note for no document lies over the list rather than in
+	 * the list */
+	GtkWidget *area = gtk_overlay_new();
+	gtk_overlay_set_child(GTK_OVERLAY(area), scroll);
+	editor->layers_empty = create_panel_note(TEXT_NO_DOCUMENT);
+	/* The note sits near the top of the empty list, where the first layer would be */
+	gtk_widget_set_valign(editor->layers_empty, GTK_ALIGN_START);
+	gtk_widget_add_css_class(editor->layers_empty, "list-note");
+	gtk_overlay_add_overlay(GTK_OVERLAY(area), editor->layers_empty);
+	gtk_box_append(GTK_BOX(layers), area);
 	GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_HAIRLINE);
+	gtk_widget_add_css_class(actions, "panel-footer");
 	gtk_widget_set_halign(actions, GTK_ALIGN_END);
 
 	const struct {
@@ -269,7 +304,7 @@ GtkWidget *create_layers_panel(Editor *editor) {
 	GtkWidget *adjustment = gtk_menu_button_new();
 	g_autoptr(GMenuModel) adjustments = create_adjustment_menu();
 	gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(adjustment), adjustments);
-	gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(adjustment), "display-brightness-symbolic");
+	gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(adjustment), ADJUSTMENT_ICON);
 	gtk_widget_add_css_class(adjustment, "flat");
 	gtk_widget_set_tooltip_text(adjustment, TEXT_NEW_ADJUSTMENT_LAYER);
 	gtk_accessible_update_property(GTK_ACCESSIBLE(adjustment), GTK_ACCESSIBLE_PROPERTY_LABEL, TEXT_NEW_ADJUSTMENT_LAYER,
@@ -284,8 +319,12 @@ GtkWidget *create_layers_panel(Editor *editor) {
 		gtk_actionable_set_action_name(GTK_ACTIONABLE(button), buttons[index].action);
 		gtk_box_append(GTK_BOX(actions), button);
 	}
-	gtk_box_append(GTK_BOX(layers), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-	gtk_box_append(GTK_BOX(layers), actions);
+	GtkWidget *footer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_widget_set_margin_top(footer, SPACING_SMALL);
+	gtk_box_append(GTK_BOX(footer), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+	gtk_box_append(GTK_BOX(footer), actions);
+	editor->layer_actions = create_layer_controls(footer, GTK_REVEALER_TRANSITION_TYPE_SLIDE_UP);
+	gtk_box_append(GTK_BOX(layers), editor->layer_actions);
 	return layers;
 }
 
@@ -679,6 +718,7 @@ static GtkWidget *create_layer_row(Editor *editor, Document *document, int layer
 	gboolean visible = is_layer_visible(layer);
 	GtkWidget *eye = gtk_button_new_from_icon_name(visible ? "view-reveal-symbolic" : "view-conceal-symbolic");
 	gtk_widget_add_css_class(eye, "flat");
+	gtk_widget_add_css_class(eye, "layer-eye");
 	gtk_widget_set_tooltip_text(eye, visible ? TEXT_HIDE_LAYER : TEXT_SHOW_LAYER);
 	gtk_accessible_update_property(GTK_ACCESSIBLE(eye), GTK_ACCESSIBLE_PROPERTY_LABEL,
 								   visible ? TEXT_HIDE_LAYER : TEXT_SHOW_LAYER, -1);
@@ -724,6 +764,7 @@ static GtkWidget *create_layer_row(Editor *editor, Document *document, int layer
 	gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
 	gtk_widget_set_hexpand(label, TRUE);
 	gtk_widget_set_margin_start(label, depth * NESTING_INDENT);
+	gtk_widget_add_css_class(label, "layer-name");
 	if (!visible)
 		gtk_widget_add_css_class(label, "dim-label");
 	if (is_layer_group(layer))

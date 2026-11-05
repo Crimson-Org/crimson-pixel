@@ -97,7 +97,7 @@ void show_image_size_dialog(Editor *editor) {
 	g_signal_connect(dialog->width, "value-changed", G_CALLBACK(change_image_side), dialog);
 	g_signal_connect(dialog->height, "value-changed", G_CALLBACK(change_image_side), dialog);
 	g_signal_connect(dialog->proportions, "toggled", G_CALLBACK(toggle_proportions), dialog);
-	gtk_window_present(GTK_WINDOW(dialog->base.window));
+	present_command_dialog(&dialog->base);
 }
 
 /* ============================== Canvas Size ============================== */
@@ -181,7 +181,7 @@ void show_canvas_size_dialog(Editor *editor) {
 	gtk_widget_set_halign(anchors, GTK_ALIGN_START);
 	add_dialog_input(dialog->base.grid, TEXT_ANCHOR, anchors);
 	g_signal_connect(dialog->relative, "toggled", G_CALLBACK(toggle_relative), dialog);
-	gtk_window_present(GTK_WINDOW(dialog->base.window));
+	present_command_dialog(&dialog->base);
 }
 
 /* ============================== Trim and Reveal All ============================== */
@@ -233,5 +233,5 @@ void show_trim_dialog(Editor *editor) {
 		gtk_box_append(GTK_BOX(side_box), dialog->trim_sides[side]);
 	}
 	add_dialog_input(dialog->base.grid, TEXT_TRIM_SIDES, side_box);
-	gtk_window_present(GTK_WINDOW(dialog->base.window));
+	present_command_dialog(&dialog->base);
 }

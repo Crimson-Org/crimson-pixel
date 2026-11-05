@@ -94,7 +94,7 @@ void show_modify_dialog(Editor *editor, int modification) {
 	}
 	g_signal_connect(dialog->amount, "value-changed", G_CALLBACK(change_modify_amount), dialog);
 	preview_modification(dialog);
-	gtk_window_present(GTK_WINDOW(dialog->base.window));
+	present_command_dialog(&dialog->base);
 }
 
 /* ============================== Fill ============================== */
@@ -167,7 +167,7 @@ void show_fill_dialog(Editor *editor) {
 	dialog->preserve = gtk_check_button_new_with_label(TEXT_PRESERVE_TRANSPARENCY);
 	gtk_check_button_set_active(GTK_CHECK_BUTTON(dialog->preserve), fill_preserve);
 	add_grid_row(dialog->base.grid, dialog->preserve, LABEL_COLUMN);
-	gtk_window_present(GTK_WINDOW(dialog->base.window));
+	present_command_dialog(&dialog->base);
 }
 
 /* ============================== Stroke ============================== */
@@ -205,5 +205,5 @@ void show_stroke_dialog(Editor *editor) {
 	dialog->opacity = add_number_input(&dialog->base, TEXT_DIALOG_OPACITY, TEXT_PERCENT_UNIT, 0, PERCENT, stroke_opacity);
 	dialog->color = create_color_input(read_color_button(editor->foreground));
 	add_dialog_input(dialog->base.grid, TEXT_COLOR, dialog->color);
-	gtk_window_present(GTK_WINDOW(dialog->base.window));
+	present_command_dialog(&dialog->base);
 }

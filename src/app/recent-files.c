@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "window/editor.h"
 #include "lang/en.h"
 #include "common/widgets/spacing.h"
@@ -6,6 +8,9 @@
  * view and File Open Recent list this application's entries that still exist, newest first */
 
 enum { RECENT_FILE_LIMIT = 10 };
+/* The start view's list matches the width of the two start buttons above the list, and long folders shorten */
+#define RECENT_LIST_WIDTH 480
+#define FOLDER_CHARACTERS 40
 
 void remember_recent_file(GFile *file) {
 	g_autofree char *uri = g_file_get_uri(file);
@@ -77,10 +82,20 @@ static void leave_remove_button(GtkEventControllerFocus *focus, GtkWidget *remov
 	gtk_widget_set_opacity(remove, 0);
 }
 
+/* Folders in the home folder start with ~, so the part that tells files apart fits */
+static char *shorten_home_folder(const char *folder) {
+	const char *home = g_get_home_dir();
+	gsize length = strlen(home);
+	if (g_str_has_prefix(folder, home) && (folder[length] == G_DIR_SEPARATOR || !folder[length]))
+		return g_strconcat("~", folder + length, NULL);
+	return g_strdup(folder);
+}
+
 static GtkWidget *create_recent_row(Editor *editor, GtkRecentInfo *info) {
 	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_HAIRLINE);
 	GtkWidget *button = gtk_button_new(), *content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_NORMAL);
 	gtk_widget_add_css_class(button, "flat");
+	gtk_widget_add_css_class(row, "recent-row");
 	gtk_widget_set_hexpand(button, TRUE);
 	g_autoptr(GIcon) icon = gtk_recent_info_get_gicon(info);
 	GtkWidget *image = icon ? gtk_image_new_from_gicon(icon) : gtk_image_new_from_icon_name("image-x-generic");
@@ -93,9 +108,13 @@ static GtkWidget *create_recent_row(Editor *editor, GtkRecentInfo *info) {
 	gtk_box_append(GTK_BOX(content), name);
 	g_autofree char *location = gtk_recent_info_get_uri_display(info);
 	g_autofree char *folder = location ? g_path_get_dirname(location) : NULL;
-	GtkWidget *place = gtk_label_new(folder);
+	g_autofree char *shown = folder ? shorten_home_folder(folder) : NULL;
+	GtkWidget *place = gtk_label_new(shown);
+	/* Folders form one column that starts at the same place on every row */
 	gtk_label_set_ellipsize(GTK_LABEL(place), PANGO_ELLIPSIZE_START);
-	gtk_label_set_max_width_chars(GTK_LABEL(place), 40);
+	gtk_label_set_width_chars(GTK_LABEL(place), FOLDER_CHARACTERS);
+	gtk_label_set_max_width_chars(GTK_LABEL(place), FOLDER_CHARACTERS);
+	gtk_label_set_xalign(GTK_LABEL(place), 0);
 	gtk_widget_add_css_class(place, "dim-label");
 	gtk_box_append(GTK_BOX(content), place);
 	gtk_button_set_child(GTK_BUTTON(button), content);
@@ -183,13 +202,17 @@ GMenuModel *create_recent_menu(Editor *editor) {
 }
 
 GtkWidget *create_recent_list(Editor *editor) {
-	GtkWidget *recent = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_SMALL), *list = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_HAIRLINE);
+	GtkWidget *recent = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_SMALL);
+	GtkWidget *list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_widget_add_css_class(recent, "recent-files");
+	gtk_widget_add_css_class(list, "card");
+	gtk_widget_add_css_class(list, "recent-list");
 	GtkWidget *heading = gtk_label_new(TEXT_START_RECENT);
 	gtk_widget_add_css_class(heading, "heading");
 	gtk_label_set_xalign(GTK_LABEL(heading), 0);
 	gtk_box_append(GTK_BOX(recent), heading);
 	gtk_box_append(GTK_BOX(recent), list);
-	gtk_widget_set_size_request(recent, 480, -1);
+	gtk_widget_set_size_request(recent, RECENT_LIST_WIDTH, -1);
 	gtk_widget_set_visible(recent, FALSE);
 	g_object_set_data(G_OBJECT(recent), "editor", editor);
 	g_object_set_data(G_OBJECT(recent), "list", list);

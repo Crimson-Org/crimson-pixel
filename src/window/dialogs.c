@@ -1,11 +1,21 @@
+#include <adwaita.h>
+
 #include "editor.h"
 #include "lang/en.h"
 #include "common/widgets/spacing.h"
 
+/* The New dialog is as wide as a short preferences page */
+#define NEW_DIALOG_WIDTH 420
+/* Image documents start at 1280 by 720 and illustration documents at 8.3 by 11.7 inches */
+#define IMAGE_WIDTH 1280
+#define IMAGE_HEIGHT 720
+#define ILLUSTRATION_WIDTH 598
+#define ILLUSTRATION_HEIGHT 842
+
 /* Creation inputs are an explicit source command request without profile or artboard fields */
 typedef struct {
 	Editor *editor;
-	GtkWidget *window, *name, *width, *height, *mode, *depth, *message;
+	GtkWidget *window, *name, *width, *height, *mode, *depth;
 } NewDocumentDialog;
 
 static void finish_file_dialog(GObject *source, GAsyncResult *result, gpointer data) {
@@ -61,12 +71,18 @@ void show_open_dialog(Editor *editor) {
 
 static void create_requested_document(GtkButton *button, NewDocumentDialog *dialog) {
 	const unsigned depths[] = {8, 16, 32};
-	create_editor_document(dialog->editor, gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->width)),
-						   gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(dialog->height)),
-						   depths[gtk_drop_down_get_selected(GTK_DROP_DOWN(dialog->depth))],
-						   gtk_drop_down_get_selected(GTK_DROP_DOWN(dialog->mode)),
+	adw_spin_row_update(ADW_SPIN_ROW(dialog->width));
+	adw_spin_row_update(ADW_SPIN_ROW(dialog->height));
+	create_editor_document(dialog->editor, (int)adw_spin_row_get_value(ADW_SPIN_ROW(dialog->width)),
+						   (int)adw_spin_row_get_value(ADW_SPIN_ROW(dialog->height)),
+						   depths[adw_combo_row_get_selected(ADW_COMBO_ROW(dialog->depth))],
+						   adw_combo_row_get_selected(ADW_COMBO_ROW(dialog->mode)),
 						   gtk_editable_get_text(GTK_EDITABLE(dialog->name)));
-	gtk_window_destroy(GTK_WINDOW(dialog->window));
+	adw_dialog_close(ADW_DIALOG(dialog->window));
+}
+
+static void cancel_new_document(GtkButton *button, NewDocumentDialog *dialog) {
+	adw_dialog_close(ADW_DIALOG(dialog->window));
 }
 
 /* The grid keeps how many rows it has handed out */
@@ -94,62 +110,78 @@ void add_grid_row(GtkWidget *grid, GtkWidget *widget, int column) {
 }
 
 static void change_document_mode(GObject *mode, GParamSpec *property, NewDocumentDialog *dialog) {
-	gboolean illustration = gtk_drop_down_get_selected(GTK_DROP_DOWN(mode)) == DOCUMENT_VECTOR;
-	/* Image documents start at 1280 by 720 and illustration documents at 8.3 by 11.7 inches */
-	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->width), illustration ? 598 : 1280);
-	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->height), illustration ? 842 : 720);
+	gboolean illustration = adw_combo_row_get_selected(ADW_COMBO_ROW(mode)) == DOCUMENT_VECTOR;
+	adw_spin_row_set_value(ADW_SPIN_ROW(dialog->width), illustration ? ILLUSTRATION_WIDTH : IMAGE_WIDTH);
+	adw_spin_row_set_value(ADW_SPIN_ROW(dialog->height), illustration ? ILLUSTRATION_HEIGHT : IMAGE_HEIGHT);
 }
 
-static gboolean close_new_with_escape(GtkEventControllerKey *controller, guint key, guint code,
-									  GdkModifierType modifiers, NewDocumentDialog *dialog) {
-	if (key != GDK_KEY_Escape)
-		return FALSE;
-	gtk_window_destroy(GTK_WINDOW(dialog->window));
-	return TRUE;
+static GtkWidget *create_choice_row(const char *title, const char *const *choices) {
+	GtkWidget *row = adw_combo_row_new();
+	adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
+	g_autoptr(GtkStringList) model = gtk_string_list_new(choices);
+	adw_combo_row_set_model(ADW_COMBO_ROW(row), G_LIST_MODEL(model));
+	return row;
 }
 
+/* Sizes are in pixels, with the unit after the field as in the other size dialogs */
+static GtkWidget *create_size_row(const char *title, int value) {
+	GtkWidget *row = adw_spin_row_new_with_range(1, DOCUMENT_LARGEST_SIDE, 1);
+	adw_preferences_row_set_title(ADW_PREFERENCES_ROW(row), title);
+	adw_spin_row_set_value(ADW_SPIN_ROW(row), value);
+	GtkWidget *unit = gtk_label_new(TEXT_PIXEL_UNIT);
+	gtk_widget_add_css_class(unit, "dim-label");
+	adw_action_row_add_suffix(ADW_ACTION_ROW(row), unit);
+	return row;
+}
+
+static void create_group(GtkWidget *page, GtkWidget *const *rows, guint count) {
+	GtkWidget *group = adw_preferences_group_new();
+	for (guint index = 0; index < count; index++)
+		adw_preferences_group_add(ADW_PREFERENCES_GROUP(group), rows[index]);
+	adw_preferences_page_add(ADW_PREFERENCES_PAGE(page), ADW_PREFERENCES_GROUP(group));
+}
+
+/* The name, the size and the kind of document as rows, with Cancel and Create in the header */
 void show_new_dialog(Editor *editor) {
 	NewDocumentDialog *dialog = g_new0(NewDocumentDialog, 1);
 	dialog->editor = editor;
-	dialog->window = gtk_window_new();
-	gtk_window_set_title(GTK_WINDOW(dialog->window), TEXT_NEW_TRANSPARENT);
-	gtk_window_set_transient_for(GTK_WINDOW(dialog->window), GTK_WINDOW(editor->window));
-	gtk_window_set_destroy_with_parent(GTK_WINDOW(dialog->window), TRUE);
-	gtk_window_set_modal(GTK_WINDOW(dialog->window), TRUE);
+	dialog->window = GTK_WIDGET(adw_dialog_new());
+	adw_dialog_set_title(ADW_DIALOG(dialog->window), TEXT_NEW_PROJECT);
+	adw_dialog_set_content_width(ADW_DIALOG(dialog->window), NEW_DIALOG_WIDTH);
 	g_object_set_data_full(G_OBJECT(dialog->window), "new-document", dialog, g_free);
-	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_NORMAL);
-	gtk_widget_set_margin_start(box, SPACING_ROOMY);
-	gtk_widget_set_margin_end(box, SPACING_ROOMY);
-	gtk_widget_set_margin_top(box, SPACING_ROOMY);
-	gtk_widget_set_margin_bottom(box, SPACING_ROOMY);
-	GtkWidget *grid = gtk_grid_new();
-	gtk_grid_set_row_spacing(GTK_GRID(grid), SPACING_SNUG);
-	gtk_grid_set_column_spacing(GTK_GRID(grid), SPACING_NORMAL);
-	dialog->name = gtk_entry_new();
-	gtk_editable_set_text(GTK_EDITABLE(dialog->name), TEXT_NEW_PROJECT);
-	dialog->width = gtk_spin_button_new_with_range(1, DOCUMENT_LARGEST_SIDE, 1);
-	dialog->height = gtk_spin_button_new_with_range(1, DOCUMENT_LARGEST_SIDE, 1);
-	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->width), 1280);
-	gtk_spin_button_set_value(GTK_SPIN_BUTTON(dialog->height), 720);
-	dialog->mode = gtk_drop_down_new_from_strings((const char *[]){TEXT_IMAGE_MODE, TEXT_ILLUSTRATION_MODE, NULL});
-	dialog->depth = gtk_drop_down_new_from_strings((const char *[]){TEXT_DEPTH_8, TEXT_DEPTH_16, TEXT_DEPTH_32, NULL});
-	g_signal_connect(dialog->mode, "notify::selected", G_CALLBACK(change_document_mode), dialog);
-	add_dialog_input(grid, TEXT_NAME, dialog->name);
-	add_dialog_input(grid, TEXT_WIDTH, dialog->width);
-	add_dialog_input(grid, TEXT_HEIGHT, dialog->height);
-	add_dialog_input(grid, TEXT_DOCUMENT_MODE, dialog->mode);
-	add_dialog_input(grid, TEXT_CHANNEL_DEPTH, dialog->depth);
-	gtk_box_append(GTK_BOX(box), grid);
-	gtk_box_append(GTK_BOX(box), gtk_label_new(TEXT_NEW_COLOR_SETTINGS));
-	dialog->message = gtk_label_new(NULL);
-	gtk_label_set_wrap(GTK_LABEL(dialog->message), TRUE);
-	gtk_box_append(GTK_BOX(box), dialog->message);
-	GtkWidget *create = gtk_button_new_with_label(TEXT_CREATE);
+	GtkWidget *header = adw_header_bar_new();
+	adw_header_bar_set_show_start_title_buttons(ADW_HEADER_BAR(header), FALSE);
+	adw_header_bar_set_show_end_title_buttons(ADW_HEADER_BAR(header), FALSE);
+	GtkWidget *cancel = gtk_button_new_with_label(TEXT_CANCEL), *create = gtk_button_new_with_label(TEXT_CREATE);
+	gtk_widget_add_css_class(create, "suggested-action");
+	g_signal_connect(cancel, "clicked", G_CALLBACK(cancel_new_document), dialog);
 	g_signal_connect(create, "clicked", G_CALLBACK(create_requested_document), dialog);
-	gtk_box_append(GTK_BOX(box), create);
-	gtk_window_set_child(GTK_WINDOW(dialog->window), box);
-	GtkEventController *keys = gtk_event_controller_key_new();
-	g_signal_connect(keys, "key-pressed", G_CALLBACK(close_new_with_escape), dialog);
-	gtk_widget_add_controller(dialog->window, keys);
-	gtk_window_present(GTK_WINDOW(dialog->window));
+	adw_header_bar_pack_start(ADW_HEADER_BAR(header), cancel);
+	adw_header_bar_pack_end(ADW_HEADER_BAR(header), create);
+	/* The colour settings every new document gets sit quietly under the title */
+	GtkWidget *title = adw_window_title_new(TEXT_NEW_PROJECT, TEXT_NEW_COLOR_SETTINGS);
+	adw_header_bar_set_title_widget(ADW_HEADER_BAR(header), title);
+	dialog->name = adw_entry_row_new();
+	adw_preferences_row_set_title(ADW_PREFERENCES_ROW(dialog->name), TEXT_NAME);
+	gtk_editable_set_text(GTK_EDITABLE(dialog->name), TEXT_UNTITLED);
+	dialog->width = create_size_row(TEXT_WIDTH, IMAGE_WIDTH);
+	dialog->height = create_size_row(TEXT_HEIGHT, IMAGE_HEIGHT);
+	dialog->mode = create_choice_row(TEXT_DOCUMENT_MODE, (const char *[]){TEXT_IMAGE_MODE, TEXT_ILLUSTRATION_MODE, NULL});
+	dialog->depth =
+		create_choice_row(TEXT_CHANNEL_DEPTH, (const char *[]){TEXT_DEPTH_8, TEXT_DEPTH_16, TEXT_DEPTH_32, NULL});
+	g_signal_connect(dialog->mode, "notify::selected", G_CALLBACK(change_document_mode), dialog);
+	GtkWidget *page = adw_preferences_page_new();
+	GtkWidget *name_rows[] = {dialog->name}, *size_rows[] = {dialog->width, dialog->height};
+	GtkWidget *kind_rows[] = {dialog->mode, dialog->depth};
+	create_group(page, name_rows, G_N_ELEMENTS(name_rows));
+	create_group(page, size_rows, G_N_ELEMENTS(size_rows));
+	create_group(page, kind_rows, G_N_ELEMENTS(kind_rows));
+	GtkWidget *view = adw_toolbar_view_new();
+	adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(view), header);
+	adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(view), page);
+	adw_dialog_set_child(ADW_DIALOG(dialog->window), view);
+	adw_dialog_set_default_widget(ADW_DIALOG(dialog->window), create);
+	adw_dialog_present(ADW_DIALOG(dialog->window), editor->window);
+	/* The name takes the keyboard, so typing renames the new document at once */
+	gtk_widget_grab_focus(dialog->name);
 }

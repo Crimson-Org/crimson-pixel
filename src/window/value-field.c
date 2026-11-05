@@ -4,6 +4,10 @@
 #include "value-field.h"
 #include "common/widgets/spacing.h"
 
+/* Numbers up to four digits fit, such as a 2500 px brush, with room to grow by one */
+#define ENTRY_CHARACTERS 4
+#define ENTRY_MAX_CHARACTERS 5
+
 /* A labelled number with typing, label scrubbing and a slider popover fields */
 typedef struct {
 	GtkWidget *entry, *scale;
@@ -89,9 +93,11 @@ GtkWidget *create_value_field(const char *label_text, const char *unit, double m
 	g_signal_connect(scrub, "drag-update", G_CALLBACK(update_scrub), widget);
 	gtk_widget_add_controller(label, GTK_EVENT_CONTROLLER(scrub));
 	field->entry = gtk_entry_new();
-	gtk_editable_set_width_chars(GTK_EDITABLE(field->entry), 4);
-	gtk_editable_set_max_width_chars(GTK_EDITABLE(field->entry), 5);
+	gtk_editable_set_width_chars(GTK_EDITABLE(field->entry), ENTRY_CHARACTERS);
+	gtk_editable_set_max_width_chars(GTK_EDITABLE(field->entry), ENTRY_MAX_CHARACTERS);
 	gtk_entry_set_input_purpose(GTK_ENTRY(field->entry), GTK_INPUT_PURPOSE_NUMBER);
+	/* Numbers end against their unit, so 15px reads as one value */
+	gtk_editable_set_alignment(GTK_EDITABLE(field->entry), 1);
 	gtk_widget_add_css_class(field->entry, "value-entry");
 	gtk_label_set_mnemonic_widget(GTK_LABEL(label), field->entry);
 	g_signal_connect(field->entry, "activate", G_CALLBACK(commit_entry), widget);
@@ -102,23 +108,28 @@ GtkWidget *create_value_field(const char *label_text, const char *unit, double m
 	g_signal_connect(scroll, "scroll", G_CALLBACK(scroll_value), widget);
 	gtk_widget_add_controller(widget, scroll);
 	field->scale = gtk_scale_new_with_range(GTK_ORIENTATION_HORIZONTAL, minimum, maximum, 1);
-	gtk_widget_set_size_request(field->scale, 220, -1);
+	gtk_widget_set_size_request(field->scale, POPOVER_SLIDER_LENGTH, -1);
 	gtk_scale_set_draw_value(GTK_SCALE(field->scale), FALSE);
 	g_signal_connect(field->scale, "value-changed", G_CALLBACK(move_scale), widget);
 	GtkWidget *popover = gtk_popover_new(), *slider = gtk_menu_button_new();
+	gtk_widget_add_css_class(popover, "slider-popover");
 	gtk_popover_set_child(GTK_POPOVER(popover), field->scale);
 	gtk_menu_button_set_popover(GTK_MENU_BUTTON(slider), popover);
 	gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(slider), "pan-down-symbolic");
 	gtk_widget_add_css_class(slider, "flat");
 	gtk_widget_set_tooltip_text(slider, label_text);
 	gtk_box_append(GTK_BOX(widget), label);
-	gtk_box_append(GTK_BOX(widget), field->entry);
+	/* The number, its unit and the slider button read as one field */
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_add_css_class(box, "value-box");
+	gtk_box_append(GTK_BOX(box), field->entry);
 	if (unit) {
 		GtkWidget *unit_label = gtk_label_new(unit);
-		gtk_widget_add_css_class(unit_label, "dim-label");
-		gtk_box_append(GTK_BOX(widget), unit_label);
+		gtk_widget_add_css_class(unit_label, "value-unit");
+		gtk_box_append(GTK_BOX(box), unit_label);
 	}
-	gtk_box_append(GTK_BOX(widget), slider);
+	gtk_box_append(GTK_BOX(box), slider);
+	gtk_box_append(GTK_BOX(widget), box);
 	show_value(field);
 	return widget;
 }
@@ -127,6 +138,11 @@ void set_value_field(GtkWidget *widget, double value) {
 	ValueField *field = get_value_field(widget);
 	field->value = CLAMP(value, field->minimum, field->maximum);
 	show_value(field);
+}
+
+/* The field takes the spare width of its row, so fields side by side end where the controls above them end */
+void set_value_field_expands(GtkWidget *widget) {
+	gtk_widget_set_hexpand(gtk_widget_get_last_child(widget), TRUE);
 }
 
 double get_value_field_value(GtkWidget *widget) {

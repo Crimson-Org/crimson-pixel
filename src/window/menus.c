@@ -92,7 +92,6 @@ GMenuModel *create_menu_model(Editor *editor) {
 	g_menu_append(view_layout, TEXT_SPLIT_VIEW, "win.split");
 	g_menu_append_section(view, NULL, G_MENU_MODEL(view_zoom));
 	g_menu_append_section(view, NULL, G_MENU_MODEL(view_layout));
-	g_menu_append_submenu(bar, TEXT_MENU_VIEW, G_MENU_MODEL(view));
 	GMenu *layer = g_menu_new();
 	g_menu_append(layer, TEXT_NEW_LAYER, "win.new-layer");
 	g_autoptr(GMenuModel) adjustments = create_adjustment_menu();
@@ -117,7 +116,6 @@ GMenuModel *create_menu_model(Editor *editor) {
 	g_menu_append(structure, TEXT_CLIPPING_MASK, "win.clipping-mask");
 	g_menu_append_section(layer, NULL, G_MENU_MODEL(structure));
 	g_object_unref(structure);
-	g_menu_append_submenu(bar, TEXT_MENU_LAYER, G_MENU_MODEL(layer));
 	GMenu *image = g_menu_new();
 	GMenu *sizes = g_menu_new();
 	g_menu_append(sizes, TEXT_IMAGE_SIZE_ITEM, "win.image-size");
@@ -130,8 +128,6 @@ GMenuModel *create_menu_model(Editor *editor) {
 	g_menu_append(trimming, TEXT_REVEAL_ALL, "win.reveal-all");
 	g_menu_append_section(image, NULL, G_MENU_MODEL(trimming));
 	g_object_unref(trimming);
-	g_menu_append_submenu(bar, TEXT_MENU_IMAGE, G_MENU_MODEL(image));
-	g_object_unref(image);
 	GMenu *select = g_menu_new();
 	g_menu_append(select, TEXT_SELECT_ALL, "win.select-all");
 	g_menu_append(select, TEXT_DESELECT, "win.deselect");
@@ -144,8 +140,11 @@ GMenuModel *create_menu_model(Editor *editor) {
 	g_object_unref(refine);
 	g_object_unref(modify);
 	g_object_unref(transform);
+	/* The menus come in the order of the editors people know, with View and Window last */
+	g_menu_append_submenu(bar, TEXT_MENU_IMAGE, G_MENU_MODEL(image));
+	g_menu_append_submenu(bar, TEXT_MENU_LAYER, G_MENU_MODEL(layer));
 	g_menu_append_submenu(bar, TEXT_MENU_SELECT, G_MENU_MODEL(select));
-	g_object_unref(select);
+	g_menu_append_submenu(bar, TEXT_MENU_VIEW, G_MENU_MODEL(view));
 	g_autoptr(GMenuModel) window = create_window_menu(editor);
 	g_menu_append_submenu(bar, TEXT_MENU_WINDOW, window);
 	g_object_unref(file_open);
@@ -156,6 +155,8 @@ GMenuModel *create_menu_model(Editor *editor) {
 	g_object_unref(view_layout);
 	g_object_unref(view);
 	g_object_unref(layer);
+	g_object_unref(image);
+	g_object_unref(select);
 	return G_MENU_MODEL(bar);
 }
 

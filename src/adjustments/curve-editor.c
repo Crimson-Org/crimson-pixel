@@ -5,8 +5,10 @@
 #include "curve-editor.h"
 #include "canvas/snapshot-area.h"
 
-/* The graph keeps a square of this size, with room for the point handles at its edges */
-enum { CURVE_EDITOR_SIZE = 256, CURVE_EDITOR_MARGIN = 6, CURVE_POINT_SIZE = 7, CURVE_REMOVE_DISTANCE = 24 };
+/* The graph keeps a square of this size, with room for half a point handle at its edges, so a handle at a corner
+ * ends where the rows beside the graph start */
+enum { CURVE_EDITOR_SIZE = 256, CURVE_POINT_SIZE = 7, CURVE_REMOVE_DISTANCE = 24 };
+enum { CURVE_EDITOR_MARGIN = (CURVE_POINT_SIZE + 1) / 2 };
 
 /* How close in levels a press must be to grab a point instead of adding one */
 #define CURVE_GRAB_DISTANCE 10.0

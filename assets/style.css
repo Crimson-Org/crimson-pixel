@@ -1,0 +1,615 @@
+/* Crimson Pixel's workspace: the tool column, the documents and every panel are cards, with a calm chrome colour
+ * between them, and the documents lie on a darker pasteboard so the artwork is what stands out */
+
+:root {
+	--chrome-bg-color: var(--sidebar-bg-color);
+	--chrome-line-color: alpha(currentColor, 0.1);
+	--line-width: 1px;
+	--card-color: var(--view-bg-color);
+	--card-radius: 12px;
+	--card-gap: var(--spacing-small);
+	/* A card's edge is a line inside the card, so every gap between cards and to the window's edge looks the same */
+	--card-edge-color: alpha(black, 0.06);
+	--card-shadow: 0 1px 3px alpha(black, 0.08);
+	/* Content inside a card keeps this far from its edges */
+	--card-inset: var(--spacing-normal);
+	/* A shape that sits close inside a card's corner, such as a tab, keeps this gap on both sides of the corner and
+	 * rounds its corners to follow the card's */
+	--nested-inset: var(--spacing-tight);
+	--nested-radius: calc(var(--card-radius) - var(--nested-inset));
+	--pasteboard-color: color-mix(in srgb, var(--sidebar-bg-color) 88%, black);
+	--control-radius: 6px;
+	--button-radius: 8px;
+	/* Heights shared by every field, small button and header row */
+	--field-height: 30px;
+	--small-button-size: 28px;
+	--header-height: 36px;
+	--status-height: 24px;
+	/* The room libadwaita leaves between a window button and its circle */
+	--window-button-padding: 5px;
+	/* The room libadwaita leaves around a check box */
+	--check-padding: 3px;
+	/* The room a document tab keeps for its close button */
+	--tab-close-size: 20px;
+	--tool-button-size: 40px;
+	--hover-tint: alpha(currentColor, 0.07);
+	--current-tint: alpha(var(--accent-bg-color), 0.18);
+	--current-hover-tint: alpha(var(--accent-bg-color), 0.24);
+	/* Fields in the bars and panels are soft grey shapes that darken a little under the pointer */
+	--field-bg-color: alpha(currentColor, 0.08);
+	--field-hover-bg-color: alpha(currentColor, 0.11);
+	/* Labels beside fields are a little quieter than values, and units and notes quieter still */
+	--label-opacity: 0.72;
+	--quiet-opacity: 0.55;
+	--strong-weight: 600;
+	--small-font-size: 0.9em;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--chrome-bg-color: var(--window-bg-color);
+		--card-color: color-mix(in srgb, var(--window-bg-color), white 6%);
+		--card-edge-color: alpha(black, 0.35);
+		--card-shadow: 0 1px 3px alpha(black, 0.2);
+		--pasteboard-color: color-mix(in srgb, var(--view-bg-color) 82%, black);
+	}
+}
+
+/* Popups such as menus and popovers fade and grow in, as in the other Crimson apps */
+popover > contents {
+	animation: pop-in 120ms ease-out;
+}
+
+/* A chosen value in a list reads as a value, in the same weight as the numbers beside the list */
+dropdown > button {
+	font-weight: normal;
+}
+
+/* ============================== Workspace ============================== */
+
+.workspace,
+paneldockchild.start,
+paneldockchild.end,
+paneldockchild.top,
+paneldockchild.bottom {
+	background-color: var(--chrome-bg-color);
+}
+
+/* ============================== Cards ============================== */
+
+/* The edge lies over the window's colour like a ring, so it reads the same against any card content */
+.tool-column,
+.stage,
+panelframe {
+	background-color: var(--card-color);
+	background-clip: padding-box;
+	border: var(--line-width) solid var(--card-edge-color);
+	border-radius: var(--card-radius);
+	box-shadow: var(--card-shadow);
+}
+
+.tool-column {
+	margin: var(--card-gap) 0 var(--card-gap) var(--card-gap);
+}
+
+.stage {
+	margin: var(--card-gap);
+}
+
+/* Frames stack down an edge with one gap between them and after the last */
+panelframe {
+	margin: var(--card-gap) var(--card-gap) 0 0;
+}
+
+paneldockchild.end {
+	padding-bottom: var(--card-gap);
+}
+
+paneldockchild.start panelframe {
+	margin: var(--card-gap) 0 0 var(--card-gap);
+}
+
+paneldockchild.start {
+	padding-bottom: var(--card-gap);
+}
+
+/* The handles that resize the cards keep their grip but take no room and draw no line, since the gaps already part
+ * the cards */
+panelresizer > widget > separator,
+paneldockchild > widget > separator {
+	min-width: 0;
+	min-height: 0;
+	background: none;
+}
+
+.panel-content {
+	margin: var(--card-inset);
+}
+
+/* ============================== Top bar ============================== */
+
+/* The bars above and below the cards end where the cards do. At the start, the app icon, the current tool's icon
+ * and the zoom sit in the middle of a band as wide as the tool column, and the words after them start where the
+ * documents' card starts */
+.title-row {
+	min-height: var(--header-height);
+	padding: 0 var(--card-gap) 0 0;
+}
+
+/* libadwaita leaves room around each window button's circle, so the buttons reach into the row's end until the last
+ * circle ends where the cards below end */
+.title-row windowcontrols {
+	margin-right: calc(-1 * var(--window-button-padding));
+}
+
+.title-row > .app-icon {
+	-gtk-icon-size: 20px;
+	margin-left: var(--card-gap);
+}
+
+/* The bar under the menus draws the one line beneath them, so the menu bar leaves out its own, and the first menu's
+ * name starts where the documents do, with its highlight reaching out before it */
+.title-row menubar {
+	box-shadow: none;
+	padding-bottom: 0;
+	margin-left: calc(var(--card-gap) - var(--spacing-compact));
+}
+
+.title-row menubar > item {
+	padding: var(--spacing-tight) var(--spacing-compact);
+	border-radius: var(--control-radius);
+}
+
+/* The options keep the cards' gap from the line above them and from the cards below them */
+.options-bar {
+	min-height: var(--field-height);
+	padding: var(--card-gap) var(--card-gap) 0 0;
+}
+
+.tool-badge {
+	font-weight: var(--strong-weight);
+}
+
+.tool-badge > image {
+	margin-left: var(--card-gap);
+	color: var(--accent-color);
+}
+
+.tool-badge > label {
+	margin-left: var(--card-gap);
+}
+
+/* Every control in the options bar is one field tall, so the bar keeps its height whichever tool is chosen */
+.options-bar button,
+.options-bar checkbutton {
+	min-height: var(--field-height);
+	padding-top: 0;
+	padding-bottom: 0;
+}
+
+.options-bar separator.vertical {
+	margin: var(--spacing-tight) 0;
+}
+
+.option-label,
+.value-field > .value-label {
+	opacity: var(--label-opacity);
+}
+
+/* A value field's number, unit and slider button share one rounded field */
+.value-box {
+	background-color: var(--field-bg-color);
+	border-radius: var(--control-radius);
+	min-height: var(--field-height);
+	transition: background-color 150ms ease-out;
+}
+
+.value-box:hover {
+	background-color: var(--field-hover-bg-color);
+}
+
+.value-box:focus-within {
+	box-shadow: 0 0 0 2px alpha(var(--accent-color), 0.5);
+}
+
+/* The unit follows its number as closely as in the status bar, such as 100% */
+.value-box > entry {
+	background: none;
+	box-shadow: none;
+	outline: none;
+	min-height: var(--field-height);
+	padding: 0 0 0 var(--spacing-snug);
+}
+
+.value-box > .value-unit {
+	opacity: var(--quiet-opacity);
+}
+
+/* A field without a unit keeps the same gap before its slider button */
+.value-box > entry:not(:last-child):nth-last-child(2) {
+	padding-right: var(--spacing-tight);
+}
+
+.value-box > menubutton > button {
+	min-width: 22px;
+	min-height: var(--field-height);
+	padding: 0 var(--spacing-tight);
+	border-radius: 0 var(--control-radius) var(--control-radius) 0;
+}
+
+/* Popovers that hold sliders, from a value field or the canvas, keep one padding */
+.slider-popover > contents {
+	padding: var(--spacing-snug) var(--spacing-normal);
+}
+
+/* Choices and buttons in the options bar and the panels look like the value fields beside them */
+.options-bar dropdown > button,
+.options-bar box > button:not(.flat),
+.panel-content dropdown > button {
+	min-height: var(--field-height);
+	padding: 0 var(--spacing-snug) 0 var(--spacing-compact);
+	background-color: var(--field-bg-color);
+	font-weight: normal;
+}
+
+.options-bar dropdown > button:hover,
+.options-bar box > button:not(.flat):hover,
+.panel-content dropdown > button:hover {
+	background-color: var(--field-hover-bg-color);
+}
+
+/* Snapping is a small toggle as tall as the status text, marked while snapping is on the same way as the current tool */
+.status-bar > .snap-toggle {
+	min-height: var(--status-height);
+	padding: 0 var(--spacing-small);
+	border-radius: var(--control-radius);
+	font-weight: normal;
+	color: alpha(currentColor, var(--label-opacity));
+}
+
+.status-bar > .snap-toggle:hover {
+	background-color: var(--hover-tint);
+}
+
+.status-bar > .snap-toggle:checked {
+	background-color: var(--current-tint);
+	color: var(--accent-color);
+}
+
+.status-bar > .snap-toggle:checked:hover {
+	background-color: var(--current-hover-tint);
+}
+
+/* ============================== Tool column ============================== */
+
+/* The tools and the colours below them keep one gap from every edge of the card */
+.tool-column {
+	padding: var(--spacing-snug);
+}
+
+.tool-column > button.tool {
+	min-width: var(--tool-button-size);
+	min-height: var(--tool-button-size);
+	padding: 0;
+	border-radius: var(--button-radius);
+	transition: background-color 150ms ease-out, color 150ms ease-out;
+}
+
+.tool-column > button.tool:checked {
+	background-color: var(--current-tint);
+	color: var(--accent-color);
+}
+
+.tool-column > separator.tool-section {
+	margin: var(--spacing-small) var(--spacing-snug);
+}
+
+.tool-menu > contents {
+	padding: var(--spacing-tight);
+}
+
+.tool-menu button {
+	padding: var(--spacing-small) var(--spacing-snug);
+	min-width: 220px;
+	font-weight: normal;
+}
+
+.tool-menu button.current {
+	background-color: var(--current-tint);
+	color: var(--accent-color);
+}
+
+/* Foreground and background colours overlap like two cards */
+.color-well > .color-chip > button {
+	padding: 0;
+	border-radius: var(--control-radius);
+	background: none;
+	box-shadow: none;
+}
+
+/* Each chip has an edge in the text colour, so a white chip shows on the light column and a black one on the dark */
+.color-well > .color-chip colorswatch > overlay,
+.color-well > .color-chip colorswatch.light > overlay {
+	border: var(--line-width) solid alpha(var(--window-fg-color), 0.35);
+}
+
+.color-well > .color-chip colorswatch {
+	border-radius: var(--control-radius);
+	box-shadow: 0 1px 2px alpha(black, 0.2);
+}
+
+/* The foreground chip lies on top, parted from the chip under it by a ring in the card's colour */
+.color-well > .color-chip.front colorswatch {
+	box-shadow: 0 0 0 2px var(--card-color), 0 2px 3px 1px alpha(black, 0.15);
+}
+
+.color-well > .swap-colors {
+	min-width: 14px;
+	min-height: 14px;
+	padding: 0;
+	border-radius: 4px;
+	opacity: var(--label-opacity);
+}
+
+.color-well > .swap-colors:hover {
+	opacity: 1;
+}
+
+/* ============================== Documents ============================== */
+
+.canvas,
+.documents > stack {
+	background-color: var(--pasteboard-color);
+}
+
+/* The tabs run along the top of the document card, above the pasteboard, as tall as a panel's header, and the
+ * strip draws the one line under them at the same height as the panels' lines, which the open tab covers */
+.documents > header {
+	padding: 0 var(--nested-inset);
+	border: none;
+	background-color: var(--card-color);
+	box-shadow: inset 0 calc(-1 * var(--line-width)) var(--chrome-line-color);
+}
+
+/* The tab row adds no room of its own, so the first tab starts at the strip's inset */
+.documents > header > tabs {
+	margin: 0;
+	padding: 0;
+	border-spacing: 0;
+}
+
+/* A tab's name starts and sits where a panel tab's name does, and its close button keeps its room at the end. The
+ * tab runs on down over the line, so that part is padding below the name */
+.documents > header tab {
+	min-height: calc(var(--header-height) - 2 * var(--nested-inset));
+	padding: 0 var(--spacing-tight) calc(var(--nested-inset) + var(--line-width))
+		calc(var(--card-inset) - var(--nested-inset));
+}
+
+/* The open document's tab is a shape in the pasteboard's colour that runs straight into the canvas below, while
+ * the others stay flat and quieter, with every name bold so no tab changes width when another opens */
+.documents > header.top > tabs > tab {
+	margin: var(--nested-inset) var(--spacing-hairline) 0 0;
+	border-radius: var(--nested-radius) var(--nested-radius) 0 0;
+	box-shadow: none;
+	font-weight: var(--strong-weight);
+	color: alpha(currentColor, var(--quiet-opacity));
+	transition: color 150ms ease-out, background-color 150ms ease-out;
+}
+
+.documents > header.top > tabs > tab:hover {
+	background-color: var(--hover-tint);
+	color: alpha(currentColor, var(--label-opacity));
+}
+
+.documents > header.top > tabs > tab:checked,
+.documents > header.top > tabs > tab:checked:hover {
+	background-color: var(--pasteboard-color);
+	box-shadow: none;
+	color: currentColor;
+}
+
+.documents > header tab button.tab-close {
+	min-width: var(--tab-close-size);
+	min-height: var(--tab-close-size);
+	padding: 0;
+	border-radius: var(--pill-radius);
+	opacity: 0;
+	transition: opacity 150ms ease-out;
+}
+
+.documents > header tab button.tab-close.shown {
+	opacity: 1;
+}
+
+/* ============================== Panels ============================== */
+
+/* Panel tabs sit in the card's corner like the document tabs, with their names where the panel's content starts,
+ * and a line parts them from the content */
+panelframe panelframeswitcher {
+	min-height: var(--header-height);
+	padding: 0 var(--nested-inset);
+	border: none;
+}
+
+panelframe > overlay > box > stack {
+	border-top: var(--line-width) solid var(--chrome-line-color);
+}
+
+/* Every panel header names its panels in the same bold title. Where a frame holds several, the shown one sits in a
+ * soft shape like the open document's tab and the hidden ones are flat and quieter, while a lone panel's name is a
+ * plain title whose words line up with the content below */
+panelframe panelframeswitcher button {
+	border: none;
+	border-radius: var(--nested-radius);
+	padding: 0 calc(var(--card-inset) - var(--nested-inset));
+	margin: var(--nested-inset) var(--spacing-hairline) var(--nested-inset) 0;
+	font-weight: var(--strong-weight);
+	color: alpha(currentColor, var(--quiet-opacity));
+	background: none;
+	box-shadow: none;
+	transition: color 150ms ease-out, background-color 150ms ease-out;
+}
+
+panelframe panelframeswitcher button:hover {
+	color: alpha(currentColor, var(--label-opacity));
+	background-color: var(--hover-tint);
+}
+
+panelframe panelframeswitcher button:checked,
+panelframe panelframeswitcher button:checked:hover {
+	color: currentColor;
+	background-color: var(--field-bg-color);
+}
+
+panelframe panelframeswitcher button:only-child,
+panelframe panelframeswitcher button:only-child:hover {
+	background: none;
+}
+
+.panel-note {
+	opacity: var(--quiet-opacity);
+	font-size: var(--small-font-size);
+}
+
+.panel-note.list-note {
+	margin-top: var(--spacing-large);
+}
+
+/* A panel's buttons sit as far below the line above them as the card's edge is below them */
+.panel-footer {
+	margin-top: var(--card-inset);
+}
+
+.panel-footer button {
+	min-width: var(--small-button-size);
+	min-height: var(--small-button-size);
+	padding: 0;
+}
+
+/* Layers sit straight on the panel, with the chosen ones tinted in the accent colour */
+.layer-list {
+	background: none;
+}
+
+.layer-list > row {
+	border-radius: var(--control-radius);
+	padding: 0 var(--spacing-tight);
+	margin: 1px 0;
+	transition: background-color 120ms ease-out;
+}
+
+.layer-list > row:hover {
+	background-color: var(--hover-tint);
+}
+
+.layer-list > row:selected {
+	background-color: var(--current-tint);
+}
+
+.layer-list > row:selected:hover {
+	background-color: var(--current-hover-tint);
+}
+
+/* The name keeps the same distance from its thumbnail as the eye keeps on the other side */
+.layer-list .layer-name {
+	margin-left: var(--spacing-small);
+}
+
+.layer-list .layer-eye {
+	min-width: var(--small-button-size);
+	min-height: var(--small-button-size);
+	padding: 0;
+}
+
+/* ============================== Status bar ============================== */
+
+/* The status bar keeps the same gap below its row as the cards keep above it */
+.status-bar {
+	min-height: var(--status-height);
+	padding: 0 var(--card-gap) var(--card-gap) 0;
+	font-size: var(--small-font-size);
+}
+
+.status-bar > .zoom-status {
+	margin-left: var(--card-gap);
+	font-weight: var(--strong-weight);
+	font-feature-settings: "tnum";
+}
+
+.status-bar > label:not(.zoom-status) {
+	margin: 0 var(--card-gap);
+	opacity: var(--label-opacity);
+}
+
+/* ============================== Start view ============================== */
+
+.start-area {
+	background-color: var(--pasteboard-color);
+}
+
+.start-view {
+	animation: rise-in 400ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes rise-in {
+	from {
+		opacity: 0;
+		transform: translateY(12px);
+	}
+	to {
+		opacity: 1;
+		transform: none;
+	}
+}
+
+.start-button {
+	min-width: 232px;
+	padding: var(--spacing-large) var(--spacing-large) var(--spacing-wide);
+	font-weight: var(--strong-weight);
+}
+
+.start-button image {
+	color: var(--accent-color);
+}
+
+.start-shortcut {
+	font-weight: normal;
+	font-size: var(--small-font-size);
+	opacity: var(--quiet-opacity);
+}
+
+.recent-list {
+	padding: var(--spacing-tight);
+}
+
+.recent-row > button {
+	padding: var(--spacing-small) var(--spacing-compact);
+	border-radius: var(--button-radius);
+	font-weight: normal;
+}
+
+/* Recent files wait a moment before they dim while a file opens, so a quick open never flashes them */
+.recent-files button,
+.recent-files label,
+.recent-files image {
+	transition: filter 150ms ease-out, opacity 150ms ease-out;
+}
+
+.recent-files button:disabled,
+.recent-files label:disabled,
+.recent-files image:disabled {
+	transition: filter 200ms ease-out 500ms, opacity 200ms ease-out 500ms;
+}
+
+/* ============================== Dialogs ============================== */
+
+/* libadwaita leaves room around a check box for its focus ring, so a check box in a form reaches back by that room
+ * and its box lines up with the names above it */
+.form-grid > checkbutton {
+	margin-left: calc(-1 * var(--check-padding));
+}
+
+.command-body {
+	margin: var(--spacing-wide) var(--spacing-large) var(--spacing-large);
+}

@@ -153,20 +153,21 @@ void reopen_closed_document(Editor *editor) {
 	gtk_notebook_reorder_child(GTK_NOTEBOOK(editor->notebook), get_current_page(editor), presented->closed_position);
 }
 
+#define CANCEL_RESPONSE "cancel"
+#define DISCARD_RESPONSE "discard"
+
 /* The window reference keeps pending close responses safe during asynchronous loading */
 typedef struct {
 	GtkWidget *window, *page;
 } CloseRequest;
 
-static void finish_close(GObject *source, GAsyncResult *result, gpointer data) {
-	CloseRequest *request = data;
+static void finish_close(AdwAlertDialog *dialog, const char *response, CloseRequest *request) {
 	Editor *editor = g_object_get_data(G_OBJECT(request->window), "editor");
-	g_autoptr(GError) error = NULL;
-	int choice = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source), result, &error);
+	gboolean discard = !g_strcmp0(response, DISCARD_RESPONSE);
 	editor->close_prompt = FALSE;
-	if (choice == 1 && request->page)
+	if (discard && request->page)
 		remove_editor_page(editor, request->page);
-	else if (choice == 1) {
+	else if (discard) {
 		editor->closing = TRUE;
 		gtk_window_close(GTK_WINDOW(editor->window));
 	}
@@ -193,12 +194,19 @@ gboolean confirm_editor_close(Editor *editor, GtkWidget *page) {
 	CloseRequest *request = g_new0(CloseRequest, 1);
 	request->window = g_object_ref(editor->window);
 	request->page = page ? g_object_ref(page) : NULL;
-	g_autoptr(GtkAlertDialog) dialog = gtk_alert_dialog_new("%s", TEXT_DISCARD_CHANGES);
-	gtk_alert_dialog_set_detail(dialog, TEXT_UNSAVED_EDITS);
-	gtk_alert_dialog_set_buttons(dialog, (const char *[]){TEXT_CANCEL, TEXT_DISCARD, NULL});
-	gtk_alert_dialog_set_cancel_button(dialog, 0);
-	gtk_alert_dialog_set_default_button(dialog, 0);
-	gtk_alert_dialog_choose(dialog, GTK_WINDOW(editor->window), NULL, finish_close, request);
+	/* Closing one tab names its document, while closing the window may cover several */
+	PresentedDocument *closing = page ? get_page_document(page) : NULL;
+	g_autofree char *heading = closing ? g_strdup_printf(TEXT_DISCARD_DOCUMENT_CHANGES,
+														 get_string(closing->document->record, "name"))
+									   : g_strdup(TEXT_DISCARD_CHANGES);
+	AdwDialog *dialog = adw_alert_dialog_new(heading, TEXT_UNSAVED_EDITS);
+	adw_alert_dialog_add_responses(ADW_ALERT_DIALOG(dialog), CANCEL_RESPONSE, TEXT_CANCEL, DISCARD_RESPONSE,
+								   TEXT_DISCARD, NULL);
+	adw_alert_dialog_set_response_appearance(ADW_ALERT_DIALOG(dialog), DISCARD_RESPONSE, ADW_RESPONSE_DESTRUCTIVE);
+	adw_alert_dialog_set_default_response(ADW_ALERT_DIALOG(dialog), CANCEL_RESPONSE);
+	adw_alert_dialog_set_close_response(ADW_ALERT_DIALOG(dialog), CANCEL_RESPONSE);
+	g_signal_connect(dialog, "response", G_CALLBACK(finish_close), request);
+	adw_dialog_present(dialog, editor->window);
 	return TRUE;
 }
 
@@ -208,8 +216,12 @@ void close_editor_page(Editor *editor, GtkWidget *page) {
 	remove_editor_page(editor, page);
 }
 
+/* The close button fades in and out through its style, and only takes clicks while it shows */
 static void show_close_button(GtkWidget *button, gboolean shown) {
-	gtk_widget_set_opacity(button, shown ? 1 : 0);
+	if (shown)
+		gtk_widget_add_css_class(button, "shown");
+	else
+		gtk_widget_remove_css_class(button, "shown");
 	gtk_widget_set_can_target(button, shown);
 }
 
@@ -230,12 +242,20 @@ static void click_tab_middle(GtkGestureClick *gesture, int presses, double x, do
 	close_editor_page(g_object_get_data(G_OBJECT(page), "editor"), page);
 }
 
+/* Zoom reads in whole percents, with one decimal only below this, where whole steps would hide real changes */
+#define WHOLE_ZOOM_PERCENT 10
+
+char *format_zoom(double zoom) {
+	double percent = zoom * 100;
+	return g_strdup_printf(percent >= WHOLE_ZOOM_PERCENT ? "%.0f%%" : "%.1f%%", percent);
+}
+
 static void change_view(DocumentView *view, gpointer data) {
 	Editor *editor = data;
 	GtkWidget *page = get_current_page(editor);
 	if (!page || view != get_page_view(page, "primary"))
 		return;
-	g_autofree char *zoom = g_strdup_printf("%.4g%%", view->zoom * 100);
+	g_autofree char *zoom = format_zoom(view->zoom);
 	gtk_label_set_text(GTK_LABEL(editor->zoom_status), zoom);
 	gtk_widget_queue_draw(editor->navigator);
 }
@@ -258,6 +278,7 @@ static GtkWidget *create_document_tab(GtkWidget *page, const char *name) {
 	g_object_set_data(G_OBJECT(close), "page", page);
 	g_signal_connect(close, "clicked", G_CALLBACK(close_tab), g_object_get_data(G_OBJECT(page), "editor"));
 	gtk_widget_add_css_class(close, "flat");
+	gtk_widget_add_css_class(close, "tab-close");
 	gtk_box_append(GTK_BOX(tab), close);
 	/* The close button keeps its space but appears only while the pointer is over the tab */
 	show_close_button(close, FALSE);
@@ -294,6 +315,11 @@ void install_document(Editor *editor, PresentedDocument *presented) {
 		views_to_watch[index]->editor = editor;
 	}
 	GtkWidget *tab = create_document_tab(page, get_string(presented->document->record, "name"));
+	/* The tab tells where its file lives when the pointer rests on the tab */
+	if (presented->file) {
+		g_autofree char *path = g_file_get_parse_name(presented->file);
+		gtk_widget_set_tooltip_text(g_object_get_data(G_OBJECT(page), "tab-label"), path);
+	}
 	int index = gtk_notebook_append_page(GTK_NOTEBOOK(editor->notebook), page, tab);
 	gtk_notebook_set_tab_reorderable(GTK_NOTEBOOK(editor->notebook), page, TRUE);
 	gtk_notebook_set_current_page(GTK_NOTEBOOK(editor->notebook), index);

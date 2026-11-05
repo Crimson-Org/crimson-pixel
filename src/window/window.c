@@ -1,5 +1,8 @@
 #include <string.h>
 
+#include <adwaita.h>
+
+#include "common/app/identity.h"
 #include "common/storage/key-store.h"
 #include "common/window/window-geometry.h"
 #include "editor.h"
@@ -13,6 +16,9 @@
 #include "common/window/file-drop.h"
 
 #define WINDOW_STATE_FILE "window.ini"
+/* The zoom in the status bar keeps room for its widest value, such as 3200%, so the text after the zoom never shifts */
+#define ZOOM_STATUS_CHARACTERS 6
+#define SNAP_ICON "crimson-snap-symbolic"
 
 static void remember_window_geometry(GtkWindow *window) {
 	WindowGeometry geometry;
@@ -509,9 +515,12 @@ static void switch_document(GtkNotebook *notebook, GtkWidget *page, guint index,
 	refresh_history_actions(editor, page);
 	refresh_editor_actions(editor);
 	if (!presented) {
-		gtk_label_set_text(GTK_LABEL(editor->status), TEXT_EMPTY);
+		/* The panels and the start view say nothing is open, so the status bar stays empty */
+		gtk_label_set_text(GTK_LABEL(editor->status), "");
 		gtk_label_set_text(GTK_LABEL(editor->zoom_status), "");
+		gtk_widget_set_visible(editor->zoom_status, FALSE);
 		refresh_editor_dock(editor);
+		focus_start_view(editor->window, editor);
 		return;
 	}
 	set_action_state(editor, "split", gtk_widget_get_visible(g_object_get_data(G_OBJECT(page), "secondary")));
@@ -520,8 +529,9 @@ static void switch_document(GtkNotebook *notebook, GtkWidget *page, guint index,
 	gtk_label_set_text(GTK_LABEL(editor->status), "");
 	refresh_document_status(editor, presented->document);
 	DocumentView *view = get_page_view(page, "primary");
-	g_autofree char *zoom = g_strdup_printf("%.4g%%", view->zoom * 100);
+	g_autofree char *zoom = format_zoom(view->zoom);
 	gtk_label_set_text(GTK_LABEL(editor->zoom_status), zoom);
+	gtk_widget_set_visible(editor->zoom_status, TRUE);
 	refresh_editor_dock(editor);
 }
 
@@ -554,20 +564,29 @@ void refresh_loading_state(Editor *editor) {
 }
 
 static GtkWidget *create_status_bar(Editor *editor) {
-	GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_NORMAL);
-	gtk_widget_set_margin_start(bar, SPACING_SNUG);
-	gtk_widget_set_margin_end(bar, SPACING_SNUG);
-	gtk_widget_set_margin_top(bar, SPACING_TIGHT);
-	gtk_widget_set_margin_bottom(bar, SPACING_TIGHT);
+	GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_add_css_class(bar, "status-bar");
 	editor->zoom_status = gtk_label_new("");
-	gtk_label_set_width_chars(GTK_LABEL(editor->zoom_status), 7);
-	gtk_label_set_xalign(GTK_LABEL(editor->zoom_status), 0);
+	gtk_widget_add_css_class(editor->zoom_status, "zoom-status");
+	gtk_label_set_width_chars(GTK_LABEL(editor->zoom_status), ZOOM_STATUS_CHARACTERS);
 	gtk_box_append(GTK_BOX(bar), editor->zoom_status);
-	editor->status = gtk_label_new(TEXT_EMPTY);
+	editor->status = gtk_label_new(NULL);
 	gtk_label_set_xalign(GTK_LABEL(editor->status), 0);
 	gtk_label_set_ellipsize(GTK_LABEL(editor->status), PANGO_ELLIPSIZE_END);
 	gtk_widget_set_hexpand(editor->status, TRUE);
 	gtk_box_append(GTK_BOX(bar), editor->status);
+	/* Snapping works the same for every tool, so snapping is one click away in the status bar rather than among the
+	 * current tool's options */
+	GtkWidget *snap = gtk_toggle_button_new(), *snap_content = adw_button_content_new();
+	adw_button_content_set_icon_name(ADW_BUTTON_CONTENT(snap_content), SNAP_ICON);
+	adw_button_content_set_label(ADW_BUTTON_CONTENT(snap_content), TEXT_MENU_SNAP);
+	gtk_button_set_child(GTK_BUTTON(snap), snap_content);
+	gtk_widget_add_css_class(snap, "flat");
+	gtk_widget_add_css_class(snap, "snap-toggle");
+	gtk_widget_set_tooltip_text(snap, TEXT_SNAP_HELP);
+	gtk_actionable_set_action_name(GTK_ACTIONABLE(snap), "win.snap");
+	gtk_widget_set_valign(snap, GTK_ALIGN_CENTER);
+	gtk_box_append(GTK_BOX(bar), snap);
 	return bar;
 }
 
@@ -593,6 +612,9 @@ static gboolean press_window_key(GtkEventControllerKey *controller, guint key, g
 	/* Keys meant for an open popover such as adjustment settings stay with it, so Escape closes it */
 	GdkEvent *event = gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(controller));
 	if (event && gdk_event_get_surface(event) != gtk_native_get_surface(GTK_NATIVE(editor->window)))
+		return FALSE;
+	/* Dialogs open inside the window, and the keys typed in them stay with them, such as Space on a check box */
+	if (adw_application_window_get_visible_dialog(ADW_APPLICATION_WINDOW(editor->window)))
 		return FALSE;
 	gboolean typing = focus && (GTK_IS_EDITABLE(focus) || gtk_widget_get_ancestor(focus, GTK_TYPE_SPIN_BUTTON));
 	if (!typing && editor_transform(editor) &&
@@ -675,9 +697,13 @@ static void click_tab_bar(GtkGestureClick *gesture, int presses, double x, doubl
 }
 
 /* The menus share the window's top row with the window buttons, and the row moves the window like a title bar */
-static GtkWidget *create_title_row(GMenuModel *menu) {
+static GtkWidget *create_title_row(GMenuModel *menu, GtkSizeGroup *tool_band) {
 	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 	gtk_widget_add_css_class(row, "title-row");
+	GtkWidget *icon = gtk_image_new_from_icon_name(get_application_identity()->id);
+	gtk_widget_add_css_class(icon, "app-icon");
+	gtk_size_group_add_widget(tool_band, icon);
+	gtk_box_append(GTK_BOX(row), icon);
 	GtkWidget *menus = gtk_popover_menu_bar_new_from_model(menu);
 	gtk_widget_set_hexpand(menus, TRUE);
 	gtk_box_append(GTK_BOX(row), menus);
@@ -699,7 +725,8 @@ void build_editor_window(Editor *editor) {
 	editor->snap.enabled = editor->settings.snap;
 	editor->snap.targets[SNAP_LAYERS] = editor->settings.snap_layers;
 	editor->snap.targets[SNAP_BOUNDS] = editor->settings.snap_bounds;
-	editor->window = gtk_application_window_new(editor->application);
+	/* A libadwaita window, like the other Crimson apps, so dialogs open inside the window over a dimmed workspace */
+	editor->window = adw_application_window_new(editor->application);
 	gtk_window_set_title(GTK_WINDOW(editor->window), TEXT_APPLICATION_NAME);
 	GListModel *monitors = gdk_display_get_monitors(gtk_widget_get_display(editor->window));
 	g_autoptr(GdkMonitor) monitor = g_list_model_get_item(monitors, 0);
@@ -795,40 +822,55 @@ void build_editor_window(Editor *editor) {
 			g_variant_new_boolean(snap_states[index].value));
 	set_menu_shortcuts(editor);
 	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_widget_add_css_class(box, "workspace");
 	g_autoptr(GMenuModel) menu = create_menu_model(editor);
-	gtk_box_append(GTK_BOX(box), create_title_row(menu));
+	/* The app icon, the current tool's icon and the zoom sit in the middle of a band as wide as the tool column, so
+	 * the menus, the tool's name and the status text all start where the documents do */
+	g_autoptr(GtkSizeGroup) tool_band = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
+	/* The menus and the tool options form one bar above the workspace */
+	GtkWidget *top_bar = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_widget_add_css_class(top_bar, "top-bar");
+	gtk_box_append(GTK_BOX(top_bar), create_title_row(menu, tool_band));
+	gtk_box_append(GTK_BOX(box), top_bar);
 	editor->notebook = gtk_notebook_new();
+	gtk_widget_add_css_class(editor->notebook, "documents");
 	GtkGesture *empty_click = gtk_gesture_click_new();
 	g_signal_connect(empty_click, "released", G_CALLBACK(click_tab_bar), editor);
 	gtk_widget_add_controller(editor->notebook, GTK_EVENT_CONTROLLER(empty_click));
 	gtk_notebook_set_scrollable(GTK_NOTEBOOK(editor->notebook), TRUE);
+	/* The card around the documents is their only edge, so the notebook draws no frame of its own */
+	gtk_notebook_set_show_border(GTK_NOTEBOOK(editor->notebook), FALSE);
 	gtk_widget_set_hexpand(editor->notebook, TRUE);
 	/* The dock's Color panel follows the tool column's color swatches, so the column comes first */
 	GtkWidget *tool_column = create_tool_column(editor);
+	gtk_size_group_add_widget(tool_band, tool_column);
 	editor->documents = gtk_stack_new();
 	gtk_stack_set_transition_type(GTK_STACK(editor->documents), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
 	gtk_stack_add_named(GTK_STACK(editor->documents), create_start_view(editor), "start");
 	gtk_stack_add_named(GTK_STACK(editor->documents), editor->notebook, "documents");
 	gtk_widget_set_vexpand(editor->documents, TRUE);
+	/* The documents fill a card with rounded corners, which clip the canvas */
+	gtk_widget_add_css_class(editor->documents, "stage");
+	gtk_widget_set_overflow(editor->documents, GTK_OVERFLOW_HIDDEN);
 	GtkWidget *workspace = create_editor_dock(editor, editor->documents);
 	add_workspace_actions(editor);
 	watch_layer_rename(editor);
-	gtk_box_append(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
-	gtk_box_append(GTK_BOX(box), create_options_bar(editor));
-	gtk_box_append(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+	gtk_box_append(GTK_BOX(top_bar), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
+	gtk_box_append(GTK_BOX(top_bar), create_options_bar(editor));
+	gtk_size_group_add_widget(tool_band, editor->tool_icon);
+	/* The tool column, the documents and the panels are cards with the window's own colour showing between them */
 	GtkWidget *body = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 	gtk_box_append(GTK_BOX(body), tool_column);
-	gtk_box_append(GTK_BOX(body), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
 	gtk_box_append(GTK_BOX(body), workspace);
 	g_object_unref(workspace);
 	gtk_widget_set_vexpand(body, TRUE);
 	gtk_box_append(GTK_BOX(box), body);
-	gtk_box_append(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL));
 	gtk_box_append(GTK_BOX(box), create_status_bar(editor));
+	gtk_size_group_add_widget(tool_band, editor->zoom_status);
 	g_signal_connect(editor->notebook, "switch-page", G_CALLBACK(switch_document), editor);
 	g_signal_connect(editor->notebook, "page-removed", G_CALLBACK(remove_document), editor);
 	switch_document(GTK_NOTEBOOK(editor->notebook), NULL, 0, editor);
-	gtk_window_set_child(GTK_WINDOW(editor->window), box);
+	adw_application_window_set_content(ADW_APPLICATION_WINDOW(editor->window), box);
 	g_signal_connect(editor->window, "close-request", G_CALLBACK(close_window), editor);
 	GtkEventController *keys = gtk_event_controller_key_new();
 	gtk_event_controller_set_propagation_phase(keys, GTK_PHASE_CAPTURE);

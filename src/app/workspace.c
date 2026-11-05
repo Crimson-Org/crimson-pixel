@@ -123,6 +123,22 @@ static gint compare_placements(gconstpointer first, gconstpointer second) {
 
 static void follow_panel(GObject *widget, GParamSpec *property, Editor *editor);
 
+/* A frame's tabs start at the left edge of its content, as panel tabs do in other editors */
+static void align_frame_header(PanelFrame *frame) {
+	gtk_widget_set_halign(GTK_WIDGET(panel_frame_get_header(frame)), GTK_ALIGN_START);
+}
+
+/* Frames the dock makes itself, such as when a panel is dragged to a new place, get the same header, while a
+ * frame in the middle keeps the tab bar libpanel gives it */
+static PanelFrame *create_frame(PanelDock *dock, PanelPosition *position, gpointer data) {
+	PanelFrame *frame = PANEL_FRAME(panel_frame_new());
+	if (panel_position_get_area(position) == PANEL_AREA_CENTER)
+		panel_frame_set_header(frame, PANEL_FRAME_HEADER(panel_frame_tab_bar_new()));
+	else
+		align_frame_header(frame);
+	return frame;
+}
+
 /* The dock is generated as builder markup, since libpanel only accepts edge children that way */
 static GtkWidget *build_dock(Editor *editor, GKeyFile *file, const char *group, GtkWidget *center) {
 	GArray *placements = g_array_new(FALSE, FALSE, sizeof(Placement));
@@ -186,6 +202,7 @@ static GtkWidget *build_dock(Editor *editor, GKeyFile *file, const char *group, 
 	for (int frame = 0; frame < frame_count; frame++) {
 		g_autofree char *id = g_strdup_printf("frame%d", frame);
 		PanelFrame *target = PANEL_FRAME(gtk_builder_get_object(builder, id));
+		align_frame_header(target);
 		PanelWidget *selected = NULL;
 		for (guint index = 0; index < placements->len; index++) {
 			Placement *placement = &g_array_index(placements, Placement, index);
@@ -201,6 +218,7 @@ static GtkWidget *build_dock(Editor *editor, GKeyFile *file, const char *group, 
 			panel_frame_set_visible_child(target, selected);
 	}
 	gtk_box_append(GTK_BOX(gtk_builder_get_object(builder, "center")), center);
+	g_signal_connect(dock, "create-frame", G_CALLBACK(create_frame), NULL);
 	g_array_unref(placements);
 	return dock;
 }

@@ -10,10 +10,20 @@
 /* Each tool button has room for a group of up to three tools, and an icon this size, with a corner marker when the
  * group has more than one tool */
 #define GROUP_TOOLS 3
-#define TOOL_ICON_SIZE 22
+#define TOOL_ICON_SIZE 20
 #define GROUP_MARKER_SIZE 5
 #define GROUP_MARKER_ALPHA .7
-#define OPTIONS_BAR_HEIGHT 34
+/* The mark keeps this far from the button's corner, which keeps it inside the rounded corner of the highlight */
+#define GROUP_MARKER_INSET SPACING_TIGHT
+/* The options bar names the current tool with its icon at this size, and keeps one gap between its options */
+#define BADGE_ICON_SIZE 16
+#define OPTION_SPACING SPACING_ROOMY
+/* GTK makes a colour button at least as wide as the word Black, so the chips are squares of about that size,
+ * overlapping inside the well, and the swap arrow fills the free corner. The well sets the column's width, and the
+ * tool buttons stretch to it, so their marks line up with the chips */
+#define COLOR_WELL_SIZE 48
+#define COLOR_CHIP_SIZE 34
+#define SWAP_ICON_SIZE 12
 /* Brushes stay between these diameters */
 #define SMALLEST_BRUSH 1
 #define LARGEST_BRUSH 2500
@@ -48,25 +58,30 @@ typedef struct {
 typedef struct {
 	guint key;
 	const ToolEntry tools[GROUP_TOOLS];
+	/* A gap and a line set this group apart from the groups above */
+	gboolean starts_section;
 } ToolGroup;
 
-/* The tool groups in column order with their selection key */
+/* The tool groups in column order with their selection key: moving and selecting, painting, then the view */
 static const ToolGroup TOOL_GROUPS[] = {
-	{GDK_KEY_v, {{TOOL_MOVE, "move", TEXT_TOOL_MOVE}}},
+	{GDK_KEY_v, {{TOOL_MOVE, "move", TEXT_TOOL_MOVE}}, FALSE},
 	{GDK_KEY_m,
 	 {{TOOL_RECTANGLE_SELECT, "rectangle-select", TEXT_TOOL_RECTANGLE_SELECT},
-	  {TOOL_ELLIPSE_SELECT, "ellipse-select", TEXT_TOOL_ELLIPSE_SELECT}}},
+	  {TOOL_ELLIPSE_SELECT, "ellipse-select", TEXT_TOOL_ELLIPSE_SELECT}}, FALSE},
 	{GDK_KEY_l,
-	 {{TOOL_LASSO, "lasso", TEXT_TOOL_LASSO}, {TOOL_POLYGONAL_LASSO, "polygonal-lasso", TEXT_TOOL_POLYGONAL_LASSO}}},
-	{GDK_KEY_w, {{TOOL_MAGIC_WAND, "magic-wand", TEXT_TOOL_MAGIC_WAND}}},
-	{GDK_KEY_c, {{TOOL_CROP, "crop", TEXT_TOOL_CROP}}},
-	{GDK_KEY_i, {{TOOL_EYEDROPPER, "eyedropper", TEXT_TOOL_EYEDROPPER}}},
-	{GDK_KEY_b, {{PAINT_TOOL_BRUSH, "brush", TEXT_TOOL_BRUSH}, {PAINT_TOOL_PENCIL, "pencil", TEXT_TOOL_PENCIL}}},
+	 {{TOOL_LASSO, "lasso", TEXT_TOOL_LASSO}, {TOOL_POLYGONAL_LASSO, "polygonal-lasso", TEXT_TOOL_POLYGONAL_LASSO}},
+	 FALSE},
+	{GDK_KEY_w, {{TOOL_MAGIC_WAND, "magic-wand", TEXT_TOOL_MAGIC_WAND}}, FALSE},
+	{GDK_KEY_c, {{TOOL_CROP, "crop", TEXT_TOOL_CROP}}, FALSE},
+	{GDK_KEY_i, {{TOOL_EYEDROPPER, "eyedropper", TEXT_TOOL_EYEDROPPER}}, TRUE},
+	{GDK_KEY_b, {{PAINT_TOOL_BRUSH, "brush", TEXT_TOOL_BRUSH}, {PAINT_TOOL_PENCIL, "pencil", TEXT_TOOL_PENCIL}}, FALSE},
 	{GDK_KEY_e,
-	 {{PAINT_TOOL_ERASER, "eraser", TEXT_TOOL_ERASER}, {PAINT_TOOL_MAGIC_ERASER, "magic-eraser", TEXT_TOOL_MAGIC_ERASER}}},
+	 {{PAINT_TOOL_ERASER, "eraser", TEXT_TOOL_ERASER}, {PAINT_TOOL_MAGIC_ERASER, "magic-eraser", TEXT_TOOL_MAGIC_ERASER}},
+	 FALSE},
 	{GDK_KEY_g,
-	 {{PAINT_TOOL_GRADIENT, "gradient", TEXT_TOOL_GRADIENT}, {PAINT_TOOL_BUCKET, "paint-bucket", TEXT_TOOL_PAINT_BUCKET}}},
-	{GDK_KEY_h, {{TOOL_HAND, "hand", TEXT_TOOL_HAND}}}};
+	 {{PAINT_TOOL_GRADIENT, "gradient", TEXT_TOOL_GRADIENT}, {PAINT_TOOL_BUCKET, "paint-bucket", TEXT_TOOL_PAINT_BUCKET}},
+	 FALSE},
+	{GDK_KEY_h, {{TOOL_HAND, "hand", TEXT_TOOL_HAND}}, TRUE}};
 
 static int count_group_tools(const ToolGroup *group) {
 	int count = 0;
@@ -167,6 +182,8 @@ static GtkWidget *create_group_icon(const ToolGroup *group, const ToolEntry *too
 	GtkWidget *overlay = gtk_overlay_new(), *marker = create_snapshot_area(draw_group_marker, NULL, NULL);
 	gtk_overlay_set_child(GTK_OVERLAY(overlay), icon);
 	gtk_widget_set_size_request(marker, GROUP_MARKER_SIZE, GROUP_MARKER_SIZE);
+	gtk_widget_set_margin_end(marker, GROUP_MARKER_INSET);
+	gtk_widget_set_margin_bottom(marker, GROUP_MARKER_INSET);
 	gtk_widget_set_halign(marker, GTK_ALIGN_END);
 	gtk_widget_set_valign(marker, GTK_ALIGN_END);
 	gtk_widget_set_can_target(marker, FALSE);
@@ -227,13 +244,23 @@ static void show_group_tools(GtkGestureClick *gesture, int presses, double x, do
 	if (count_group_tools(&TOOL_GROUPS[group]) < 2)
 		return;
 	GtkWidget *popover = gtk_popover_new(), *list = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_HAIRLINE);
+	gtk_widget_add_css_class(popover, "tool-menu");
+	g_autofree char *key = g_strdup_printf("%c", g_ascii_toupper(TOOL_GROUPS[group].key));
 	for (int index = 0; index < count_group_tools(&TOOL_GROUPS[group]); index++) {
 		const ToolEntry *tool = &TOOL_GROUPS[group].tools[index];
-		GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_SNUG), *item = gtk_button_new();
+		GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_NORMAL), *item = gtk_button_new();
 		gtk_box_append(GTK_BOX(row), create_tool_icon(tool->icon));
-		gtk_box_append(GTK_BOX(row), gtk_label_new(tool->name));
+		GtkWidget *name = gtk_label_new(tool->name);
+		gtk_label_set_xalign(GTK_LABEL(name), 0);
+		gtk_widget_set_hexpand(name, TRUE);
+		gtk_box_append(GTK_BOX(row), name);
+		GtkWidget *shortcut = gtk_label_new(key);
+		gtk_widget_add_css_class(shortcut, "dim-label");
+		gtk_box_append(GTK_BOX(row), shortcut);
 		gtk_button_set_child(GTK_BUTTON(item), row);
 		gtk_widget_add_css_class(item, "flat");
+		if (!g_strcmp0(tool->identifier, editor->tool))
+			gtk_widget_add_css_class(item, "current");
 		g_object_set_data(G_OBJECT(item), "tool", (gpointer)tool->identifier);
 		g_signal_connect(item, "clicked", G_CALLBACK(choose_group_tool), editor);
 		gtk_box_append(GTK_BOX(list), item);
@@ -281,35 +308,64 @@ void set_editor_color(Editor *editor, guint32 color, gboolean background) {
 	write_color_button(background ? editor->background : editor->foreground, color);
 }
 
+/* The foreground colour lies over the background colour's corner, with the swap arrow in the free corner */
 static GtkWidget *create_color_buttons(Editor *editor) {
-	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_HAIRLINE);
+	GtkWidget *well = gtk_overlay_new(), *space = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_add_css_class(well, "color-well");
+	gtk_widget_set_size_request(space, COLOR_WELL_SIZE, COLOR_WELL_SIZE);
+	gtk_overlay_set_child(GTK_OVERLAY(well), space);
 	g_autoptr(GtkColorDialog) dialog = gtk_color_dialog_new();
 	gtk_color_dialog_set_with_alpha(dialog, FALSE);
 	editor->foreground = gtk_color_dialog_button_new(g_object_ref(dialog));
 	editor->background = gtk_color_dialog_button_new(g_object_ref(dialog));
 	gtk_widget_set_tooltip_text(editor->foreground, TEXT_FOREGROUND_COLOR);
 	gtk_widget_set_tooltip_text(editor->background, TEXT_BACKGROUND_COLOR);
+	gtk_widget_add_css_class(editor->foreground, "front");
 	reset_colors(editor);
-	GtkWidget *swap = gtk_button_new_from_icon_name("media-playlist-repeat-symbolic");
+	GtkWidget *swap = gtk_button_new(), *swap_icon = gtk_image_new_from_icon_name("crimson-swap-colors-symbolic");
+	gtk_image_set_pixel_size(GTK_IMAGE(swap_icon), SWAP_ICON_SIZE);
+	gtk_button_set_child(GTK_BUTTON(swap), swap_icon);
 	gtk_widget_add_css_class(swap, "flat");
+	gtk_widget_add_css_class(swap, "swap-colors");
 	gtk_widget_set_tooltip_text(swap, TEXT_SWAP_COLORS);
+	gtk_accessible_update_property(GTK_ACCESSIBLE(swap), GTK_ACCESSIBLE_PROPERTY_LABEL, TEXT_SWAP_COLORS, -1);
 	g_signal_connect(swap, "clicked", G_CALLBACK(click_swap_colors), editor);
-	gtk_box_append(GTK_BOX(box), editor->foreground);
-	gtk_box_append(GTK_BOX(box), editor->background);
-	gtk_box_append(GTK_BOX(box), swap);
-	return box;
+
+	const struct {
+		GtkWidget *widget;
+		GtkAlign horizontal, vertical;
+	} corners[] = {{editor->background, GTK_ALIGN_END, GTK_ALIGN_END},
+				   {editor->foreground, GTK_ALIGN_START, GTK_ALIGN_START},
+				   {swap, GTK_ALIGN_END, GTK_ALIGN_START}};
+
+	for (guint index = 0; index < G_N_ELEMENTS(corners); index++) {
+		gtk_widget_set_halign(corners[index].widget, corners[index].horizontal);
+		gtk_widget_set_valign(corners[index].widget, corners[index].vertical);
+		gtk_overlay_add_overlay(GTK_OVERLAY(well), corners[index].widget);
+	}
+	GtkWidget *chips[] = {editor->foreground, editor->background};
+	for (guint index = 0; index < G_N_ELEMENTS(chips); index++) {
+		gtk_widget_add_css_class(chips[index], "color-chip");
+		gtk_widget_set_size_request(chips[index], COLOR_CHIP_SIZE, COLOR_CHIP_SIZE);
+	}
+	return well;
 }
 
 GtkWidget *create_tool_column(Editor *editor) {
 	GtkWidget *column = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_HAIRLINE);
-	gtk_widget_add_css_class(column, "toolbar");
-	gtk_widget_set_margin_start(column, SPACING_TIGHT);
-	gtk_widget_set_margin_end(column, SPACING_TIGHT);
-	gtk_widget_set_margin_top(column, SPACING_TIGHT);
+	gtk_widget_add_css_class(column, "tool-column");
+	/* The card ends after the colours, as the tool bar of other editors does */
+	gtk_widget_set_valign(column, GTK_ALIGN_START);
 	editor->tool_buttons = g_ptr_array_new();
 	for (guint group = 0; group < G_N_ELEMENTS(TOOL_GROUPS); group++) {
+		if (TOOL_GROUPS[group].starts_section) {
+			GtkWidget *line = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+			gtk_widget_add_css_class(line, "tool-section");
+			gtk_box_append(GTK_BOX(column), line);
+		}
 		GtkWidget *button = gtk_toggle_button_new();
 		gtk_widget_add_css_class(button, "flat");
+		gtk_widget_add_css_class(button, "tool");
 		g_object_set_data(G_OBJECT(button), "group", GUINT_TO_POINTER(group));
 		g_signal_connect(button, "toggled", G_CALLBACK(toggle_tool_group), editor);
 		GtkGesture *secondary = gtk_gesture_click_new();
@@ -319,9 +375,10 @@ GtkWidget *create_tool_column(Editor *editor) {
 		gtk_box_append(GTK_BOX(column), button);
 		g_ptr_array_add(editor->tool_buttons, button);
 	}
-	GtkWidget *spacer = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-	gtk_widget_set_vexpand(spacer, TRUE);
-	gtk_box_append(GTK_BOX(column), spacer);
+	/* The colours close the column right under the tools they paint with, as in other editors */
+	GtkWidget *line = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+	gtk_widget_add_css_class(line, "tool-section");
+	gtk_box_append(GTK_BOX(column), line);
 	gtk_box_append(GTK_BOX(column), create_color_buttons(editor));
 	editor->tool_column = column;
 	return column;
@@ -369,7 +426,19 @@ gboolean uses_soft_tip(Editor *editor) {
 	return !pencil && !(eraser && get_tool_options(editor)->eraser_mode == 1);
 }
 
+/* The options bar starts with the current tool's icon and name, so it is clear whose options follow */
+static void refresh_tool_badge(Editor *editor) {
+	int position = 0, group = find_tool_group(editor->tool, &position);
+	if (group < 0)
+		return;
+	const ToolEntry *tool = &TOOL_GROUPS[group].tools[position];
+	g_autofree char *icon_name = g_strdup_printf("crimson-tool-%s-symbolic", tool->icon);
+	gtk_image_set_from_icon_name(GTK_IMAGE(editor->tool_icon), icon_name);
+	gtk_label_set_text(GTK_LABEL(editor->tool_name), tool->name);
+}
+
 static void refresh_options_bar(Editor *editor) {
+	refresh_tool_badge(editor);
 	gboolean painting = is_paint_tool(editor->tool);
 	gtk_widget_set_visible(gtk_widget_get_first_child(editor->options_bar), painting);
 	gtk_widget_set_visible(editor->eyedropper_options, !g_strcmp0(editor->tool, TOOL_EYEDROPPER));
@@ -455,7 +524,7 @@ static GtkWidget *create_fill_options(Editor *editor) {
 	editor->bucket_options = (FillOptions){1, {BUCKET_TOLERANCE, TRUE, TRUE}, FALSE};
 	editor->magic_eraser_options = editor->bucket_options;
 	editor->wand_options = (FillOptions){1, {WAND_TOLERANCE, TRUE, TRUE}, FALSE};
-	editor->fill_options = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_WIDE);
+	editor->fill_options = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, OPTION_SPACING);
 	GtkWidget *box = editor->fill_options;
 	gtk_box_append(GTK_BOX(box), create_option(editor, TEXT_OPTION_OPACITY, "%", 0, PERCENT, &editor->fill_opacity));
 	gtk_box_append(GTK_BOX(box), create_option(editor, TEXT_OPTION_TOLERANCE, "", 0, G_MAXUINT8, &editor->fill_tolerance));
@@ -488,7 +557,7 @@ static GtkWidget *create_gradient_switch(Editor *editor, const char *label, gboo
 
 static GtkWidget *create_gradient_options(Editor *editor) {
 	editor->gradient_options = (GradientOptions){GRADIENT_LINEAR, GRADIENT_CLASSIC, PERCENT, FALSE, FALSE};
-	editor->gradient_bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_WIDE);
+	editor->gradient_bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, OPTION_SPACING);
 	editor->gradient_type =
 		gtk_drop_down_new_from_strings((const char *[]){TEXT_GRADIENT_LINEAR, TEXT_GRADIENT_RADIAL, TEXT_GRADIENT_ANGLE,
 														TEXT_GRADIENT_REFLECTED, TEXT_GRADIENT_DIAMOND, NULL});
@@ -519,7 +588,7 @@ static void change_auto_select_target(GtkDropDown *target, GParamSpec *specifica
 
 static GtkWidget *create_move_options(Editor *editor) {
 	editor->move_auto_select = TRUE;
-	editor->move_options = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_SNUG);
+	editor->move_options = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_SMALL);
 	GtkWidget *auto_select = gtk_check_button_new_with_label(TEXT_OPTION_AUTO_SELECT);
 	gtk_check_button_set_active(GTK_CHECK_BUTTON(auto_select), TRUE);
 	gtk_widget_set_tooltip_text(auto_select, TEXT_AUTO_SELECT_HELP);
@@ -543,7 +612,7 @@ static void toggle_selection_anti_alias(GtkCheckButton *button, Editor *editor) 
 
 static GtkWidget *create_selection_options(Editor *editor) {
 	editor->ellipse_anti_alias = editor->lasso_anti_alias = editor->polygon_anti_alias = TRUE;
-	editor->selection_options = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_SNUG);
+	editor->selection_options = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, OPTION_SPACING);
 	editor->selection_anti_alias = gtk_check_button_new_with_label(TEXT_OPTION_ANTI_ALIAS);
 	gtk_check_button_set_active(GTK_CHECK_BUTTON(editor->selection_anti_alias), TRUE);
 	g_signal_connect(editor->selection_anti_alias, "toggled", G_CALLBACK(toggle_selection_anti_alias), editor);
@@ -562,13 +631,23 @@ GtkWidget *create_options_bar(Editor *editor) {
 	/* Native pixel art default: the Pencil paints square blocks of whole pixels */
 	editor->pencil_options.square = TRUE;
 	initialize_paint_options(&editor->eraser_options);
+	GtkWidget *bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_NORMAL);
+	gtk_widget_add_css_class(bar, "options-bar");
+	GtkWidget *badge = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_add_css_class(badge, "tool-badge");
+	editor->tool_icon = gtk_image_new();
+	gtk_image_set_pixel_size(GTK_IMAGE(editor->tool_icon), BADGE_ICON_SIZE);
+	editor->tool_name = gtk_label_new(NULL);
+	gtk_box_append(GTK_BOX(badge), editor->tool_icon);
+	gtk_box_append(GTK_BOX(badge), editor->tool_name);
+	gtk_box_append(GTK_BOX(bar), badge);
+	gtk_box_append(GTK_BOX(bar), gtk_separator_new(GTK_ORIENTATION_VERTICAL));
 	editor->options_bar = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-	gtk_widget_set_margin_start(editor->options_bar, SPACING_SNUG);
-	gtk_widget_set_margin_end(editor->options_bar, SPACING_SNUG);
-	gtk_widget_set_margin_top(editor->options_bar, SPACING_TIGHT);
-	gtk_widget_set_margin_bottom(editor->options_bar, SPACING_TIGHT);
-	gtk_widget_set_size_request(editor->options_bar, -1, OPTIONS_BAR_HEIGHT);
-	GtkWidget *paint = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_WIDE);
+	gtk_widget_set_hexpand(editor->options_bar, TRUE);
+	/* Options keep their own height in the middle of the bar, with the same room above and below */
+	gtk_widget_set_valign(editor->options_bar, GTK_ALIGN_CENTER);
+	gtk_box_append(GTK_BOX(bar), editor->options_bar);
+	GtkWidget *paint = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, OPTION_SPACING);
 	editor->eraser_mode = gtk_drop_down_new_from_strings((const char *[]){TEXT_ERASER_BRUSH, TEXT_ERASER_PENCIL, NULL});
 	gtk_widget_set_tooltip_text(editor->eraser_mode, TEXT_ERASER_MODE);
 	g_signal_connect(editor->eraser_mode, "notify::selected", G_CALLBACK(change_eraser_mode), editor);
@@ -617,16 +696,7 @@ GtkWidget *create_options_bar(Editor *editor) {
 	}
 	gtk_widget_set_visible(editor->transform_options, FALSE);
 	gtk_box_append(GTK_BOX(editor->options_bar), editor->transform_options);
-	/* Snapping is one click away at the end of the options bar */
-	GtkWidget *spacer = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-	gtk_widget_set_hexpand(spacer, TRUE);
-	gtk_box_append(GTK_BOX(editor->options_bar), spacer);
-	GtkWidget *snap = gtk_toggle_button_new_with_label(TEXT_MENU_SNAP);
-	gtk_widget_add_css_class(snap, "flat");
-	gtk_widget_set_tooltip_text(snap, TEXT_SNAP_HELP);
-	gtk_actionable_set_action_name(GTK_ACTIONABLE(snap), "win.snap");
-	gtk_box_append(GTK_BOX(editor->options_bar), snap);
-	editor->eyedropper_options = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_SNUG);
+	editor->eyedropper_options = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, OPTION_SPACING);
 	GtkWidget *size_label = gtk_label_new_with_mnemonic(TEXT_SAMPLE_SIZE);
 	editor->sample_size = gtk_drop_down_new_from_strings(
 		(const char *[]){TEXT_SAMPLE_POINT, TEXT_SAMPLE_3, TEXT_SAMPLE_5, TEXT_SAMPLE_11, TEXT_SAMPLE_31, NULL});
@@ -636,12 +706,16 @@ GtkWidget *create_options_bar(Editor *editor) {
 		gtk_drop_down_new_from_strings((const char *[]){TEXT_SAMPLE_CURRENT_LAYER, TEXT_SAMPLE_ALL_LAYERS, NULL});
 	gtk_drop_down_set_selected(GTK_DROP_DOWN(editor->sample_source), 1);
 	gtk_label_set_mnemonic_widget(GTK_LABEL(source_label), editor->sample_source);
-	gtk_box_append(GTK_BOX(editor->eyedropper_options), size_label);
-	gtk_box_append(GTK_BOX(editor->eyedropper_options), editor->sample_size);
-	gtk_box_append(GTK_BOX(editor->eyedropper_options), source_label);
-	gtk_box_append(GTK_BOX(editor->eyedropper_options), editor->sample_source);
+	GtkWidget *pairs[][2] = {{size_label, editor->sample_size}, {source_label, editor->sample_source}};
+	for (guint index = 0; index < G_N_ELEMENTS(pairs); index++) {
+		GtkWidget *pair = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_TIGHT);
+		gtk_widget_add_css_class(pairs[index][0], "option-label");
+		gtk_box_append(GTK_BOX(pair), pairs[index][0]);
+		gtk_box_append(GTK_BOX(pair), pairs[index][1]);
+		gtk_box_append(GTK_BOX(editor->eyedropper_options), pair);
+	}
 	gtk_box_append(GTK_BOX(editor->options_bar), editor->eyedropper_options);
-	return editor->options_bar;
+	return bar;
 }
 
 void pick_editor_color(Editor *editor, Document *document, double x, double y, gboolean background) {

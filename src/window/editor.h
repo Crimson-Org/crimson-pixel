@@ -100,6 +100,10 @@ struct Editor {
 	GtkApplication *application;
 	GtkWidget *window, *notebook, *status, *zoom_status;
 	GtkWidget *navigator, *layer_list, *opacity, *fill, *dock;
+	/* Notes in the Navigator and Layers while no document is open */
+	GtkWidget *navigator_empty, *layers_empty;
+	/* The Layers controls above and below the list, shown while a document is open */
+	GtkWidget *layer_controls, *layer_actions;
 	/* The Layers blend mode list, which starts with Pass Through while a group is active */
 	GtkWidget *blend_mode;
 	gboolean blend_mode_lists_pass, updating_blend_mode;
@@ -117,6 +121,8 @@ struct Editor {
 	gconstpointer clip_document;
 	char *workspace;
 	GtkWidget *documents, *tool_column, *options_bar, *foreground, *background;
+	/* The current tool's icon and name at the start of the options bar */
+	GtkWidget *tool_icon, *tool_name;
 	GtkWidget *tool_size, *tool_hardness, *tool_opacity, *tool_flow;
 	GtkWidget *hardness_row, *flow_row, *eraser_mode, *eyedropper_options, *sample_size, *sample_source;
 	GtkWidget *transform_options, *rename_entry, *tip_shape;
@@ -284,6 +290,8 @@ DocumentView *get_page_view(GtkWidget *page, const char *name);
 void refresh_document_page(Editor *editor, GtkWidget *page, gboolean render);
 void refresh_loading_state(Editor *editor);
 void refresh_document_status(Editor *editor, Document *document);
+/* The view's zoom the way the status bar shows the value, such as 75% */
+char *format_zoom(double zoom);
 GtkWidget *create_editor_dock(Editor *editor, GtkWidget *center);
 void create_workspace(Editor *editor, GtkWidget *center);
 void add_workspace_actions(Editor *editor);
@@ -295,6 +303,7 @@ void show_context_menu(GtkWidget *parent, GMenuModel *model, double x, double y)
 void remember_workspace(Editor *editor);
 void refresh_editor_dock(Editor *editor);
 GtkWidget *create_layers_panel(Editor *editor);
+GtkWidget *create_panel_note(const char *text);
 GtkWidget *create_swatches_panel(Editor *editor);
 gboolean open_swatch_file(Editor *editor, GFile *file);
 void refresh_layers_panel(Editor *editor);
