@@ -18,29 +18,46 @@ Document *get_command_document(Editor *editor) {
 	return presented ? presented->document : NULL;
 }
 
-/* Closing by Cancel or Escape undoes what the dialog previewed, while OK keeps the result */
-static void close_command_dialog(AdwDialog *window, CommandDialog *dialog) {
+/* Closing by Cancel, Escape or the window undoes what the dialog previewed, while OK keeps the result */
+static gboolean close_command_dialog(GtkWindow *window, CommandDialog *dialog) {
 	if (!dialog->accepted && dialog->cancel)
 		dialog->cancel(dialog);
+	return FALSE;
 }
 
 static void press_cancel(GtkButton *button, CommandDialog *dialog) {
-	adw_dialog_close(ADW_DIALOG(dialog->window));
+	gtk_window_close(GTK_WINDOW(dialog->window));
 }
 
 void press_ok(GtkButton *button, CommandDialog *dialog) {
 	if (!dialog->accept(dialog))
 		return;
 	dialog->accepted = TRUE;
-	adw_dialog_close(ADW_DIALOG(dialog->window));
+	gtk_window_close(GTK_WINDOW(dialog->window));
 }
 
-/* A header with Cancel and OK above a grid of labelled inputs, the way libadwaita dialogs ask for values */
+static gboolean press_dialog_key(GtkEventControllerKey *controller, guint key, guint code, GdkModifierType modifiers,
+								 CommandDialog *dialog) {
+	if (key != GDK_KEY_Escape)
+		return FALSE;
+	gtk_window_close(GTK_WINDOW(dialog->window));
+	return TRUE;
+}
+
+/* A header with Cancel and OK above a grid of labelled inputs, the way libadwaita dialogs ask for values
+ * Each sits in a small window of its own rather than over the workspace, since some preview their result on the
+ * canvas, which must stay in full view and can be uncovered by moving the window aside */
 CommandDialog *create_command_dialog(Editor *editor, const char *title, gsize size) {
 	CommandDialog *dialog = g_malloc0(MAX(size, sizeof(CommandDialog)));
 	dialog->editor = editor;
-	dialog->window = GTK_WIDGET(adw_dialog_new());
-	adw_dialog_set_title(ADW_DIALOG(dialog->window), title);
+	dialog->window = adw_window_new();
+	gtk_window_set_title(GTK_WINDOW(dialog->window), title);
+	gtk_window_set_transient_for(GTK_WINDOW(dialog->window), GTK_WINDOW(editor->window));
+	gtk_window_set_destroy_with_parent(GTK_WINDOW(dialog->window), TRUE);
+	gtk_window_set_modal(GTK_WINDOW(dialog->window), TRUE);
+	gtk_window_set_resizable(GTK_WINDOW(dialog->window), FALSE);
+	/* The window is as big as its inputs, without the smallest size libadwaita gives a main window */
+	gtk_widget_set_size_request(dialog->window, -1, -1);
 	g_object_set_data_full(G_OBJECT(dialog->window), "command-dialog", dialog, g_free);
 	GtkWidget *header = adw_header_bar_new();
 	adw_header_bar_set_show_start_title_buttons(ADW_HEADER_BAR(header), FALSE);
@@ -69,9 +86,12 @@ CommandDialog *create_command_dialog(Editor *editor, const char *title, gsize si
 	GtkWidget *view = adw_toolbar_view_new();
 	adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(view), header);
 	adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(view), box);
-	adw_dialog_set_child(ADW_DIALOG(dialog->window), view);
-	adw_dialog_set_default_widget(ADW_DIALOG(dialog->window), ok);
-	g_signal_connect(dialog->window, "closed", G_CALLBACK(close_command_dialog), dialog);
+	adw_window_set_content(ADW_WINDOW(dialog->window), view);
+	gtk_window_set_default_widget(GTK_WINDOW(dialog->window), ok);
+	g_signal_connect(dialog->window, "close-request", G_CALLBACK(close_command_dialog), dialog);
+	GtkEventController *keys = gtk_event_controller_key_new();
+	g_signal_connect(keys, "key-pressed", G_CALLBACK(press_dialog_key), dialog);
+	gtk_widget_add_controller(dialog->window, keys);
 	return dialog;
 }
 
@@ -82,7 +102,7 @@ static void focus_first_input(GtkWidget *grid, gpointer data) {
 
 void present_command_dialog(CommandDialog *dialog) {
 	g_signal_connect(dialog->grid, "map", G_CALLBACK(focus_first_input), NULL);
-	adw_dialog_present(ADW_DIALOG(dialog->window), dialog->editor->window);
+	gtk_window_present(GTK_WINDOW(dialog->window));
 }
 
 /* Enter in a number field takes its typed value and confirms the dialog at once */
