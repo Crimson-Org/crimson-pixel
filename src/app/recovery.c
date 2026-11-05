@@ -7,7 +7,7 @@
 #include <sys/file.h>
 #include <unistd.h>
 
-#include "common/key-store.h"
+#include "common/storage/key-store.h"
 #include "window/editor.h"
 #include "document/history.h"
 #include "psd/psd.h"
@@ -20,6 +20,8 @@ typedef struct {
 	char *directory;
 	int lock;
 	guint pending;
+	/* A document left unopened because the window closed stays for the next start, with its session folder */
+	gboolean keeps_files;
 } DeadSession;
 
 /* One snapshot written by a worker, so editing continues meanwhile */
@@ -123,7 +125,7 @@ static void keep_document(PresentedDocument *presented) {
 		presented->recovery_path = create_recovery_path(get_string(record, "name"));
 		g_hash_table_add(live_paths, g_strdup(presented->recovery_path));
 	}
-	/* Native improvement: a saved document needs no snapshot, so its file goes instead of going stale */
+	/* A saved document needs no snapshot, so its file goes instead of going stale */
 	if (!is_document_modified(document, 0)) {
 		g_unlink(presented->recovery_path);
 		return;
@@ -136,6 +138,9 @@ static void keep_document(PresentedDocument *presented) {
 	g_task_set_task_data(task, write, (GDestroyNotify)free_recovery_write);
 	g_task_run_in_thread(task, write_recovery_file);
 }
+
+/* The timer that keeps snapshots of open documents, which a clean exit stops along with the session */
+static guint keeping_source;
 
 static gboolean keep_documents(gpointer data) {
 	for (GList *window = gtk_application_get_windows(data); window; window = window->next) {
@@ -163,18 +168,21 @@ void forget_recovery_file(PresentedDocument *presented) {
 
 /* ============================== Recovering ====================================== */
 
+/* Opened documents moved into this session, so what is left is either damaged, and goes, or kept for later */
 static void release_dead_session(DeadSession *session) {
 	if (--session->pending)
 		return;
-	remove_session_directory(session->directory);
+	if (!session->keeps_files)
+		remove_session_directory(session->directory);
 	close(session->lock);
 	g_free(session->directory);
 	g_free(session);
 }
 
-void adopt_recovered_document(Editor *editor, GFile *file, PresentedDocument *presented) {
+void adopt_recovered_document(Editor *editor, GFile *file, PresentedDocument *presented, gboolean is_closing) {
 	DeadSession *session = g_object_get_data(G_OBJECT(file), "dead-session");
 	if (!presented) {
+		session->keeps_files |= is_closing;
 		release_dead_session(session);
 		return;
 	}
@@ -199,7 +207,7 @@ static void recover_session(Editor *editor, const char *directory) {
 	if (lock < 0)
 		return;
 	DeadSession *session = g_new0(DeadSession, 1);
-	*session = (DeadSession){g_strdup(directory), lock, 1};
+	*session = (DeadSession){g_strdup(directory), lock, 1, FALSE};
 	g_autoptr(GDir) entries = g_dir_open(directory, 0, NULL);
 	for (const char *name = entries ? g_dir_read_name(entries) : NULL; name; name = g_dir_read_name(entries)) {
 		if (!g_str_has_suffix(name, ".psd"))
@@ -231,7 +239,7 @@ void start_document_recovery(Editor *editor) {
 	session_directory = g_steal_pointer(&template);
 	live_paths = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 	writing_paths = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
-	g_timeout_add_seconds(RECOVERY_INTERVAL_SECONDS, keep_documents, editor->application);
+	keeping_source = g_timeout_add_seconds(RECOVERY_INTERVAL_SECONDS, keep_documents, editor->application);
 	g_autoptr(GDir) sessions = g_dir_open(root, 0, NULL);
 	for (const char *name = sessions ? g_dir_read_name(sessions) : NULL; name; name = g_dir_read_name(sessions)) {
 		g_autofree char *directory = g_build_filename(root, name, NULL);
@@ -243,6 +251,7 @@ void start_document_recovery(Editor *editor) {
 void stop_document_recovery(void) {
 	if (!session_directory)
 		return;
+	g_clear_handle_id(&keeping_source, g_source_remove);
 	remove_session_directory(session_directory);
 	close(session_lock);
 	g_clear_pointer(&session_directory, g_free);

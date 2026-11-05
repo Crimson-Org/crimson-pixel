@@ -55,6 +55,8 @@ void clear_selected_area(Editor *editor) {
 static Record *read_texture_pixels(GdkTexture *texture) {
 	int width = gdk_texture_get_width(texture), height = gdk_texture_get_height(texture);
 	Record *pixels = create_channels((gsize)width * height * 4, BYTE_DEPTH);
+	if (!pixels)
+		return NULL;
 	g_autoptr(GdkTextureDownloader) downloader = gdk_texture_downloader_new(texture);
 	gdk_texture_downloader_set_format(downloader, GDK_MEMORY_R8G8B8A8);
 	gdk_texture_downloader_download_into(downloader, pixels->value.buffer.data, (gsize)width * 4);
@@ -65,6 +67,10 @@ static Record *read_texture_pixels(GdkTexture *texture) {
 static void open_pasted_image(Editor *editor, GdkTexture *texture) {
 	int width = gdk_texture_get_width(texture), height = gdk_texture_get_height(texture);
 	Record *pixels = read_texture_pixels(texture);
+	if (!pixels) {
+		gtk_label_set_text(GTK_LABEL(editor->status), TEXT_IMAGE_ALLOCATION_FAILED);
+		return;
+	}
 	g_autoptr(GBytes) bytes = g_bytes_new(pixels->value.buffer.data, pixels->value.buffer.length);
 	free_record(pixels);
 	g_autoptr(GdkPixbuf) pixbuf =
@@ -111,7 +117,11 @@ static void finish_paste(GObject *source, GAsyncResult *result, gpointer data) {
 		return;
 	}
 	RasterExtent extent = {0, 0, gdk_texture_get_width(texture), gdk_texture_get_height(texture)};
-	paste_pixels_here(editor, read_texture_pixels(texture), extent, FALSE);
+	Record *pixels = read_texture_pixels(texture);
+	if (pixels)
+		paste_pixels_here(editor, pixels, extent, FALSE);
+	else
+		gtk_label_set_text(GTK_LABEL(editor->status), TEXT_IMAGE_ALLOCATION_FAILED);
 }
 
 void paste_from_clipboard(Editor *editor) {

@@ -16,7 +16,7 @@ static const char *const ADJUSTMENT_KEYS[] = {"brit", "levl", "curv", "expA", "v
 static const struct {
 	const char *key, *name;
 	gboolean starts_group;
-} PORTED_ADJUSTMENTS[] = {{"brit", TEXT_ADJUSTMENT_BRIGHTNESS_CONTRAST, FALSE},
+} SUPPORTED_ADJUSTMENTS[] = {{"brit", TEXT_ADJUSTMENT_BRIGHTNESS_CONTRAST, FALSE},
 						  {"levl", TEXT_ADJUSTMENT_LEVELS, FALSE},
 						  {"curv", TEXT_ADJUSTMENT_CURVES, FALSE},
 						  {"expA", TEXT_ADJUSTMENT_EXPOSURE, FALSE},
@@ -73,21 +73,21 @@ gboolean is_adjustment_layer(const Record *layer) {
 	return find_adjustment_key(get_record(layer, "add")) != NULL;
 }
 
-gboolean is_ported_adjustment(const char *key) {
+gboolean is_supported_adjustment(const char *key) {
 	return get_adjustment_name(key) != NULL;
 }
 
-const char *get_ported_adjustment(guint index, gboolean *starts_group) {
-	if (index >= G_N_ELEMENTS(PORTED_ADJUSTMENTS))
+const char *get_supported_adjustment(guint index, gboolean *starts_group) {
+	if (index >= G_N_ELEMENTS(SUPPORTED_ADJUSTMENTS))
 		return NULL;
-	*starts_group = PORTED_ADJUSTMENTS[index].starts_group;
-	return PORTED_ADJUSTMENTS[index].key;
+	*starts_group = SUPPORTED_ADJUSTMENTS[index].starts_group;
+	return SUPPORTED_ADJUSTMENTS[index].key;
 }
 
 const char *get_adjustment_name(const char *key) {
-	for (guint index = 0; key && index < G_N_ELEMENTS(PORTED_ADJUSTMENTS); index++)
-		if (!strcmp(key, PORTED_ADJUSTMENTS[index].key))
-			return PORTED_ADJUSTMENTS[index].name;
+	for (guint index = 0; key && index < G_N_ELEMENTS(SUPPORTED_ADJUSTMENTS); index++)
+		if (!strcmp(key, SUPPORTED_ADJUSTMENTS[index].key))
+			return SUPPORTED_ADJUSTMENTS[index].name;
 	return NULL;
 }
 
@@ -560,7 +560,7 @@ void set_channel_mixer(Record *descriptor, gboolean monochrome, const double val
 /* ============================== Commands ======================================== */
 
 gboolean add_adjustment_layer(Document *document, const char *key, gboolean extended_history, GError **error) {
-	if (!is_ported_adjustment(key)) {
+	if (!is_supported_adjustment(key)) {
 		g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED, TEXT_RENDER_UNAVAILABLE);
 		return FALSE;
 	}

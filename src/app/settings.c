@@ -1,4 +1,4 @@
-#include "common/key-store.h"
+#include "common/storage/key-store.h"
 #include "settings.h"
 #include "lang/en.h"
 

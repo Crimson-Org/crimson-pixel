@@ -109,9 +109,14 @@ double get_history_memory_size(const Document *document, const Record *entry) {
 	return operation ? operation->memory_size(get_record(entry, "data")) : 0;
 }
 
-void mark_document_saved(Document *document, gboolean reset_time, double time_ms) {
-	set_number(document->record, "eN", get_number(document->record, "NP"));
-	document->saved_step = (gint64)get_number(document->record, "NP") + document->trimmed_steps;
+gint64 get_document_step(const Document *document) {
+	return (gint64)get_number(document->record, "NP") + document->trimmed_steps;
+}
+
+
+void mark_document_saved(Document *document, gint64 step, gboolean reset_time, double time_ms) {
+	set_number(document->record, "eN", (double)(step - document->trimmed_steps));
+	document->saved_step = step;
 	set_number(document->record, "aH2", time_ms);
 	set_boolean(document->record, "z3", TRUE);
 	if (reset_time)

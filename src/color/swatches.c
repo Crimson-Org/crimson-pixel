@@ -4,7 +4,7 @@
 
 #include <gio/gio.h>
 
-#include "common/key-store.h"
+#include "common/storage/key-store.h"
 #include "color-spaces.h"
 
 /* ACO files list the colours once without names, then again with them, and ASE files have a signature, a version,

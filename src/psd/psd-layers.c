@@ -1,11 +1,12 @@
 #include <math.h>
 #include <string.h>
 
+#include "document/blend.h"
 #include "adjustments/adjustments.h"
 #include "descriptor.h"
 #include "psd.h"
 
-/* Tagged blocks whose descriptors, engines or closures are not ported yet */
+/* Tagged blocks whose effects, text engines and smart objects are not read yet */
 static const struct {
 	const char *keys, *feature;
 } UNSUPPORTED_BLOCKS[] = {{"lfx2 lmfx lfxs", TEXT_PSD_EFFECTS},
@@ -16,8 +17,6 @@ static const struct {
 
 static const char *UNPADDED_KEYS = "luni TySh tySh lfx2 iOpa SoCo vmsk vstk";
 
-/* Channel indexes in brightness restrictions past this are ignored */
-#define LARGEST_CHANNEL_INDEX (G_MAXUINT16 + 1)
 /* A section divider gives its type, then a blend mode signature and key, then a sub type */
 #define SECTION_MODE_AT (2 * PSD_KEY_LENGTH)
 #define SECTION_SUB_TYPE_AT (3 * PSD_KEY_LENGTH)
@@ -94,7 +93,8 @@ static gsize read_blend_ranges(PsdReader *reader, Record *layer, gsize offset) {
 	guint32 length = read_psd_u32(reader, offset);
 	offset += sizeof(guint32);
 	Record *ranges = get_record(layer, "hu");
-	for (guint32 index = 0; index < length && !reader->failed; index++) {
+	/* Only the values Photoshop defines are kept, so a damaged length cannot make one record per byte of the file */
+	for (guint32 index = 0; index < MIN(length, BLEND_RANGE_VALUES) && !reader->failed; index++) {
 		Record *value = create_number(read_psd_byte(reader, offset + index));
 		if (index < count_records(ranges)) {
 			free_record(ranges->value.array->pdata[index]);
@@ -124,7 +124,8 @@ static void read_tagged_block(PsdReader *reader, const char *key, gsize offset, 
 			append_record(channels, create_number(1));
 		for (gint64 index = 0; index < length; index += sizeof(guint32)) {
 			guint32 channel = read_psd_u32(reader, offset + index);
-			if (channel > LARGEST_CHANNEL_INDEX)
+			/* Only the colour channels can be left out of blending, so other numbers make no records */
+			if (channel >= RGB_CHANNELS)
 				continue;
 			while (count_records(channels) <= channel)
 				append_record(channels, create_null());
@@ -165,7 +166,7 @@ static void read_tagged_block(PsdReader *reader, const char *key, gsize offset, 
 				   create_point(read_double(reader, offset), read_double(reader, offset + sizeof(double))));
 	else if (!strcmp(key, "Lr16") || !strcmp(key, "Lr32"))
 		read_layer_records(reader, offset);
-	else if (is_ported_adjustment(key))
+	else if (is_supported_adjustment(key))
 		read_adjustment_block(reader, key, offset, descriptors);
 	else if (!strcmp(key, "CgEd")) {
 		Record *settings = create_object(RECORD_PLAIN);
@@ -339,7 +340,7 @@ static gsize read_layer_channels(PsdReader *reader, Record *layer, gsize offset)
 	return offset;
 }
 
-gsize read_layer_records(PsdReader *reader, gsize offset) {
+static gsize read_layer_list(PsdReader *reader, gsize offset) {
 	Record *layers = get_record(reader->document->record, "Z");
 	int count = abs(read_i16(reader, offset));
 	offset += sizeof(guint16);
@@ -365,6 +366,16 @@ gsize read_layer_records(PsdReader *reader, gsize offset) {
 		offset = read_layer_channels(reader, g_ptr_array_index(created, index), offset);
 	return offset;
 }
+
+gsize read_layer_records(PsdReader *reader, gsize offset) {
+	if (reader->is_reading_layers)
+		return offset;
+	reader->is_reading_layers = TRUE;
+	offset = read_layer_list(reader, offset);
+	reader->is_reading_layers = FALSE;
+	return offset;
+}
+
 
 gsize read_layer_and_mask_information(PsdReader *reader, gsize offset) {
 	gsize start = offset, length_size = reader->large ? sizeof(guint64) : sizeof(guint32);

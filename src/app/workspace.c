@@ -1,7 +1,7 @@
 #include <adwaita.h>
 #include <libpanel.h>
 
-#include "common/key-store.h"
+#include "common/storage/key-store.h"
 #include "window/editor.h"
 #include "lang/en.h"
 

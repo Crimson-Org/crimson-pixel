@@ -49,6 +49,11 @@ static void extend_layer(Record *layer, RasterExtent extent) {
 		return;
 	RasterExtent grown = union_region(current, extent);
 	Record *pixels = create_region_pixels(grown);
+	/* A layer too large to grow keeps its size, and painting past its edges is left out */
+	if (!pixels) {
+		g_warning("A layer of %d by %d pixels could not grow", grown.width, grown.height);
+		return;
+	}
 	copy_pixels(get_record(layer, "buffer"), current, pixels, grown);
 	set_record(layer, "V", create_extent(grown.x, grown.y, grown.width, grown.height));
 	set_record(layer, "buffer", pixels);
@@ -109,6 +114,10 @@ static void swap_painted_regions(Record *data, Document *document) {
 		RasterExtent extent = read_extent(get_record(entry, "jp"));
 		document->changed = empty_extent(document->changed) ? extent : union_region(document->changed, extent);
 		Record *current = create_region_pixels(extent);
+		if (!current) {
+			g_warning("A painted region of %d by %d pixels could not be swapped back", extent.width, extent.height);
+			continue;
+		}
 		copy_pixels(get_record(layer, "buffer"), read_extent(get_record(layer, "V")), current, extent);
 		extend_layer(layer, extent);
 		copy_pixels(get_record(entry, "Di"), extent, get_record(layer, "buffer"), read_extent(get_record(layer, "V")));

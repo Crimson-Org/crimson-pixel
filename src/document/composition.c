@@ -142,7 +142,7 @@ static gboolean supports_layer_mask(const Record *mask) {
 }
 
 static gboolean supports_adjustment(const char *key, const Record *descriptor) {
-	if (!is_ported_adjustment(key) || descriptor->type != RECORD_OBJECT)
+	if (!is_supported_adjustment(key) || descriptor->type != RECORD_OBJECT)
 		return FALSE;
 	/* Settings the kernel cannot build, such as CMYK colors or noise gradients, keep the saved composite */
 	g_autofree Adjustment *adjustment = g_new(Adjustment, 1);

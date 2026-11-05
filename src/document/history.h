@@ -73,7 +73,10 @@ Record *get_latest_history_entry(const Document *document);
 gboolean undo_document_command(Document *document);
 gboolean redo_document_command(Document *document);
 double get_history_memory_size(const Document *document, const Record *entry);
-void mark_document_saved(Document *document, gboolean reset_time, double time_ms);
+/* The history step a document is at, counting steps that were trimmed away, so a step taken later stays apart */
+gint64 get_document_step(const Document *document);
+/* Marks the document saved as it was at the step that was written */
+void mark_document_saved(Document *document, gint64 step, gboolean reset_time, double time_ms);
 void mark_document_unsaved(Document *document);
 gboolean is_document_modified(const Document *document, double time_ms);
 void clear_document_history(Document *document, double time_ms);

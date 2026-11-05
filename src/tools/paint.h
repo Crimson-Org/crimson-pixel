@@ -18,6 +18,7 @@
 #define TOOL_MAGIC_WAND "9"
 #define TOOL_MOVE "0"
 #define TOOL_CROP "10"
+#define TOOL_HAND "59"
 
 /* Native painting symmetry: a vertical axis mirrors left and right, a horizontal one top and bottom */
 enum { SYMMETRY_VERTICAL = 1, SYMMETRY_HORIZONTAL = 2 };

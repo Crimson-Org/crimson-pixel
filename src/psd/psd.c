@@ -350,7 +350,7 @@ static void apply_image_resources(PsdReader *reader) {
 		}
 		remove_record(resources, "r1076");
 	}
-	/* Paths, slices, timelines, metadata and variables stay as raw resources until their closures are ported */
+	/* Paths, slices, timelines, metadata and variables stay as raw resources, written back as they were read */
 }
 
 /* ============================== Post processing ================================= */

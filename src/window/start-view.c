@@ -1,6 +1,6 @@
 #include "editor.h"
 #include "lang/en.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 static GtkWidget *create_start_button(const char *icon, const char *title, const char *action) {
 	GtkWidget *button = gtk_button_new(), *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_SNUG);

@@ -1,6 +1,6 @@
 #include "command-dialog.h"
 #include "lang/en.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 void refresh_command_page(Editor *editor, gboolean render) {
 	GtkWidget *page = get_current_page(editor);

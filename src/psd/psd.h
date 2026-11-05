@@ -105,6 +105,11 @@ typedef struct {
 	GError **error;
 	Document *document;
 	GCancellable *cancellable;
+	/* Layer records hold blocks of their own, which may never start reading layer records again, since that would
+	 * free layers the outer read still holds */
+	gboolean is_reading_layers;
+	/* How deep the descriptor being read is nested, which a damaged file could make deep enough to end the program */
+	guint descriptor_depth;
 } PsdReader;
 
 void fail_psd(PsdReader *reader, const char *message);

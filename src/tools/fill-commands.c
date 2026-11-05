@@ -5,7 +5,7 @@
 #include "selection/pixel-selection.h"
 #include "selection/selection-modify.h"
 
-#define TOOL_STROKE_TARGET "31"
+#define TOOL_STROKE_TARGET PAINT_TOOL_ERASER
 
 guint32 get_fill_content_color(FillContent content, guint32 foreground, guint32 background, guint32 custom) {
 	switch (content) {

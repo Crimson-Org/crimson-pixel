@@ -6,7 +6,7 @@
 #include "color/color-spaces.h"
 #include "canvas/snapshot-area.h"
 #include "lang/en.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 static const int NAVIGATOR_HEIGHT = 120;
 #define NAVIGATOR_FRAME_WIDTH 2

@@ -17,7 +17,7 @@ GMenuModel *create_adjustment_menu(void) {
 	GMenu *menu = g_menu_new(), *section = NULL;
 	gboolean starts_group;
 	const char *key;
-	for (guint index = 0; (key = get_ported_adjustment(index, &starts_group)); index++) {
+	for (guint index = 0; (key = get_supported_adjustment(index, &starts_group)); index++) {
 		if (!section || starts_group) {
 			section = g_menu_new();
 			g_menu_append_section(menu, NULL, G_MENU_MODEL(section));

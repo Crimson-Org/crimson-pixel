@@ -1,7 +1,7 @@
 #include <string.h>
 
-#include "common/key-store.h"
-#include "common/window-geometry.h"
+#include "common/storage/key-store.h"
+#include "common/window/window-geometry.h"
 #include "editor.h"
 #include "window-size.h"
 #include "lang/en.h"
@@ -9,7 +9,7 @@
 #include "document/layer-commands.h"
 #include "document/layer-structure.h"
 #include "selection/pixel-selection.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 #define WINDOW_STATE_FILE "window.ini"
 
@@ -676,6 +676,20 @@ static void click_tab_bar(GtkGestureClick *gesture, int presses, double x, doubl
 		show_open_dialog(editor);
 }
 
+/* The menus share the window's top row with the window buttons, and the row moves the window like a title bar */
+static GtkWidget *create_title_row(GMenuModel *menu) {
+	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+	gtk_widget_add_css_class(row, "title-row");
+	GtkWidget *menus = gtk_popover_menu_bar_new_from_model(menu);
+	gtk_widget_set_hexpand(menus, TRUE);
+	gtk_box_append(GTK_BOX(row), menus);
+	gtk_box_append(GTK_BOX(row), gtk_window_controls_new(GTK_PACK_END));
+	GtkWidget *handle = gtk_window_handle_new();
+	gtk_window_handle_set_child(GTK_WINDOW_HANDLE(handle), row);
+	return handle;
+}
+
+
 static void preferences_action(GSimpleAction *action, GVariant *parameter, gpointer data) {
 	show_preferences(data);
 }
@@ -784,7 +798,7 @@ void build_editor_window(Editor *editor) {
 	set_menu_shortcuts(editor);
 	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 	g_autoptr(GMenuModel) menu = create_menu_model(editor);
-	gtk_box_append(GTK_BOX(box), gtk_popover_menu_bar_new_from_model(menu));
+	gtk_box_append(GTK_BOX(box), create_title_row(menu));
 	editor->notebook = gtk_notebook_new();
 	GtkGesture *empty_click = gtk_gesture_click_new();
 	g_signal_connect(empty_click, "released", G_CALLBACK(click_tab_bar), editor);

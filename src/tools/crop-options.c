@@ -1,7 +1,7 @@
 #include "window/editor.h"
 #include "window/value-field.h"
 #include "lang/en.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 typedef struct {
 	Editor *editor;

@@ -13,19 +13,13 @@ export PREFIX="${HOME}/.local"
 export STD="c11"
 export WARN="-Wall -Wextra -Wpedantic -Werror -Wno-unused-parameter"
 export OPT="-O2 -g"
-export PKGS="gtk4 libadwaita-1 libpanel-1 zlib"
+export GTK_MINOR="16"
+export ADWAITA_MINOR="7"
+export PKGS="gtk4 >= 4.${GTK_MINOR} libadwaita-1 >= 1.${ADWAITA_MINOR} libpanel-1 zlib"
 export LIBS="-lm"
 export DEFINES="-DAPPLICATION_VERSION=\"${VERSION}\""
+export VERSION_CHECKS="-DGDK_VERSION_MIN_REQUIRED=GDK_VERSION_4_${GTK_MINOR} -DGDK_VERSION_MAX_ALLOWED=GDK_VERSION_4_${GTK_MINOR} -DADW_VERSION_MIN_REQUIRED=ADW_VERSION_1_${ADWAITA_MINOR} -DADW_VERSION_MAX_ALLOWED=ADW_VERSION_1_${ADWAITA_MINOR}"
 export INCLUDES="-Isrc -Isubprojects/crimson-core/src"
-printf '==> %s\n' 'install -Dm755 build/${PROGRAM} ${PREFIX}/bin/${PROGRAM}'
-install -Dm755 build/${PROGRAM} ${PREFIX}/bin/${PROGRAM}
-printf '==> %s\n' 'mkdir -p ${PREFIX}/share/applications && for desktop in assets/${APPLICATION_ID}*.desktop.in; do sed "s|@EXEC@|${PREFIX}/bin/${PROGRAM}|" "$desktop" > "${PREFIX}/share/applications/$(basename "$desktop" .in)"; done'
-mkdir -p ${PREFIX}/share/applications && for desktop in assets/${APPLICATION_ID}*.desktop.in; do sed "s|@EXEC@|${PREFIX}/bin/${PROGRAM}|" "$desktop" > "${PREFIX}/share/applications/$(basename "$desktop" .in)"; done
-printf '==> %s\n' 'install -Dm644 assets/icons/scalable/apps/${APPLICATION_ID}.svg ${PREFIX}/share/icons/hicolor/scalable/apps/${APPLICATION_ID}.svg'
-install -Dm644 assets/icons/scalable/apps/${APPLICATION_ID}.svg ${PREFIX}/share/icons/hicolor/scalable/apps/${APPLICATION_ID}.svg
-printf '==> %s\n' 'install -Dm644 assets/${APPLICATION_ID}.metainfo.xml ${PREFIX}/share/metainfo/${APPLICATION_ID}.metainfo.xml'
-install -Dm644 assets/${APPLICATION_ID}.metainfo.xml ${PREFIX}/share/metainfo/${APPLICATION_ID}.metainfo.xml
-printf '==> %s\n' 'update-desktop-database ${PREFIX}/share/applications >/dev/null 2>&1 || true'
-update-desktop-database ${PREFIX}/share/applications >/dev/null 2>&1 || true
-printf '==> %s\n' 'gtk-update-icon-cache --quiet --ignore-theme-index ${PREFIX}/share/icons/hicolor >/dev/null 2>&1 || true'
-gtk-update-icon-cache --quiet --ignore-theme-index ${PREFIX}/share/icons/hicolor >/dev/null 2>&1 || true
+export HEADERS="src/*/*.h subprojects/crimson-core/src/*/*.h subprojects/crimson-core/src/*/*/*.h"
+printf '==> %s\n' 'sh subprojects/crimson-core/scripts/install.sh'
+sh subprojects/crimson-core/scripts/install.sh

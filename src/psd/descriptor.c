@@ -6,6 +6,8 @@
 
 /* Keys longer than this are refused as damage */
 #define LONGEST_KEY 1000
+/* Descriptors nest lists and objects far less deep than this, so deeper ones are refused as damage */
+#define DEEPEST_DESCRIPTOR 64
 /* A key is a length and that many characters, or a zero length and a four character key */
 #define SHORT_KEY_SIZE (sizeof(guint32) + PSD_KEY_LENGTH)
 
@@ -30,7 +32,7 @@ Record *create_typed_value(const char *type, Record *value) {
 
 static char *read_descriptor_key(PsdReader *reader, gsize offset) {
 	gint32 length = read_i32(reader, offset);
-	if (length > LONGEST_KEY) {
+	if (length < 0 || length > LONGEST_KEY) {
 		fail_psd(reader, TEXT_PSD_DAMAGED);
 		return g_strdup("");
 	}
@@ -49,9 +51,10 @@ static char *read_descriptor_key(PsdReader *reader, gsize offset) {
 	return g_strstrip(text);
 }
 
+/* A damaged length counts as a short key, since reading it already failed, so the offset always moves forward */
 static gsize get_key_size(PsdReader *reader, gsize offset) {
 	gint32 length = read_i32(reader, offset);
-	return length == 0 ? SHORT_KEY_SIZE : sizeof(guint32) + length;
+	return length <= 0 ? SHORT_KEY_SIZE : sizeof(guint32) + (gsize)length;
 }
 
 /* A counted text is its count of units, the units and a closing zero */
@@ -80,7 +83,10 @@ static Record *read_descriptor_value(PsdReader *reader, gsize offset, gsize *siz
 	offset += PSD_KEY_LENGTH;
 	Record *item = create_object(RECORD_PLAIN), *value = NULL;
 	set_string(item, "t", type);
-	if (!strcmp(type, "obj ") || !strcmp(type, "VlLs")) {
+	if (++reader->descriptor_depth > DEEPEST_DESCRIPTOR) {
+		fail_psd(reader, TEXT_PSD_DAMAGED);
+		value = create_null();
+	} else if (!strcmp(type, "obj ") || !strcmp(type, "VlLs")) {
 		value = create_array();
 		guint32 count = read_psd_u32(reader, offset);
 		offset += sizeof(guint32);
@@ -168,17 +174,18 @@ static Record *read_descriptor_value(PsdReader *reader, gsize offset, gsize *siz
 			offset += sizeof(guint32);
 		}
 	} else if (!strcmp(type, "alis")) {
+		/* The length is checked against the file before anything is made, since a damaged one could be huge */
 		guint32 length = read_psd_u32(reader, offset);
 		offset += sizeof(guint32);
-		g_autofree char *text = g_malloc0(length + 1);
-		for (guint32 index = 0; index < length && !reader->failed; index++)
-			text[index] = read_psd_byte(reader, offset + index);
+		gboolean is_whole = has_psd_bytes(reader, offset, length);
+		g_autofree char *text = is_whole ? g_strndup((const char *)reader->data + offset, length) : g_strdup("");
 		value = create_string(text);
-		offset += length;
+		offset += is_whole ? length : 0;
 	} else {
 		fail_psd(reader, TEXT_PSD_DAMAGED);
 		value = create_null();
 	}
+	reader->descriptor_depth--;
 	set_record(item, "v", value);
 	*size = offset - start;
 	return item;

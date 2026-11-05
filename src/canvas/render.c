@@ -62,7 +62,7 @@ static void convert_display_region(const Record *buffer, guint32 *pixels, int st
 	run_rows_in_parallel(extent.y, extent.height, extent.width, convert_display_rows, &work);
 }
 
-/* Imported files keep their saved composite, which is shown when live composition is not ported */
+/* Imported files keep their saved composite, which is shown while their features cannot be drawn live */
 static gboolean has_saved_composite(const Document *document, int width, int height) {
 	Record *buffer = get_record(document->record, "buffer");
 	return document->unsupported_features && buffer && buffer->type == RECORD_BUFFER &&

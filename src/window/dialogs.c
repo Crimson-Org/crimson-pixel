@@ -1,6 +1,6 @@
 #include "editor.h"
 #include "lang/en.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 /* Creation inputs are an explicit source command request without profile or artboard fields */
 typedef struct {
@@ -30,7 +30,7 @@ void show_open_dialog(Editor *editor) {
 	g_autoptr(GListStore) filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
 	g_autoptr(GtkFileFilter) supported = gtk_file_filter_new();
 	gtk_file_filter_set_name(supported, TEXT_SUPPORTED_FILTER);
-	/* Photoshop files and swatch libraries use the translated source readers rather than a raster decoder */
+	/* Photoshop files and swatch libraries use their own readers rather than a raster decoder */
 	const char *source_patterns[] = {"*.psd", "*.PSD", "*.psb", "*.PSB", "*.aco", "*.ACO", "*.ase", "*.ASE"};
 	for (guint index = 0; index < G_N_ELEMENTS(source_patterns); index++)
 		gtk_file_filter_add_pattern(supported, source_patterns[index]);

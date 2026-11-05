@@ -10,8 +10,8 @@
 /* Decoder headers are bounded before allocating full resolution pixels */
 static void check_dimensions(GdkPixbufLoader *loader, int width, int height, gpointer data) {
 	gboolean *is_oversized = data;
-	*is_oversized =
-		width <= 0 || height <= 0 || width > 32768 || height > 32768 || (guint64)width * height > DOCUMENT_MAX_PIXELS;
+	*is_oversized = width <= 0 || height <= 0 || width > DOCUMENT_LARGEST_SIDE || height > DOCUMENT_LARGEST_SIDE
+		|| (guint64)width * height > DOCUMENT_MAX_PIXELS;
 	if (*is_oversized)
 		gdk_pixbuf_loader_set_size(loader, 1, 1);
 }
@@ -83,7 +83,7 @@ static gboolean accepts_loader_format(GdkPixbufLoader *loader, GError **error) {
 	return FALSE;
 }
 
-/* Photoshop files are decoded by the translated source reader instead of a raster decoder */
+/* Photoshop files are read by the document reader, which keeps their layers, instead of a raster decoder */
 static Document *load_photoshop_document(GFile *file, const char *name, GCancellable *cancellable, GError **error) {
 	char *contents;
 	gsize length;

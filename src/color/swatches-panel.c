@@ -2,8 +2,8 @@
 #include "canvas/snapshot-area.h"
 #include "swatches.h"
 #include "lang/en.h"
-#include "common/key-store.h"
-#include "common/spacing.h"
+#include "common/storage/key-store.h"
+#include "common/widgets/spacing.h"
 
 static const int SWATCH_SIZE = 22, SWATCH_GAP = 2;
 

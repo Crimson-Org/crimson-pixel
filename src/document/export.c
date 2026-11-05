@@ -12,6 +12,9 @@ typedef struct {
 	GFile *file;
 	/* The saved tab, or nothing for an export */
 	GtkWidget *page;
+	/* The history step that was written, which counts as saved only once the file is safely on disk */
+	gint64 step;
+	double time_ms;
 } WriteRequest;
 
 static void free_write_request(WriteRequest *request) {
@@ -67,6 +70,24 @@ static void write_file(GTask *task, gpointer source, gpointer data, GCancellable
 		g_task_return_error(task, error);
 }
 
+/* The document may have changed while writing, so only the written step counts as saved, and the tab takes the new
+ * file and name only once it is safely written */
+static void adopt_saved_file(WriteRequest *request) {
+	PresentedDocument *presented = get_page_document(request->page);
+	if (!presented)
+		return;
+	Document *document = presented->document;
+	gboolean is_photoshop = !strcmp(request->format, "psd");
+	mark_document_saved(document, request->step, is_photoshop, request->time_ms);
+	if (presented->file && g_file_equal(presented->file, request->file))
+		return;
+	g_set_object(&presented->file, request->file);
+	presented->format = find_file_format(request->file, TRUE);
+	g_autofree char *name = g_file_get_basename(request->file);
+	set_string(document->record, "name", name);
+}
+
+
 static void finish_write(GObject *source, GAsyncResult *result, gpointer data) {
 	Editor *editor = g_object_get_data(source, "editor");
 	WriteRequest *request = g_task_get_task_data(G_TASK(result));
@@ -80,7 +101,7 @@ static void finish_write(GObject *source, GAsyncResult *result, gpointer data) {
 	gtk_label_set_text(GTK_LABEL(editor->status), message);
 	if (!request->page)
 		return;
-	/* The document may have changed while writing, so only the written state counts as saved */
+	adopt_saved_file(request);
 	remember_recent_file(request->file);
 	if (gtk_widget_get_parent(request->page))
 		refresh_document_page(editor, request->page, FALSE);
@@ -110,7 +131,7 @@ void export_editor_document(Editor *editor, GFile *file) {
 		return;
 	}
 	WriteRequest *request = g_new0(WriteRequest, 1);
-	*request = (WriteRequest){NULL, pixbuf, g_strdup(format), g_object_ref(file), NULL};
+	*request = (WriteRequest){NULL, pixbuf, g_strdup(format), g_object_ref(file), NULL, 0, 0};
 	start_write(editor, request, TEXT_EXPORTING);
 }
 
@@ -164,17 +185,10 @@ static void save_to_file(Editor *editor, GtkWidget *page, GFile *file, const cha
 		gtk_label_set_text(GTK_LABEL(editor->status), error->message);
 		return;
 	}
-	mark_document_saved(document, photoshop, g_get_real_time() / G_TIME_SPAN_MILLISECOND);
-	if (presented->file != file) {
-		g_clear_object(&presented->file);
-		presented->file = g_object_ref(file);
-		presented->format = format;
-		g_autofree char *name = g_file_get_basename(file);
-		set_string(document->record, "name", name);
-	}
 	WriteRequest *request = g_new0(WriteRequest, 1);
 	*request = (WriteRequest){bytes ? g_byte_array_free_to_bytes(bytes) : NULL, pixbuf, g_strdup(format),
-							  g_object_ref(file), g_object_ref(page)};
+		g_object_ref(file), g_object_ref(page), get_document_step(document),
+		(double)(g_get_real_time() / G_TIME_SPAN_MILLISECOND)};
 	start_write(editor, request, TEXT_SAVING);
 }
 

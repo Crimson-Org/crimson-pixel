@@ -1,10 +1,10 @@
 #include <adwaita.h>
 
-#include "common/loading.h"
+#include "common/widgets/loading.h"
 #include "editor.h"
 #include "document/history.h"
 #include "lang/en.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 void free_presented_document(PresentedDocument *presented) {
 	if (!presented)
@@ -118,7 +118,7 @@ void edit_document_history(Editor *editor, gboolean redo) {
 	refresh_document_page(editor, page, empty_extent(region) && !selection_only);
 }
 
-/* Native addition: closed documents stay in memory with their history, like closed browser tabs */
+/* Closed documents stay in memory with their history for a while, so a closed tab can come back */
 enum { CLOSED_DOCUMENTS_KEPT = 10 };
 
 static void remove_editor_page(Editor *editor, GtkWidget *page) {
@@ -137,7 +137,7 @@ static void remove_editor_page(Editor *editor, GtkWidget *page) {
 	/* A closed document is no longer open work, so a crash must not bring it back, and an open transform is
 	 * dropped the way cancelling it keeps the document */
 	forget_recovery_file(presented);
-	g_clear_pointer(&presented->transform, g_free);
+	g_clear_pointer(&presented->transform, free_transform_session);
 	presented->closed_position = index;
 	g_ptr_array_add(editor->closed_documents, presented);
 	if (editor->closed_documents->len > CLOSED_DOCUMENTS_KEPT)
@@ -273,7 +273,7 @@ static GtkWidget *create_document_tab(GtkWidget *page, const char *name) {
 }
 
 void install_document(Editor *editor, PresentedDocument *presented) {
-	/* Native improvement: History states in Preferences, 200 by default, instead of the browser's 20 */
+	/* How many history states a document keeps, which Preferences sets */
 	presented->document->history_limit = editor->settings.history_states;
 	GtkWidget *page = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 	g_object_set_data(G_OBJECT(page), "editor", editor);

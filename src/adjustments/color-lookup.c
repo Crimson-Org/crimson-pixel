@@ -117,12 +117,43 @@ static void free_tag(IccTag *tag) {
 
 static IccTag *read_tag(IccReader *reader, gsize offset, gsize size);
 
+/* Tables are only made once their values are known to lie inside the profile, so a damaged size never asks for more
+ * memory than the profile could hold */
+static gboolean has_icc_bytes(IccReader *reader, gsize offset, gsize count) {
+	if (offset <= reader->length && count <= reader->length - offset)
+		return TRUE;
+	reader->failed = TRUE;
+	return FALSE;
+}
+
+
+/* A colour lookup maps the three colour channels to three, and anything else is not a table this adjustment uses */
+static gboolean is_colour_table(IccReader *reader, int inputs, int outputs) {
+	if (inputs == LUT_CHANNELS && outputs == LUT_CHANNELS)
+		return TRUE;
+	reader->failed = TRUE;
+	return FALSE;
+}
+
+
+/* Only curve tags count as curves, so two tags pointing at each other can never read without end */
+static gboolean is_curve_at(IccReader *reader, gsize offset) {
+	char type[ICC_SIGNATURE_BYTES + 1];
+	read_signature(reader, offset, type);
+	if (!strcmp(type, "curv") || !strcmp(type, "para"))
+		return TRUE;
+	reader->failed = TRUE;
+	return FALSE;
+}
+
 static void read_ab_tag(IccReader *reader, IccTag *tag, gsize offset) {
 	gsize start = offset - ICC_TAG_HEAD;
 	tag->inputs = read_byte(reader, start + MAB_INPUT_CHANNELS);
 	tag->outputs = read_byte(reader, start + MAB_OUTPUT_CHANNELS);
 	gint32 matrix = read_i32(reader, start + MAB_MATRIX_OFFSET), curves = read_i32(reader, start + MAB_M_CURVES_OFFSET);
 	gint32 table = read_i32(reader, start + MAB_CLUT_OFFSET);
+	if (!is_colour_table(reader, tag->inputs, tag->outputs))
+		return;
 	if (matrix) {
 		tag->has_matrix = TRUE;
 		for (int index = 0; index < ICC_MATRIX_VALUES; index++)
@@ -131,7 +162,7 @@ static void read_ab_tag(IccReader *reader, IccTag *tag, gsize offset) {
 	if (curves) {
 		tag->curves = g_new0(IccTag *, tag->outputs);
 		gsize position = start + curves;
-		for (int index = 0; index < tag->outputs && !reader->failed; index++) {
+		for (int index = 0; index < tag->outputs && is_curve_at(reader, position); index++) {
 			IccTag *curve = read_tag(reader, position, 0);
 			tag->curves[tag->curve_count++] = curve;
 			position += curve->size;
@@ -146,6 +177,11 @@ static void read_ab_tag(IccReader *reader, IccTag *tag, gsize offset) {
 		count *= read_byte(reader, position + index);
 	int precision = read_byte(reader, position + CLUT_PRECISION);
 	position += CLUT_HEADER_SIZE;
+	gboolean is_known_precision = precision == sizeof(guint8) || precision == sizeof(guint16);
+	if (!count || !is_known_precision || !has_icc_bytes(reader, position, count * precision)) {
+		reader->failed = TRUE;
+		return;
+	}
 	tag->has_table = TRUE;
 	tag->table = g_new0(double, MAX(count, 1));
 	tag->table_count = count;
@@ -179,8 +215,14 @@ static void read_mft_tag(IccReader *reader, IccTag *tag, gsize offset, gboolean 
 		tag->output_entries = read_u16(reader, offset + sizeof(guint16));
 		offset += 2 * sizeof(guint16);
 	}
+	if (!is_colour_table(reader, tag->inputs, tag->outputs))
+		return;
+	gsize value_bytes = wide ? sizeof(guint16) : sizeof(guint8);
+	gsize count = (gsize)tag->grid * tag->grid * tag->grid * tag->outputs;
+	gsize values = (gsize)tag->inputs * tag->input_entries + count + (gsize)tag->outputs * tag->output_entries;
+	if (!has_icc_bytes(reader, offset, values * value_bytes))
+		return;
 	tag->input_tables = read_mft_tables(reader, &offset, tag->inputs, tag->input_entries, wide);
-	gsize count = (gsize)round(pow(tag->grid, tag->inputs)) * tag->outputs;
 	tag->has_table = TRUE;
 	tag->table = g_new(double, MAX(count, 1));
 	tag->table_count = count;
@@ -216,9 +258,13 @@ static void read_process_tag(IccReader *reader, IccTag *tag, gsize offset) {
 		position += 2 * sizeof(guint16);
 		if (strcmp(element->type, "clut"))
 			continue;
+		if (!is_colour_table(reader, element->inputs, element->outputs))
+			return;
 		element->grid = read_byte(reader, position);
 		position += CLUT_PRECISION;
 		gsize values = (gsize)element->grid * element->grid * element->grid * element->outputs;
+		if (!has_icc_bytes(reader, position, values * sizeof(float)))
+			return;
 		element->has_table = TRUE;
 		element->table = g_new(double, MAX(values, 1));
 		element->table_count = values;

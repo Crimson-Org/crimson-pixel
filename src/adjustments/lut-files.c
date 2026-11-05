@@ -13,6 +13,9 @@ static const guint8 LINK_PROFILE_HEADER[] = {
 static const char LINK_PROFILE_NAME[] = "ICC by CrimsonPix";
 
 /* A link profile holds two tags, its description and its lookup */
+/* A table needs two points per side, and its size is written in one byte */
+#define SMALLEST_LUT_SIZE 2
+#define LARGEST_LUT_SIZE G_MAXUINT8
 #define LINK_TAG_COUNT 2
 /* The description is an mluc tag with one English record, its name stored as UTF-16 after the record */
 #define MLUC_RECORD_COUNT 8
@@ -132,7 +135,7 @@ static double *read_cube_file(char **lines, int *size) {
 			g_array_append_val(values, value);
 		}
 	}
-	if (*size < 2 || *size > 256) {
+	if (*size < SMALLEST_LUT_SIZE || *size > LARGEST_LUT_SIZE) {
 		g_array_free(values, TRUE);
 		return NULL;
 	}
@@ -158,7 +161,7 @@ static double *read_mesh_file(char **lines, int *size) {
 		}
 	}
 	gsize total = (gsize)*size * *size * *size * 3;
-	if (*size < 2 || *size > 256) {
+	if (*size < SMALLEST_LUT_SIZE || *size > LARGEST_LUT_SIZE) {
 		g_array_free(values, TRUE);
 		return NULL;
 	}
@@ -197,7 +200,7 @@ static double *read_look_file(const char *text, int *size) {
 	if (*size_text == '"')
 		memmove(size_text, size_text + 1, strlen(size_text));
 	*size = parse_integer(size_text);
-	if (*size < 2 || *size > 256)
+	if (*size < SMALLEST_LUT_SIZE || *size > LARGEST_LUT_SIZE)
 		return NULL;
 	GString *hex = g_string_new(NULL);
 	for (const char *character = data_text; *character; character++)

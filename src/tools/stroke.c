@@ -300,7 +300,7 @@ static gboolean capsule_row_span(double radius, double row_y, double dx, double 
 	return *low <= *high;
 }
 
-/* Native improvement: a fully hard round brush sweeps a capsule from the last point in one pass, giving exact
+/* A fully hard round brush sweeps a capsule from the last point in one pass, giving exact
  * anti-aliased edges without stamping overlapping dabs. At full flow a pixel keeps its strongest coverage, so the
  * joints between pointer events stay smooth and pixels the last capsule already covered stay unchanged and unmarked.
  * Below full flow rim pixels blend over the stroke like a dab does. */
@@ -391,7 +391,7 @@ static gboolean sweeps_capsules(const Stroke *stroke) {
 }
 
 static gboolean uses_pixel_lines(const Stroke *stroke) {
-	/* Native improvement: any tip of one pixel or less paints whole pixels at size 1 */
+	/* Any tip of one pixel or less paints whole pixels at size 1 */
 	return (stroke->hard && stroke->shape.diameter == 1) || (stroke->smooth_edges && stroke->shape.diameter <= 1);
 }
 
@@ -512,7 +512,7 @@ static RasterExtent space_dabs(Stroke *stroke, double x, double y, double pressu
 		extent = take_touched_pixels(stroke);
 		walked = distance;
 	} else if (uses_pixel_lines(stroke) && paints_whole_pixels(stroke)) {
-		/* Native improvement: the pixel under the pointer is painted as soon as the pointer enters it */
+		/* The pixel under the pointer is painted as soon as the pointer enters it */
 		draw_pixel_line(stroke->coverage, stroke->extent.width, stroke->extent.height, stroke->last_x, stroke->last_y,
 						x, y, OPAQUE_WORD | stroke->color);
 		extent = union_region((RasterExtent){floor(stroke->last_x), floor(stroke->last_y), 1, 1},
@@ -538,7 +538,7 @@ static RasterExtent space_dabs(Stroke *stroke, double x, double y, double pressu
 			double diameter = stroke->shape.diameter;
 			double step = from_percent(MAX(SMALLEST_ROUNDNESS, stroke->shape.roundness)) *
 						  from_percent(stroke->shape.spacing) * (diameter + stroke->last_diameter) / 2 * stroke->tip_ratio;
-			/* Native improvement: hard edges keep dab scallops under a quarter pixel, since a step s on radius r
+			/* Hard edges keep dab scallops under a quarter pixel, since a step s on radius r
 		 * leaves bumps about s * s / (8 * r) deep */
 			if (stroke->smooth_edges && stroke->shape.hardness >= SMOOTH_HARDNESS)
 				step = MIN(step, sqrt(diameter));
@@ -662,7 +662,7 @@ void draw_stroke_line_to(Stroke *stroke, double x, double y, double pressure) {
 	g_array_append_val(stroke->points, x);
 	g_array_append_val(stroke->points, y);
 	g_array_append_val(stroke->pressures, pressure);
-	/* Native improvement: whole pixel tips draw straight to the pointer without the curve's one segment of lag */
+	/* Whole pixel tips draw straight to the pointer without the curve's one segment of lag */
 	if (paints_whole_pixels(stroke)) {
 		record_stroke_extent(stroke, space_dabs(stroke, x, y, pressure));
 		return;

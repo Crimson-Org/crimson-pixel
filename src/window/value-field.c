@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 #include "value-field.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 /* A labelled number with typing, label scrubbing and a slider popover fields */
 typedef struct {

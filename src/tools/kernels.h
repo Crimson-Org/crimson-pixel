@@ -15,7 +15,7 @@ typedef enum { AXIS_FREE, AXIS_VERTICAL, AXIS_HORIZONTAL } LockedAxis;
 /* Called for each pixel of a one pixel line in drawing order */
 typedef void (*PixelVisitor)(int x, int y, gpointer data);
 
-/* Translated kernels operate on source channels without supplying tool state */
+/* The kernels work on a document's channels alone, without any tool's state */
 void walk_pixel_line(double x, double y, double end_x, double end_y, PixelVisitor visit, gpointer data);
 void draw_pixel_line(Record *channels, int width, int height, double x, double y, double end_x, double end_y,
 					 guint32 color);

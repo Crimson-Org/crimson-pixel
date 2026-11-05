@@ -43,10 +43,10 @@ enum { MIXER_RED, MIXER_GREEN, MIXER_BLUE, MIXER_UNUSED, MIXER_CONSTANT };
 
 const char *find_adjustment_key(const Record *descriptors);
 gboolean is_adjustment_layer(const Record *layer);
-gboolean is_ported_adjustment(const char *key);
+gboolean is_supported_adjustment(const char *key);
 const char *get_adjustment_name(const char *key);
-/* The ported adjustments in menu order, or NULL past the last */
-const char *get_ported_adjustment(guint index, gboolean *starts_group);
+/* The supported adjustments in menu order, or NULL past the last */
+const char *get_supported_adjustment(guint index, gboolean *starts_group);
 
 Record *create_adjustment_descriptor(const char *key);
 double get_descriptor_number(const Record *descriptor, const char *key, double fallback);

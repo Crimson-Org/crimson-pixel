@@ -129,7 +129,7 @@ static void append_guide_line(GtkSnapshot *snapshot, double x, double y, double 
 	gtk_snapshot_append_stroke(snapshot, path, stroke, &(GdkRGBA){0, 0, 0, 1});
 }
 
-/* Native addition: while Shift is held, a line shows where a click joins the last stroke with a straight line */
+/* While Shift is held, a line shows where a click joins the last stroke with a straight line */
 static void draw_shift_line(GtkSnapshot *snapshot, DocumentView *view) {
 	PaintTool *tool = &view->editor->paint_tool;
 	if (!view->editor->shift_held || view->painting || !tool->has_last || tool->document != view->presented->document)
@@ -222,7 +222,7 @@ static void draw_pixel_grid(GtkSnapshot *snapshot, DocumentView *view, double x,
 			&GRAPHENE_RECT_INIT(bounds->origin.x, floor(y + row * view->zoom), bounds->size.width, 1));
 }
 
-/* Native addition for seamless textures and tiles: the eight neighbouring copies show how the edges meet, like the
+/* For seamless textures and tiles, the eight neighbouring copies show how the edges meet, like the
  * tiled mode of pixel art editors, and painting on any copy wraps across the edges */
 static void draw_tile_preview(GtkSnapshot *snapshot, DocumentView *view, const graphene_rect_t *image, int width,
 							  int height) {
@@ -319,7 +319,7 @@ static void resize_view(GtkWidget *widget, int width, int height, gpointer data)
 
 static void refresh_canvas_cursor(DocumentView *view) {
 	Editor *editor = view->editor;
-	gboolean hand = view->panning || (editor && (editor->space_held || !g_strcmp0(editor->tool, "59")));
+	gboolean hand = view->panning || (editor && (editor->space_held || !g_strcmp0(editor->tool, TOOL_HAND)));
 	g_autoptr(GdkCursor) transforming = hand ? NULL : get_transform_cursor(view, view->pointer_x, view->pointer_y);
 	if (transforming) {
 		gtk_widget_set_cursor(view->canvas, transforming);

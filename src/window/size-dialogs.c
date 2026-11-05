@@ -1,7 +1,7 @@
 #include "command-dialog.h"
 #include "tools/crop.h"
 #include "lang/en.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 /* Images resize to at most this many pixels a side, as Photoshop files allow */
 #define LARGEST_SIDE 30000

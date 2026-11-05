@@ -1,7 +1,7 @@
 #include <libpanel.h>
 
 #include "application.h"
-#include "common/log.h"
+#include "common/app/log.h"
 #include "window/editor.h"
 #include "lang/en.h"
 
@@ -28,7 +28,7 @@ static Editor *get_editor(GtkApplication *application) {
 	editor->closed_documents = g_ptr_array_new_with_free_func((GDestroyNotify)free_presented_document);
 	build_editor_window(editor);
 	note_startup_moment("Window created");
-	note_first_frame(editor->window);
+	watch_window_frames(editor->window);
 	g_object_set_data_full(G_OBJECT(editor->window), "editor", editor, free_editor);
 	start_document_recovery(editor);
 	return editor;
@@ -75,7 +75,7 @@ static void finish_open(GObject *source, GAsyncResult *result, gpointer data) {
 	if (editor->closing)
 		g_clear_pointer(&presented, free_presented_document);
 	if (recovered)
-		adopt_recovered_document(editor, g_task_get_task_data(G_TASK(result)), presented);
+		adopt_recovered_document(editor, g_task_get_task_data(G_TASK(result)), presented, editor->closing);
 	if (editor->closing)
 		return;
 	if (error && !g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) {
@@ -178,9 +178,16 @@ static void open_files(GApplication *application, GFile **files, int count, cons
 	gtk_window_present(GTK_WINDOW(editor->window));
 }
 
-/* libpanel supplies the docking panels and initializes libadwaita with them */
+static void stop_recovery(GApplication *application, gpointer data) {
+	stop_document_recovery();
+}
+
+
+/* libpanel supplies the docking panels and initializes libadwaita with them, and a clean exit leaves no session for
+ * the next start to recover */
 static void start_up(GApplication *application) {
 	panel_init();
+	g_signal_connect(application, "shutdown", G_CALLBACK(stop_recovery), NULL);
 }
 
 static int handle_options(GApplication *application, GVariantDict *options) {

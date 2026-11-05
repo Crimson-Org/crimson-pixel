@@ -9,8 +9,8 @@
 
 #define DOCUMENT_MAX_PIXELS (64ULL * 1024 * 1024)
 #define DOCUMENT_MAX_BYTES (512ULL * 1024 * 1024)
-/* Documents are at most this many pixels a side, and start at this resolution */
-#define DOCUMENT_LARGEST_SIDE 32768
+/* The longest side a document may have, which cairo can still draw */
+#define DOCUMENT_LARGEST_SIDE 32767
 #define DEFAULT_RESOLUTION 72
 
 /* Layer flags, the bits saved files keep in a layer record */

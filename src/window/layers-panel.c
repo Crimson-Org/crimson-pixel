@@ -9,7 +9,7 @@
 #include "canvas/snapshot-area.h"
 #include "value-field.h"
 #include "lang/en.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 /* A label colour bar leaves this much room above and below it */
 #define COLOR_BAR_INSET 2

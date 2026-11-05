@@ -1,6 +1,6 @@
 #include "window/editor.h"
 #include "lang/en.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 /* Opened and saved files go to the desktop recent files store, so the file manager sees them too, and the start
  * view and File Open Recent list this application's entries that still exist, newest first */

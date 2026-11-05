@@ -249,7 +249,7 @@ void write_channel_slow(Record *buffer, gsize index, double value) {
 			((float *)channels.data)[index] = value;
 		return;
 	}
-	/* Typed arrays truncate and wrap instead of clamping integer assignments */
+	/* Integer samples truncate and wrap instead of clamping, as Photoshop files store them */
 	double wrapped = isfinite(value) ? fmod(trunc(value), channel_maximum(channels.depth) + 1) : 0;
 	if (wrapped < 0)
 		wrapped += channel_maximum(channels.depth) + 1;
@@ -299,7 +299,7 @@ static Record *copy_value(const Record *record, gboolean json) {
 			}
 			return copy;
 		}
-		/* Typed array slices keep their exact length, including unpadded byte arrays */
+		/* Slices keep their exact length, including unpadded byte buffers */
 		if (record->value.buffer.depth == BYTE_DEPTH)
 			return create_bytes(record->value.buffer.data, record->value.buffer.length);
 		copy = create_channels(record->value.buffer.length, record->value.buffer.depth);

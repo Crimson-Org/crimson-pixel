@@ -325,7 +325,7 @@ static gsize write_tagged_blocks(PsdWriter *writer, Record *document_record, gsi
 			size = 2 * sizeof(double);
 		} else if (!strcmp(key, "Lr16") || !strcmp(key, "Lr32"))
 			size = write_layer_records(writer, document_record, offset, TRUE, FALSE) - offset;
-		else if (is_ported_adjustment(key))
+		else if (is_supported_adjustment(key))
 			size = put_adjustment(writer, offset, key, value);
 		else if (!strcmp(key, "CgEd"))
 			size = put_brightness_settings(writer, offset, value);
@@ -451,11 +451,14 @@ static gsize write_layer_record(PsdWriter *writer, Record *document_record, Reco
 	gsize extra_start = offset;
 	offset = write_layer_mask(writer, layer, offset);
 	Record *ranges = get_record(layer, "hu");
-	put_u32(writer, offset, count_records(ranges));
+	/* The length says what follows, which is always the full set of blending range values */
+	put_u32(writer, offset, BLENDING_RANGES_BYTES);
 	offset += sizeof(guint32);
 	ensure_size(writer, offset + BLENDING_RANGES_BYTES);
-	for (int index = 0; index < BLENDING_RANGES_BYTES; index++)
-		put_byte(writer, offset + index, (guint)get_item(ranges, index)->value.number);
+	for (int index = 0; index < BLENDING_RANGES_BYTES; index++) {
+		Record *value = get_item(ranges, index);
+		put_byte(writer, offset + index, value && value->type == RECORD_NUMBER ? (guint)value->value.number : 0);
+	}
 	offset += BLENDING_RANGES_BYTES;
 	const char *name = get_string(layer, "name");
 	gsize name_size = put_pascal(writer, offset, name ? name : "");

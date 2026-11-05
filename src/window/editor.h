@@ -158,7 +158,8 @@ void open_editor_file(Editor *editor, GFile *file);
 void open_recovered_file(Editor *editor, GFile *file);
 void start_document_recovery(Editor *editor);
 void stop_document_recovery(void);
-void adopt_recovered_document(Editor *editor, GFile *file, PresentedDocument *presented);
+/* Takes in a reopened crash copy, or with no document says it was not opened, keeping it when the window closes */
+void adopt_recovered_document(Editor *editor, GFile *file, PresentedDocument *presented, gboolean is_closing);
 void forget_recovery_file(PresentedDocument *presented);
 void install_document(Editor *editor, PresentedDocument *presented);
 void reopen_closed_document(Editor *editor);

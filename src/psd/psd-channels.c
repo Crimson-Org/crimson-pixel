@@ -116,7 +116,7 @@ static void undo_prediction(guint8 *bytes, gsize length, gsize width, gsize heig
 	}
 }
 
-/* Typed array reinterpretation keeps the host little endian byte view */
+/* Deeper samples are read as this computer's numbers, from bytes already in its order */
 static Record *reinterpret_channels(Record *bytes, unsigned depth) {
 	if (depth == BYTE_DEPTH)
 		return bytes;
@@ -141,9 +141,12 @@ static void swap_sample_bytes(guint8 *bytes, gsize length, unsigned depth) {
 
 Record *decode_psd_channel(PsdReader *reader, unsigned depth, gsize width, gsize height, gsize offset, int compression,
 						   gint64 length) {
-	gsize sample_bytes = width * height * (depth / CHAR_BIT);
+	gsize row_bytes = 0, sample_bytes = 0;
+	/* A damaged size could wrap around when multiplied, which the checked products refuse */
+	gboolean fits = g_size_checked_mul(&row_bytes, width, depth / CHAR_BIT)
+		&& g_size_checked_mul(&sample_bytes, row_bytes, height);
 	gsize padded = sample_bytes + (sample_bytes % sizeof(guint32) ? sizeof(guint32) - sample_bytes % sizeof(guint32) : 0);
-	if (sample_bytes > PSD_MAX_DECODED_BYTES) {
+	if (!fits || sample_bytes > PSD_MAX_DECODED_BYTES) {
 		fail_psd(reader, TEXT_PIXEL_LIMIT);
 		return NULL;
 	}
@@ -160,8 +163,11 @@ Record *decode_psd_channel(PsdReader *reader, unsigned depth, gsize width, gsize
 	} else if (compression == PSD_RLE) {
 		bytes = create_channels(sample_bytes, BYTE_DEPTH);
 		gsize count_size = reader->large ? sizeof(guint32) : sizeof(guint16);
-		if (bytes)
-			unpack_bits_rows(reader, bytes, width, height, offset, offset + count_size * height, count_size);
+		/* Each row packs its samples' bytes, two or four for every pixel of a deeper channel */
+		if (bytes) {
+			unpack_bits_rows(reader, bytes, row_bytes, height, offset, offset + count_size * height, count_size);
+			swap_sample_bytes(bytes->value.buffer.data, sample_bytes, depth);
+		}
 	} else if (compression == PSD_ZIP || compression == PSD_ZIP_PREDICTED) {
 		g_autoptr(GByteArray) inflated =
 			length >= ZIP_HEADER_BYTES + ZIP_TRAILER_BYTES
@@ -176,6 +182,9 @@ Record *decode_psd_channel(PsdReader *reader, unsigned depth, gsize width, gsize
 		bytes = create_channels(padded, BYTE_DEPTH);
 		if (bytes)
 			memcpy(bytes->value.buffer.data, inflated->data, MIN(inflated->len, bytes->value.buffer.length));
+		/* Prediction already puts the samples in this computer's order, while plain data is still big endian */
+		if (bytes && compression == PSD_ZIP)
+			swap_sample_bytes(bytes->value.buffer.data, sample_bytes, depth);
 	} else
 		bytes = create_channels(padded, BYTE_DEPTH);
 	if (!bytes) {
@@ -210,7 +219,15 @@ gsize read_psd_merged_image(PsdReader *reader, gsize offset, unsigned file_depth
 	gboolean transparency =
 		!alpha_names || alpha_names->type != RECORD_ARRAY ||
 		(first_name && first_name->type == RECORD_STRING && !strcmp(first_name->value.string, "Transparency"));
-	int color_channels = mode_channels[mode] + (transparency ? 1 : 0);
+	if (mode < 0 || mode >= (int)G_N_ELEMENTS(mode_channels)) {
+		fail_psd(reader, TEXT_PSD_DAMAGED);
+		return offset;
+	}
+	int base_channels = mode_channels[mode], color_channels = base_channels + (transparency ? 1 : 0);
+	/* Only colour and transparency are read, so a header naming thousands of channels reads no more than those */
+	int read_channels = MIN(channels, color_channels);
+	if (channels > color_channels)
+		note_unsupported_psd_feature(reader, TEXT_PSD_ALPHA_CHANNELS);
 	int compression = read_psd_u16(reader, offset);
 	offset += sizeof(guint16);
 	Record *buffer = create_channels(area * RGBA_CHANNELS, depth);
@@ -224,7 +241,7 @@ gsize read_psd_merged_image(PsdReader *reader, gsize offset, unsigned file_depth
 		write_channel(buffer, index * RGBA_CHANNELS + ALPHA_CHANNEL, depth == FLOAT_DEPTH ? 1 : maximum);
 	gsize counts = offset, count_size = reader->large ? sizeof(guint32) : sizeof(guint16);
 	gsize sample_bytes = file_depth / CHAR_BIT;
-	for (int channel = 0; channel < channels && !reader->failed; channel++) {
+	for (int channel = 0; channel < read_channels && !reader->failed; channel++) {
 		Record *samples = NULL;
 		if (compression == PSD_RAW) {
 			samples = decode_psd_channel(reader, file_depth, width, height, offset, 0, 1);
@@ -245,14 +262,11 @@ gsize read_psd_merged_image(PsdReader *reader, gsize offset, unsigned file_depth
 		}
 		if (!samples)
 			break;
-		if (channel < color_channels) {
-			interleave_psd_channel(samples, buffer, channel);
-			if (channels == 1 && channel == 0) {
-				interleave_psd_channel(samples, buffer, 1);
-				interleave_psd_channel(samples, buffer, 2);
-			}
-		} else
-			note_unsupported_psd_feature(reader, TEXT_PSD_ALPHA_CHANNELS);
+		interleave_psd_channel(samples, buffer, channel);
+		if (channels == 1 && channel == 0) {
+			interleave_psd_channel(samples, buffer, 1);
+			interleave_psd_channel(samples, buffer, 2);
+		}
 		free_record(samples);
 	}
 	set_number(record, "P9", RGBA_CHANNELS);

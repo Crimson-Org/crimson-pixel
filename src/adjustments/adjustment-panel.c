@@ -9,7 +9,7 @@
 #include "document/layer-commands.h"
 #include "canvas/snapshot-area.h"
 #include "lang/en.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
 /* Input black, gamma, input white, output black and output white of the shown Levels channel */
 enum { LEVEL_INPUT_BLACK, LEVEL_GAMMA, LEVEL_INPUT_WHITE, LEVEL_OUTPUT_BLACK, LEVEL_OUTPUT_WHITE };
@@ -786,7 +786,7 @@ void show_adjustment_panel(Editor *editor, int layer_index) {
 	Document *document = presented ? presented->document : NULL;
 	Record *layer = document ? get_item(get_record(document->record, "Z"), layer_index) : NULL;
 	const char *key = layer ? find_adjustment_key(get_record(layer, "add")) : NULL;
-	if (!is_ported_adjustment(key) || document->preview)
+	if (!is_supported_adjustment(key) || document->preview)
 		return;
 	/* The clip switch works on the selected layer, so the adjusted layer becomes the selection */
 	Record *selected = get_record(document->record, "j");

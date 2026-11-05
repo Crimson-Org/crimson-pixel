@@ -4,9 +4,8 @@
 #include "canvas/snapshot-area.h"
 #include "window/value-field.h"
 #include "lang/en.h"
-#include "common/spacing.h"
+#include "common/widgets/spacing.h"
 
-#define TOOL_HAND "59"
 
 /* Each tool button has room for a group of up to three tools, and an icon this size, with a corner marker when the
  * group has more than one tool */
@@ -55,18 +54,18 @@ typedef struct {
 static const ToolGroup TOOL_GROUPS[] = {
 	{GDK_KEY_v, {{TOOL_MOVE, "move", TEXT_TOOL_MOVE}}},
 	{GDK_KEY_m,
-	 {{TOOL_RECTANGLE_SELECT, "rselect", TEXT_TOOL_RECTANGLE_SELECT},
-	  {TOOL_ELLIPSE_SELECT, "eselect", TEXT_TOOL_ELLIPSE_SELECT}}},
+	 {{TOOL_RECTANGLE_SELECT, "rectangle-select", TEXT_TOOL_RECTANGLE_SELECT},
+	  {TOOL_ELLIPSE_SELECT, "ellipse-select", TEXT_TOOL_ELLIPSE_SELECT}}},
 	{GDK_KEY_l,
-	 {{TOOL_LASSO, "lasso", TEXT_TOOL_LASSO}, {TOOL_POLYGONAL_LASSO, "plasso", TEXT_TOOL_POLYGONAL_LASSO}}},
-	{GDK_KEY_w, {{TOOL_MAGIC_WAND, "mwand", TEXT_TOOL_MAGIC_WAND}}},
-	{GDK_KEY_c, {{TOOL_CROP, "rcrop", TEXT_TOOL_CROP}}},
+	 {{TOOL_LASSO, "lasso", TEXT_TOOL_LASSO}, {TOOL_POLYGONAL_LASSO, "polygonal-lasso", TEXT_TOOL_POLYGONAL_LASSO}}},
+	{GDK_KEY_w, {{TOOL_MAGIC_WAND, "magic-wand", TEXT_TOOL_MAGIC_WAND}}},
+	{GDK_KEY_c, {{TOOL_CROP, "crop", TEXT_TOOL_CROP}}},
 	{GDK_KEY_i, {{TOOL_EYEDROPPER, "eyedropper", TEXT_TOOL_EYEDROPPER}}},
 	{GDK_KEY_b, {{PAINT_TOOL_BRUSH, "brush", TEXT_TOOL_BRUSH}, {PAINT_TOOL_PENCIL, "pencil", TEXT_TOOL_PENCIL}}},
 	{GDK_KEY_e,
-	 {{PAINT_TOOL_ERASER, "eraser", TEXT_TOOL_ERASER}, {PAINT_TOOL_MAGIC_ERASER, "meraser", TEXT_TOOL_MAGIC_ERASER}}},
+	 {{PAINT_TOOL_ERASER, "eraser", TEXT_TOOL_ERASER}, {PAINT_TOOL_MAGIC_ERASER, "magic-eraser", TEXT_TOOL_MAGIC_ERASER}}},
 	{GDK_KEY_g,
-	 {{PAINT_TOOL_GRADIENT, "gradient", TEXT_TOOL_GRADIENT}, {PAINT_TOOL_BUCKET, "pbucket", TEXT_TOOL_PAINT_BUCKET}}},
+	 {{PAINT_TOOL_GRADIENT, "gradient", TEXT_TOOL_GRADIENT}, {PAINT_TOOL_BUCKET, "paint-bucket", TEXT_TOOL_PAINT_BUCKET}}},
 	{GDK_KEY_h, {{TOOL_HAND, "hand", TEXT_TOOL_HAND}}}};
 
 static int count_group_tools(const ToolGroup *group) {
@@ -130,7 +129,7 @@ PaintOptions *get_tool_options(Editor *editor) {
 
 /* ============================== Tool icons ======================================= */
 
-/* Original tool artwork is an alpha mask drawn in the theme's foreground color */
+/* Tool artwork is an alpha mask drawn in the theme's foreground color */
 static GtkWidget *create_tool_icon(const char *name) {
 	g_autofree char *icon_name = g_strdup_printf("crimson-tool-%s-symbolic", name);
 	GtkWidget *image = gtk_image_new_from_icon_name(icon_name);
