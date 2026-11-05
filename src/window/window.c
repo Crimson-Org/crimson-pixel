@@ -10,6 +10,7 @@
 #include "document/layer-structure.h"
 #include "selection/pixel-selection.h"
 #include "common/widgets/spacing.h"
+#include "common/window/file-drop.h"
 
 #define WINDOW_STATE_FILE "window.ini"
 
@@ -571,12 +572,9 @@ static GtkWidget *create_status_bar(Editor *editor) {
 }
 
 /* Dropped files open as new documents like files passed on the command line */
-static gboolean drop_files(GtkDropTarget *target, const GValue *value, double x, double y, Editor *editor) {
-	if (!G_VALUE_HOLDS(value, GDK_TYPE_FILE_LIST))
-		return FALSE;
-	for (GSList *item = g_value_get_boxed(value); item; item = item->next)
-		open_editor_file(editor, item->data);
-	return TRUE;
+static void drop_files(GFile **files, guint count, gpointer data) {
+	for (guint index = 0; index < count; index++)
+		open_editor_file(data, files[index]);
 }
 
 void queue_canvas_redraw(Editor *editor) {
@@ -837,9 +835,7 @@ void build_editor_window(Editor *editor) {
 	g_signal_connect(keys, "key-pressed", G_CALLBACK(press_window_key), editor);
 	g_signal_connect(keys, "key-released", G_CALLBACK(release_window_key), editor);
 	gtk_widget_add_controller(editor->window, keys);
-	GtkDropTarget *drop = gtk_drop_target_new(GDK_TYPE_FILE_LIST, GDK_ACTION_COPY);
-	g_signal_connect(drop, "drop", G_CALLBACK(drop_files), editor);
-	gtk_widget_add_controller(editor->window, GTK_EVENT_CONTROLLER(drop));
+	add_file_drop(editor->window, drop_files, editor);
 	initialize_editor_tools(editor);
 	focus_start_view(editor->window, editor);
 	g_signal_connect_after(editor->window, "map", G_CALLBACK(focus_start_view), editor);

@@ -1,5 +1,5 @@
-// crimson-build writes each task as a .sh script for Linux and macOS and a .cmd script for
-// Windows in this folder, and those scripts run anywhere without Crimson Build.
+// crimson-build writes each task as a .sh script for Linux and macOS in this folder, and those
+// scripts run anywhere without Crimson Build.
 {
 	"systems": ["unix"],
 	"env": {

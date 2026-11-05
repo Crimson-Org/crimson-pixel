@@ -96,11 +96,7 @@ void save_settings(const Settings *settings, const char *path) {
 		else
 			g_key_file_set_integer(file, entry->group, entry->key, value);
 	}
-	g_autofree char *directory = g_path_get_dirname(path);
-	make_private_folder(directory);
-	g_autoptr(GError) error = NULL;
-	if (!g_key_file_save_to_file(file, path, &error))
-		g_message("Settings not saved: %s", error->message);
+	save_key_file(file, path);
 }
 
 /* The checkerboard cell size in screen pixels */

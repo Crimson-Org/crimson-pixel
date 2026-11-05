@@ -43,11 +43,7 @@ static GKeyFile *load_workspaces(void) {
 
 static void store_workspaces(GKeyFile *file) {
 	g_autofree char *path = get_workspace_path();
-	g_autofree char *directory = g_path_get_dirname(path);
-	make_private_folder(directory);
-	g_autoptr(GError) error = NULL;
-	if (!g_key_file_save_to_file(file, path, &error))
-		g_message("Workspaces not saved: %s", error->message);
+	save_key_file(file, path);
 }
 
 static char *get_group_name(const char *workspace) {
