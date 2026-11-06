@@ -5,7 +5,6 @@
 
 /* The two ways to start, in the order the cards show them, with Open taking the keyboard */
 #define OPEN_CHOICE 1
-#define SETUP_KEY "start-setup"
 static const StartChoice START_CHOICES[] = {
 	{"document-new-symbolic", TEXT_START_NEW, "win.new"},
 	{"folder-open-symbolic", TEXT_START_OPEN, "win.open"},
@@ -33,18 +32,13 @@ static void forget_recent_item(const char *uri, gpointer data) {
 
 
 GtkWidget *create_start_area(Editor *editor) {
-	StartViewSetup *setup = g_new0(StartViewSetup, 1);
-	*setup = (StartViewSetup){START_CHOICES, G_N_ELEMENTS(START_CHOICES), TEXT_START_HINT, TEXT_START_RECENT,
+	const StartViewSetup setup = {START_CHOICES, G_N_ELEMENTS(START_CHOICES), TEXT_START_HINT, TEXT_START_RECENT,
 		TEXT_RECENT_REMOVE, open_recent_item, forget_recent_item, editor};
-	GtkWidget *view = create_start_view(setup);
-	/* The view keeps the setup this window made for it */
-	g_object_set_data_full(G_OBJECT(view), SETUP_KEY, setup, g_free);
+	GtkWidget *view = create_start_view(&setup);
 	editor->start_view = view;
 	/* A double click on the empty background opens files, like the empty tab bar */
 	GtkWidget *area = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 	gtk_widget_add_css_class(area, "start-area");
-	gtk_widget_set_hexpand(view, TRUE);
-	gtk_widget_set_vexpand(view, TRUE);
 	gtk_box_append(GTK_BOX(area), view);
 	GtkGesture *click = gtk_gesture_click_new();
 	g_signal_connect(click, "pressed", G_CALLBACK(press_start_background), editor);
