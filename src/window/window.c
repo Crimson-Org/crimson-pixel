@@ -13,6 +13,7 @@
 #include "document/layer-structure.h"
 #include "selection/pixel-selection.h"
 #include "common/widgets/spacing.h"
+#include "common/widgets/start-view.h"
 #include "common/window/file-drop.h"
 
 #define WINDOW_STATE_FILE "window.ini"
@@ -559,8 +560,8 @@ static void remove_document(GtkNotebook *notebook, GtkWidget *page, guint index,
 
 void refresh_loading_state(Editor *editor) {
 	/* Recent files ignore further clicks while a file loads, so one click never opens it twice */
-	if (editor->recent_list)
-		gtk_widget_set_sensitive(editor->recent_list, editor->requests->len == 0);
+	if (editor->start_view)
+		gtk_widget_set_sensitive(get_start_view_recent(editor->start_view), editor->requests->len == 0);
 }
 
 static GtkWidget *create_status_bar(Editor *editor) {
@@ -846,7 +847,7 @@ void build_editor_window(Editor *editor) {
 	gtk_size_group_add_widget(tool_band, tool_column);
 	editor->documents = gtk_stack_new();
 	gtk_stack_set_transition_type(GTK_STACK(editor->documents), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
-	gtk_stack_add_named(GTK_STACK(editor->documents), create_start_view(editor), "start");
+	gtk_stack_add_named(GTK_STACK(editor->documents), create_start_area(editor), "start");
 	gtk_stack_add_named(GTK_STACK(editor->documents), editor->notebook, "documents");
 	gtk_widget_set_vexpand(editor->documents, TRUE);
 	/* The documents fill a card with rounded corners, which clip the canvas */

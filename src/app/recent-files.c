@@ -2,15 +2,14 @@
 
 #include "window/editor.h"
 #include "lang/en.h"
-#include "common/widgets/spacing.h"
+#include "common/text/paths.h"
+#include "common/widgets/start-view.h"
 
 /* Opened and saved files go to the desktop recent files store, so the file manager sees them too, and the start
  * view and File Open Recent list this application's entries that still exist, newest first */
 
 enum { RECENT_FILE_LIMIT = 10 };
-/* The start view's list matches the width of the two start buttons above the list, and long folders shorten */
-#define RECENT_LIST_WIDTH 480
-#define FOLDER_CHARACTERS 40
+#define FALLBACK_ICON "image-x-generic"
 
 void remember_recent_file(GFile *file) {
 	g_autofree char *uri = g_file_get_uri(file);
@@ -56,102 +55,29 @@ void open_recent_uri(Editor *editor, const char *uri) {
 
 /* ============================== Start view list ============================== */
 
-static void open_recent_button(GtkButton *button, Editor *editor) {
-	open_recent_uri(editor, g_object_get_data(G_OBJECT(button), "uri"));
-}
-
-static void forget_recent_button(GtkButton *button, gpointer data) {
-	forget_recent_file(g_object_get_data(G_OBJECT(button), "uri"));
-}
-
-/* The remove button shows while the pointer is over its row or the keyboard is on it */
-static void show_remove_button(GtkEventControllerMotion *motion, double x, double y, GtkWidget *remove) {
-	gtk_widget_set_opacity(remove, 1);
-}
-
-static void hide_remove_button(GtkEventControllerMotion *motion, GtkWidget *remove) {
-	if (!gtk_widget_has_focus(remove))
-		gtk_widget_set_opacity(remove, 0);
-}
-
-static void focus_remove_button(GtkEventControllerFocus *focus, GtkWidget *remove) {
-	gtk_widget_set_opacity(remove, 1);
-}
-
-static void leave_remove_button(GtkEventControllerFocus *focus, GtkWidget *remove) {
-	gtk_widget_set_opacity(remove, 0);
-}
-
-/* Folders in the home folder start with ~, so the part that tells files apart fits */
-static char *shorten_home_folder(const char *folder) {
-	const char *home = g_get_home_dir();
-	gsize length = strlen(home);
-	if (g_str_has_prefix(folder, home) && (folder[length] == G_DIR_SEPARATOR || !folder[length]))
-		return g_strconcat("~", folder + length, NULL);
-	return g_strdup(folder);
-}
-
-static GtkWidget *create_recent_row(Editor *editor, GtkRecentInfo *info) {
-	GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_HAIRLINE);
-	GtkWidget *button = gtk_button_new(), *content = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, SPACING_NORMAL);
-	gtk_widget_add_css_class(button, "flat");
-	gtk_widget_add_css_class(row, "recent-row");
-	gtk_widget_set_hexpand(button, TRUE);
-	g_autoptr(GIcon) icon = gtk_recent_info_get_gicon(info);
-	GtkWidget *image = icon ? gtk_image_new_from_gicon(icon) : gtk_image_new_from_icon_name("image-x-generic");
-	gtk_image_set_icon_size(GTK_IMAGE(image), GTK_ICON_SIZE_LARGE);
-	gtk_box_append(GTK_BOX(content), image);
-	GtkWidget *name = gtk_label_new(gtk_recent_info_get_display_name(info));
-	gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_MIDDLE);
-	gtk_label_set_xalign(GTK_LABEL(name), 0);
-	gtk_widget_set_hexpand(name, TRUE);
-	gtk_box_append(GTK_BOX(content), name);
-	g_autofree char *location = gtk_recent_info_get_uri_display(info);
-	g_autofree char *folder = location ? g_path_get_dirname(location) : NULL;
-	g_autofree char *shown = folder ? shorten_home_folder(folder) : NULL;
-	GtkWidget *place = gtk_label_new(shown);
-	/* Folders form one column that starts at the same place on every row */
-	gtk_label_set_ellipsize(GTK_LABEL(place), PANGO_ELLIPSIZE_START);
-	gtk_label_set_width_chars(GTK_LABEL(place), FOLDER_CHARACTERS);
-	gtk_label_set_max_width_chars(GTK_LABEL(place), FOLDER_CHARACTERS);
-	gtk_label_set_xalign(GTK_LABEL(place), 0);
-	gtk_widget_add_css_class(place, "dim-label");
-	gtk_box_append(GTK_BOX(content), place);
-	gtk_button_set_child(GTK_BUTTON(button), content);
-	gtk_widget_set_tooltip_text(button, location);
-	const char *uri = gtk_recent_info_get_uri(info);
-	g_object_set_data_full(G_OBJECT(button), "uri", g_strdup(uri), g_free);
-	g_signal_connect(button, "clicked", G_CALLBACK(open_recent_button), editor);
-	gtk_box_append(GTK_BOX(row), button);
-	GtkWidget *remove = gtk_button_new_from_icon_name("window-close-symbolic");
-	gtk_widget_add_css_class(remove, "flat");
-	gtk_widget_add_css_class(remove, "circular");
-	gtk_widget_set_valign(remove, GTK_ALIGN_CENTER);
-	gtk_widget_set_tooltip_text(remove, TEXT_RECENT_REMOVE);
-	gtk_accessible_update_property(GTK_ACCESSIBLE(remove), GTK_ACCESSIBLE_PROPERTY_LABEL, TEXT_RECENT_REMOVE, -1);
-	gtk_widget_set_opacity(remove, 0);
-	g_object_set_data_full(G_OBJECT(remove), "uri", g_strdup(uri), g_free);
-	g_signal_connect(remove, "clicked", G_CALLBACK(forget_recent_button), NULL);
-	gtk_box_append(GTK_BOX(row), remove);
-	GtkEventController *motion = gtk_event_controller_motion_new();
-	g_signal_connect(motion, "enter", G_CALLBACK(show_remove_button), remove);
-	g_signal_connect(motion, "leave", G_CALLBACK(hide_remove_button), remove);
-	gtk_widget_add_controller(row, motion);
-	GtkEventController *focus = gtk_event_controller_focus_new();
-	g_signal_connect(focus, "enter", G_CALLBACK(focus_remove_button), remove);
-	g_signal_connect(focus, "leave", G_CALLBACK(leave_remove_button), remove);
-	gtk_widget_add_controller(remove, focus);
-	return row;
-}
-
-static void fill_recent_list(GtkWidget *box, GPtrArray *recent) {
-	Editor *editor = g_object_get_data(G_OBJECT(box), "editor");
-	GtkWidget *list = g_object_get_data(G_OBJECT(box), "list"), *child;
-	while ((child = gtk_widget_get_first_child(list)))
-		gtk_box_remove(GTK_BOX(list), child);
-	for (guint index = 0; index < recent->len && index < RECENT_FILE_LIMIT; index++)
-		gtk_box_append(GTK_BOX(list), create_recent_row(editor, g_ptr_array_index(recent, index)));
-	gtk_widget_set_visible(box, recent->len > 0);
+/* The start view shows the newest entries with each file's icon and the folder it sits in */
+static void fill_recent_list(GtkWidget *view, GPtrArray *recent) {
+	guint count = MIN(recent->len, RECENT_FILE_LIMIT);
+	StartRecent items[RECENT_FILE_LIMIT] = {0};
+	GIcon *icons[RECENT_FILE_LIMIT];
+	char *locations[RECENT_FILE_LIMIT], *folders[RECENT_FILE_LIMIT];
+	for (guint index = 0; index < count; index++) {
+		GtkRecentInfo *info = g_ptr_array_index(recent, index);
+		icons[index] = gtk_recent_info_get_gicon(info);
+		if (!icons[index])
+			icons[index] = g_themed_icon_new(FALLBACK_ICON);
+		locations[index] = gtk_recent_info_get_uri_display(info);
+		g_autofree char *folder = locations[index] ? g_path_get_dirname(locations[index]) : NULL;
+		folders[index] = folder ? shorten_home_path(folder) : g_strdup("");
+		items[index] = (StartRecent){icons[index], gtk_recent_info_get_display_name(info), folders[index],
+			locations[index], gtk_recent_info_get_uri(info)};
+	}
+	set_start_view_recent(view, items, count);
+	for (guint index = 0; index < count; index++) {
+		g_object_unref(icons[index]);
+		g_free(locations[index]);
+		g_free(folders[index]);
+	}
 }
 
 /* ============================== File Open Recent ============================== */
@@ -178,8 +104,8 @@ static void refresh_recent_files(GtkRecentManager *manager, GtkWidget *window) {
 	if (!editor)
 		return;
 	g_autoptr(GPtrArray) recent = collect_recent_files(FALSE);
-	if (editor->recent_list)
-		fill_recent_list(editor->recent_list, recent);
+	if (editor->start_view)
+		fill_recent_list(editor->start_view, recent);
 	fill_recent_menu(editor->recent_menu, recent);
 	GAction *clear = g_action_map_lookup_action(G_ACTION_MAP(window), "clear-recent");
 	if (clear)
@@ -199,23 +125,4 @@ GMenuModel *create_recent_menu(Editor *editor) {
 	editor->recent_menu = g_menu_new();
 	g_idle_add_full(G_PRIORITY_LOW, load_recent_files, g_object_ref(editor->window), g_object_unref);
 	return G_MENU_MODEL(editor->recent_menu);
-}
-
-GtkWidget *create_recent_list(Editor *editor) {
-	GtkWidget *recent = gtk_box_new(GTK_ORIENTATION_VERTICAL, SPACING_SMALL);
-	GtkWidget *list = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-	gtk_widget_add_css_class(recent, "recent-files");
-	gtk_widget_add_css_class(list, "card");
-	gtk_widget_add_css_class(list, "recent-list");
-	GtkWidget *heading = gtk_label_new(TEXT_START_RECENT);
-	gtk_widget_add_css_class(heading, "heading");
-	gtk_label_set_xalign(GTK_LABEL(heading), 0);
-	gtk_box_append(GTK_BOX(recent), heading);
-	gtk_box_append(GTK_BOX(recent), list);
-	gtk_widget_set_size_request(recent, RECENT_LIST_WIDTH, -1);
-	gtk_widget_set_visible(recent, FALSE);
-	g_object_set_data(G_OBJECT(recent), "editor", editor);
-	g_object_set_data(G_OBJECT(recent), "list", list);
-	editor->recent_list = recent;
-	return recent;
 }

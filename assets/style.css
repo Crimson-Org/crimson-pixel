@@ -19,7 +19,6 @@
 	--nested-radius: calc(var(--card-radius) - var(--nested-inset));
 	--pasteboard-color: color-mix(in srgb, var(--sidebar-bg-color) 88%, black);
 	--control-radius: 6px;
-	--button-radius: 8px;
 	/* Heights shared by every field, small button and header row */
 	--field-height: 30px;
 	--small-button-size: 28px;
@@ -38,11 +37,8 @@
 	/* Fields in the bars and panels are soft grey shapes that darken a little under the pointer */
 	--field-bg-color: alpha(currentColor, 0.08);
 	--field-hover-bg-color: alpha(currentColor, 0.11);
-	/* Labels beside fields are a little quieter than values, and units and notes quieter still */
+	/* Labels beside fields are a little quieter than values, and units and notes take the shared quiet value */
 	--label-opacity: 0.72;
-	--quiet-opacity: 0.55;
-	--strong-weight: 600;
-	--small-font-size: 0.9em;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -546,60 +542,6 @@ panelframe panelframeswitcher button:only-child:hover {
 
 .start-area {
 	background-color: var(--pasteboard-color);
-}
-
-.start-view {
-	animation: rise-in 400ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-@keyframes rise-in {
-	from {
-		opacity: 0;
-		transform: translateY(12px);
-	}
-	to {
-		opacity: 1;
-		transform: none;
-	}
-}
-
-.start-button {
-	min-width: 232px;
-	padding: var(--spacing-large) var(--spacing-large) var(--spacing-wide);
-	font-weight: var(--strong-weight);
-}
-
-.start-button image {
-	color: var(--accent-color);
-}
-
-.start-shortcut {
-	font-weight: normal;
-	font-size: var(--small-font-size);
-	opacity: var(--quiet-opacity);
-}
-
-.recent-list {
-	padding: var(--spacing-tight);
-}
-
-.recent-row > button {
-	padding: var(--spacing-small) var(--spacing-compact);
-	border-radius: var(--button-radius);
-	font-weight: normal;
-}
-
-/* Recent files wait a moment before they dim while a file opens, so a quick open never flashes them */
-.recent-files button,
-.recent-files label,
-.recent-files image {
-	transition: filter 150ms ease-out, opacity 150ms ease-out;
-}
-
-.recent-files button:disabled,
-.recent-files label:disabled,
-.recent-files image:disabled {
-	transition: filter 200ms ease-out 500ms, opacity 200ms ease-out 500ms;
 }
 
 /* ============================== Dialogs ============================== */

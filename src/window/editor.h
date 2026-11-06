@@ -96,7 +96,7 @@ struct DocumentView {
 struct Editor {
 	/* File Open Recent and the start view list, refreshed when the recent files store changes */
 	GMenu *recent_menu;
-	GtkWidget *recent_list;
+	GtkWidget *start_view;
 	GtkApplication *application;
 	GtkWidget *window, *notebook, *status, *zoom_status;
 	GtkWidget *navigator, *layer_list, *opacity, *fill, *dock;
@@ -187,14 +187,13 @@ const char *find_file_format(GFile *file, gboolean saved_in_place);
 void save_editor_document(Editor *editor, gboolean choose_file);
 void export_editor_document(Editor *editor, GFile *file);
 void build_editor_window(Editor *editor);
-GtkWidget *create_start_view(Editor *editor);
+GtkWidget *create_start_area(Editor *editor);
 void focus_start_view(GtkWidget *window, Editor *editor);
 void remember_recent_file(GFile *file);
 void forget_recent_file(const char *uri);
 void clear_recent_files(void);
 void open_recent_uri(Editor *editor, const char *uri);
 GMenuModel *create_recent_menu(Editor *editor);
-GtkWidget *create_recent_list(Editor *editor);
 GtkWidget *create_tool_column(Editor *editor);
 GtkWidget *create_options_bar(Editor *editor);
 void initialize_editor_tools(Editor *editor);
