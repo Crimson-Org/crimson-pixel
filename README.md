@@ -3,8 +3,8 @@
 </p>
 
 <h1 align="center">Crimson Pixel</h1>
-<p align="center">A native Linux image editor for <a href="https://en.wikipedia.org/wiki/Pixel_art">pixel art</a>, illustration and photo editing.<br>
-Opens and saves layered <a href="https://www.adobe.com/devnet-apps/photoshop/fileformatashtml/">Photoshop files</a>.</p>
+<p align="center">A layered image editor for Linux, for pixel art, illustration and photos.<br>
+Opens and saves <a href="https://www.adobe.com/devnet-apps/photoshop/fileformatashtml/">Photoshop files</a> with their layers.</p>
 
 <p align="center">
   <a href="https://gtk.org">
@@ -28,7 +28,7 @@ Opens and saves layered <a href="https://www.adobe.com/devnet-apps/photoshop/fil
 
 ## Why
 
-Crimson Pixel brings pixel art, illustration and photo editing into one workspace.
+Pixel art, painting and photo work share one workspace, so one image can go through all three without leaving the app.
 
 ## About
 
