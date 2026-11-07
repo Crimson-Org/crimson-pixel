@@ -28,8 +28,7 @@ Opens and saves layered <a href="https://www.adobe.com/devnet-apps/photoshop/fil
 
 ## Why
 
-Pixel art, illustration and photo editing usually need separate apps.\
-Crimson Pixel combines them in one workspace.
+Crimson Pixel brings pixel art, illustration and photo editing into one workspace.
 
 ## About
 
